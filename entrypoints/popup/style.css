@@ -31,6 +31,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 }
 
 :root {
@@ -53,6 +55,8 @@
   --border: #000;
   --input: #fff;
   --ring: #000;
+  --popover: #fff;
+  --popover-foreground: #000;
   --font-head: "Archivo Black", sans-serif;
   --font-sans: "Space Grotesk", sans-serif;
 }
@@ -76,6 +80,8 @@
   --border: #000;
   --input: #262320;
   --ring: #ffdc58;
+  --popover: #262320;
+  --popover-foreground: #f5f0e6;
 }
 
 body {
