@@ -6,6 +6,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Pixel Agent',
+    permissions: ['storage'],
   },
   vite: () => ({
     plugins: [tailwindcss()],

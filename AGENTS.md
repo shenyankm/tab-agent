@@ -15,6 +15,8 @@ pnpm zip              # Build + package for store submission
 
 No test framework is configured.
 
+Always run `pnpm build` after modifying business code to verify the build passes.
+
 ## Architecture
 
 Chrome MV3 browser extension built with **WXT** (Vite-based framework) + **React 19** + **TypeScript**.
@@ -33,6 +35,11 @@ WXT auto-registers entrypoints by file convention:
 - **lucide-react** for icons — named imports are tree-shaken automatically
 - Theme tokens (colors, shadows, radius) defined in `entrypoints/popup/style.css` via CSS custom properties + `@theme inline`
 - `cn()` utility in `lib/utils.ts` (clsx + tailwind-merge)
+
+### Component & Icon Rules
+
+- Before implementing any UI component, check if RetroUI already provides it (`pnpm dlx shadcn@latest list @retroui`). If it exists, install and use it directly; if not, state why a custom implementation is needed.
+- All icons must come from `lucide-react`. Do not introduce other icon libraries or inline SVGs.
 
 ### Path Aliases
 
