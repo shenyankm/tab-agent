@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Settings, ChevronDown } from 'lucide-react';
+import { Settings, ChevronDown, MessageSquare, Shield, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Menubar, MenubarMenu, MenubarTrigger } from '@/components/ui/menubar';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -9,54 +10,112 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { useI18n, type Lang } from '@/lib/i18n';
+import { useI18n, langLabels, type Lang } from '@/lib/i18n';
+import { themeItem, autoUpdateItem, type Theme } from '@/lib/settings';
 
-type Theme = 'system' | 'dark' | 'light';
-
-const langLabels: Record<Lang, string> = {
-  en: 'English',
-  'zh-CN': '简体中文',
-  'zh-TW': '繁体中文',
-  ja: '日本語',
-};
-
-function applyTheme(theme: Theme) {
-  const isDark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.classList.toggle('dark', isDark);
-}
+type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
 
 function App() {
+  const [tab, setTab] = useState<Tab>('settings');
+  const { t } = useI18n();
+
+  return (
+    <div className="mx-auto max-w-lg p-8">
+      <Menubar className="mb-8">
+        <MenubarMenu>
+          <MenubarTrigger className={tab === 'settings' ? 'bg-accent' : ''} onClick={() => setTab('settings')}>{t('nav.settings')}</MenubarTrigger>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger className={tab === 'sessions' ? 'bg-accent' : ''} onClick={() => setTab('sessions')}>{t('nav.sessions')}</MenubarTrigger>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger className={tab === 'privacy' ? 'bg-accent' : ''} onClick={() => setTab('privacy')}>{t('nav.privacy')}</MenubarTrigger>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger className={tab === 'support' ? 'bg-accent' : ''} onClick={() => setTab('support')}>{t('nav.support')}</MenubarTrigger>
+        </MenubarMenu>
+      </Menubar>
+
+      {tab === 'settings' && <SettingsPage />}
+      {tab === 'sessions' && <PlaceholderPage icon={<MessageSquare className="size-6" />} title={t('nav.sessions')} />}
+      {tab === 'privacy' && <PrivacyPage />}
+      {tab === 'support' && <PlaceholderPage icon={<HelpCircle className="size-6" />} title={t('nav.support')} />}
+
+      <footer className="mt-16 text-center text-sm text-muted-foreground">
+        {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
+      </footer>
+    </div>
+  );
+}
+
+function PlaceholderPage({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return (
+    <>
+      <div className="mb-8 flex items-center gap-3">
+        {icon}
+        <h1 className="font-head text-2xl">{title}</h1>
+      </div>
+      <p className="text-sm text-muted-foreground">Coming soon.</p>
+    </>
+  );
+}
+
+function PrivacyPage() {
+  const { t } = useI18n();
+  // RetroUI typography: utility-class recipes, not an installable component
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-3">
+        <Shield className="size-6" />
+        <h1 className="font-head text-2xl">{t('nav.privacy')}</h1>
+      </div>
+      <p className="text-sm text-muted-foreground">{t('privacy.updated')}</p>
+      <p className="leading-7 [&:not(:first-child)]:mt-6">{t('privacy.intro')}</p>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.collect.title')}</h3>
+      <p className="leading-7 mt-2">{t('privacy.collect.body')}</p>
+      <ul className="my-4 ml-6 list-disc [&>li]:mt-2">
+        <li>{t('settings.language')}</li>
+        <li>{t('settings.theme')}</li>
+        <li>{t('settings.autoUpdate')}</li>
+      </ul>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.permission.title')}</h3>
+      <p className="leading-7 mt-2">{t('privacy.permission.body')}</p>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.share.title')}</h3>
+      <p className="leading-7 mt-2">{t('privacy.share.body')}</p>
+
+      <blockquote className="mt-6 border-l-2 border-border pl-6 italic">{t('privacy.promise')}</blockquote>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.contact.title')}</h3>
+      <p className="leading-7 mt-2">{t('privacy.contact.body')}</p>
+    </>
+  );
+}
+
+function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [autoUpdate, setAutoUpdate] = useState(true);
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
-    browser.storage.local.get(['theme', 'autoUpdate']).then((r) => {
-      const th = (r.theme as Theme) || 'system';
-      setTheme(th);
-      applyTheme(th);
-      if (r.autoUpdate !== undefined) setAutoUpdate(r.autoUpdate);
-    });
+    themeItem.getValue().then(setTheme);
+    autoUpdateItem.getValue().then(setAutoUpdate);
   }, []);
 
   const onThemeChange = (th: Theme) => {
     setTheme(th);
-    applyTheme(th);
-    browser.storage.local.set({ theme: th });
-  };
-
-  const onLangChange = (l: Lang) => {
-    setLang(l);
-    browser.storage.local.set({ lang: l });
+    themeItem.setValue(th); // initTheme() watcher applies it everywhere
   };
 
   const onAutoUpdateChange = (v: boolean) => {
     setAutoUpdate(v);
-    browser.storage.local.set({ autoUpdate: v });
+    autoUpdateItem.setValue(v);
   };
 
   return (
-    <div className="mx-auto max-w-lg p-8">
+    <>
       <div className="mb-8 flex items-center gap-3">
         <Settings className="size-6" />
         <h1 className="font-head text-2xl">{t('settings.title')}</h1>
@@ -73,11 +132,10 @@ function App() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuRadioGroup value={lang} onValueChange={(v) => onLangChange(v as Lang)}>
-                <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="zh-CN">简体中文</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="zh-TW">繁体中文</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="ja">日本語</DropdownMenuRadioItem>
+              <DropdownMenuRadioGroup value={lang} onValueChange={(v) => setLang(v as Lang)}>
+                {Object.entries(langLabels).map(([value, label]) => (
+                  <DropdownMenuRadioItem key={value} value={value}>{label}</DropdownMenuRadioItem>
+                ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -109,11 +167,7 @@ function App() {
         <span className="shrink-0 text-sm font-medium">{t('settings.autoUpdate')}</span>
         <Switch checked={autoUpdate} onCheckedChange={onAutoUpdateChange} />
       </div>
-
-      <footer className="mt-16 text-center text-sm text-muted-foreground">
-        {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
-      </footer>
-    </div>
+    </>
   );
 }
 
