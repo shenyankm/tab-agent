@@ -13,7 +13,6 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
-    "check:sse": "node scripts/sse-check.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "wxt prepare"

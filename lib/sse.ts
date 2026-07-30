@@ -1,4 +1,4 @@
-// Pure SSE frame splitter — no WXT globals so scripts/sse-check.ts can run it under plain Node.
+// Pure SSE frame splitter — covered by tests/sse.test.ts.
 
 /** Cut complete SSE frames out of `buffer`; returns each frame's joined data payload and the unconsumed tail. */
 export function parseSSE(buffer: string): { data: string[]; rest: string } {
