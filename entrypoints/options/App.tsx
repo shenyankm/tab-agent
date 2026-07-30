@@ -28,6 +28,7 @@ function App() {
     location.hash = t;
   };
   const { t } = useI18n();
+  const [linkPre, linkPost] = t('footer.builtWith').split('{link}');
 
   return (
     <div className="mx-auto max-w-lg p-8">
@@ -42,7 +43,7 @@ function App() {
         <TabsContent value="guide" className="w-full">
           <p className="text-sm leading-6">{t('guide.intro')}</p>
           <p className="mt-8 text-sm text-muted-foreground">
-            {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
+            {linkPre}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{linkPost}
           </p>
         </TabsContent>
         <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
@@ -82,12 +83,12 @@ function PrivacyPage() {
   );
 }
 
-// Qoder Cloud Agents connection fields: i18n key, storage item, placeholder, input type
+// Qoder Cloud Agents connection fields: i18n key, storage item, placeholder
 const connFields = [
-  ['pat', patItem, 'pt-...', 'password'],
-  ['agentId', agentIdItem, 'agent_...', 'password'],
-  ['envId', envIdItem, 'env_...', 'password'],
-  ['vaultId', vaultIdItem, 'vault_...', 'password'],
+  ['pat', patItem, 'pt-...'],
+  ['agentId', agentIdItem, 'agent_...'],
+  ['envId', envIdItem, 'env_...'],
+  ['vaultId', vaultIdItem, 'vault_...'],
 ] as const;
 
 function SettingsPage() {
@@ -152,18 +153,15 @@ function SettingsPage() {
       <hr className="my-6 border-border" />
 
       <div className="flex flex-col gap-4">
-        {connFields.map(([key, item, placeholder, type]) => (
+        {connFields.map(([key, item, placeholder]) => (
           <div key={key} className="flex items-center justify-between gap-4">
             <span className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</span>
             <Input
               value={conn[key] ?? ''}
               onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
               onBlur={() => item.setValue((conn[key] ?? '').trim())}
-              // credentials: block copy/cut to clipboard; select-all + delete still works
-              onCopy={(e) => e.preventDefault()}
-              onCut={(e) => e.preventDefault()}
               placeholder={placeholder}
-              type={type}
+              type="password"
               className="max-w-60"
             />
           </div>
