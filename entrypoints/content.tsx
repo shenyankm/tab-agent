@@ -61,7 +61,7 @@ type Attachment = { name: string; text: string };
 // ponytail: text files only per the Files API; 1 MB cap keeps the port message sane
 const MAX_FILE_BYTES = 1_000_000;
 
-function FloatingAgent() {
+export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
   const [theme, setTheme] = useState<Theme>('system');
