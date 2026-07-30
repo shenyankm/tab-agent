@@ -15,8 +15,18 @@ import { themeItem, autoUpdateItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
 
+const tabs: Tab[] = ['settings', 'sessions', 'privacy', 'support'];
+
 function App() {
-  const [tab, setTab] = useState<Tab>('settings');
+  // tab persisted in URL hash so refresh keeps the current page
+  const [tab, setTabState] = useState<Tab>(() => {
+    const h = location.hash.slice(1) as Tab;
+    return tabs.includes(h) ? h : 'settings';
+  });
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    location.hash = t;
+  };
   const { t } = useI18n();
 
   return (
@@ -70,26 +80,26 @@ function PrivacyPage() {
         <h1 className="font-head text-2xl">{t('nav.privacy')}</h1>
       </div>
       <p className="text-sm text-muted-foreground">{t('privacy.updated')}</p>
-      <p className="leading-7 [&:not(:first-child)]:mt-6">{t('privacy.intro')}</p>
+      <p className="text-sm leading-6 [&:not(:first-child)]:mt-6">{t('privacy.intro')}</p>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.collect.title')}</h3>
-      <p className="leading-7 mt-2">{t('privacy.collect.body')}</p>
-      <ul className="my-4 ml-6 list-disc [&>li]:mt-2">
+      <p className="text-sm leading-6 mt-2">{t('privacy.collect.body')}</p>
+      <ul className="text-sm my-4 ml-6 list-disc [&>li]:mt-2">
         <li>{t('settings.language')}</li>
         <li>{t('settings.theme')}</li>
         <li>{t('settings.autoUpdate')}</li>
       </ul>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.permission.title')}</h3>
-      <p className="leading-7 mt-2">{t('privacy.permission.body')}</p>
+      <p className="text-sm leading-6 mt-2">{t('privacy.permission.body')}</p>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.share.title')}</h3>
-      <p className="leading-7 mt-2">{t('privacy.share.body')}</p>
+      <p className="text-sm leading-6 mt-2">{t('privacy.share.body')}</p>
 
-      <blockquote className="mt-6 border-l-2 border-border pl-6 italic">{t('privacy.promise')}</blockquote>
+      <blockquote className="text-sm mt-6 border-l-2 border-border pl-6 italic">{t('privacy.promise')}</blockquote>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.contact.title')}</h3>
-      <p className="leading-7 mt-2">{t('privacy.contact.body')}</p>
+      <p className="text-sm leading-6 mt-2">{t('privacy.contact.body')}</p>
     </>
   );
 }
