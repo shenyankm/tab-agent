@@ -94,8 +94,8 @@ function PrivacyPage() {
 // Qoder Cloud Agents connection fields: i18n key, storage item, placeholder, input type
 const connFields = [
   ['pat', patItem, 'pt-...', 'password'],
-  ['agentId', agentIdItem, 'agent_...', 'text'],
-  ['envId', envIdItem, 'env_...', 'text'],
+  ['agentId', agentIdItem, 'agent_...', 'password'],
+  ['envId', envIdItem, 'env_...', 'password'],
 ] as const;
 
 function SettingsPage() {
@@ -188,6 +188,9 @@ function SettingsPage() {
               value={conn[key] ?? ''}
               onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
               onBlur={() => item.setValue((conn[key] ?? '').trim())}
+              // credentials: block copy/cut to clipboard; select-all + delete still works
+              onCopy={(e) => e.preventDefault()}
+              onCut={(e) => e.preventDefault()}
               placeholder={placeholder}
               type={type}
               className="max-w-60"
