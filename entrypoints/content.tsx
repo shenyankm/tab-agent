@@ -111,11 +111,16 @@ function FloatingAgent() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const message = query.trim();
-    if (!message || state === 'thinking') return;
+    if (!message) return; // re-submit while thinking = cancel + new turn (background cancels via 409)
 
     portRef.current?.disconnect();
     setQuery('');
-    setMessages((m) => [...m, { role: 'user', text: message }, { role: 'agent', text: '' }]);
+    // drop the aborted turn's empty agent bubble so it doesn't sit on "Thinking…" forever
+    setMessages((m) => [
+      ...(m.at(-1)?.role === 'agent' && !m.at(-1)!.text ? m.slice(0, -1) : m),
+      { role: 'user', text: message },
+      { role: 'agent', text: '' },
+    ]);
     setState('thinking');
 
     const port = browser.runtime.connect({ name: 'chat' });
@@ -127,9 +132,11 @@ function FloatingAgent() {
         setState('done');
         port.disconnect();
       } else if (msg.type === 'error') {
-        patchLast(msg.code === 'unconfigured'
-          ? t('widget.error.unconfigured')
-          : t('widget.error.generic', { message: msg.message ?? '' }), true);
+        patchLast(msg.code === 'auth'
+          ? t('widget.error.auth')
+          : msg.code === 'unconfigured'
+            ? t('widget.error.unconfigured')
+            : t('widget.error.generic', { message: msg.message ?? '' }), true);
         setState('done');
         port.disconnect();
       }
@@ -255,7 +262,7 @@ function FloatingAgent() {
               <Button
                 type="submit"
                 size="icon"
-                disabled={!query.trim() || state === 'thinking'}
+                disabled={!query.trim()}
                 aria-label={t('widget.send')}
               >
                 <Send />
