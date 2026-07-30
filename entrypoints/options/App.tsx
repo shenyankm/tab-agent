@@ -11,7 +11,7 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
-import { themeItem, autoUpdateItem, type Theme } from '@/lib/settings';
+import { themeItem, autoUpdateItem, petEnabledItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
 
@@ -31,7 +31,7 @@ function App() {
 
   return (
     <div className="mx-auto max-w-lg p-8">
-      <Menubar className="mb-8">
+      <Menubar className="mb-8 justify-center">
         <MenubarMenu>
           <MenubarTrigger className={tab === 'settings' ? 'bg-accent' : ''} onClick={() => setTab('settings')}>{t('nav.settings')}</MenubarTrigger>
         </MenubarMenu>
@@ -107,11 +107,13 @@ function PrivacyPage() {
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [autoUpdate, setAutoUpdate] = useState(true);
+  const [petEnabled, setPetEnabled] = useState(true);
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
     autoUpdateItem.getValue().then(setAutoUpdate);
+    petEnabledItem.getValue().then(setPetEnabled);
   }, []);
 
   const onThemeChange = (th: Theme) => {
@@ -122,6 +124,11 @@ function SettingsPage() {
   const onAutoUpdateChange = (v: boolean) => {
     setAutoUpdate(v);
     autoUpdateItem.setValue(v);
+  };
+
+  const onPetEnabledChange = (v: boolean) => {
+    setPetEnabled(v);
+    petEnabledItem.setValue(v);
   };
 
   return (
@@ -173,9 +180,16 @@ function SettingsPage() {
 
       <hr className="my-6 border-border" />
 
-      <div className="flex items-center justify-between">
-        <span className="shrink-0 text-sm font-medium">{t('settings.autoUpdate')}</span>
-        <Switch checked={autoUpdate} onCheckedChange={onAutoUpdateChange} />
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <span className="shrink-0 text-sm font-medium">{t('settings.pet')}</span>
+          <Switch checked={petEnabled} onCheckedChange={onPetEnabledChange} />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="shrink-0 text-sm font-medium">{t('settings.autoUpdate')}</span>
+          <Switch checked={autoUpdate} onCheckedChange={onAutoUpdateChange} />
+        </div>
       </div>
     </>
   );
