@@ -1,4 +1,5 @@
 import { patItem, agentIdItem, envIdItem, sessionIdItem } from '@/lib/settings';
+import { parseSSE } from '@/lib/sse';
 
 // matches host_permissions in wxt.config.ts
 const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
@@ -6,7 +7,7 @@ const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
 type ChatOut =
   | { type: 'delta'; text: string }
   | { type: 'done' }
-  | { type: 'error'; code?: 'unconfigured'; message?: string };
+  | { type: 'error'; code?: 'unconfigured' | 'auth'; message?: string };
 
 async function api(base: string, pat: string, path: string, init?: RequestInit) {
   const res = await fetch(base + path, {
@@ -17,13 +18,16 @@ async function api(base: string, pat: string, path: string, init?: RequestInit) 
       ...init?.headers,
     },
   });
+  // single choke point: every endpoint routes through here
+  if (res.status === 401 || res.status === 403)
+    throw Object.assign(new Error(`HTTP ${res.status}`), { code: 'auth' as const });
   return res;
 }
 
 async function createSession(base: string, pat: string, agentId: string, envId: string) {
   const res = await api(base, pat, '/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent: agentId, environment_id: envId, title: 'Pixel Agent' }),
+    body: JSON.stringify({ agent: { id: agentId, type: 'agent' }, environment_id: envId, title: 'Pixel Agent' }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
   const session = await res.json();
@@ -56,10 +60,10 @@ async function streamReply(
   send: (msg: ChatOut) => void,
   isPosted: () => boolean,
 ) {
-  const res = await fetch(
-    `${base}/sessions/${sessionId}/events/stream?event_deltas[]=agent.message`,
-    { headers: { Authorization: `Bearer ${pat}`, Accept: 'text/event-stream' }, signal },
-  );
+  const res = await api(base, pat, `/sessions/${sessionId}/events/stream?event_deltas[]=agent.message`, {
+    headers: { Accept: 'text/event-stream' },
+    signal,
+  });
   if (!res.ok || !res.body) throw new Error(`stream: HTTP ${res.status}`);
 
   const reader = res.body.getReader();
@@ -69,21 +73,19 @@ async function streamReply(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    const frames = parseSSE(buffer + decoder.decode(value, { stream: true }));
+    buffer = frames.rest;
 
-    let sep;
-    while ((sep = buffer.indexOf('\n\n')) !== -1) {
-      const frame = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
-      if (!dataLine) continue; // heartbeat comment or empty frame
+    for (const data of frames.data) {
       let payload;
       try {
-        payload = JSON.parse(dataLine.slice(5));
+        payload = JSON.parse(data);
       } catch {
         continue;
       }
-      if (payload.type === 'event_delta' && payload.delta?.content?.text) {
+      // isPosted also gates deltas: a fresh stream replays the old turn's in-flight deltas
+      // ponytail: only agent.message emits deltas today; if that changes, filter via event_start's event.id→type map
+      if (payload.type === 'event_delta' && isPosted() && payload.delta?.content?.text) {
         send({ type: 'delta', text: payload.delta.content.text });
       } else if (payload.type === 'session.status_idle' && isPosted()) {
         // ponytail: isPosted filters idle events replayed before our POST returns; if long
@@ -117,15 +119,29 @@ async function handleChat(
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
     let posted = false;
-    const streaming = streamReply(base, pat, sid, signal, send, () => posted);
-    streaming.catch(() => {}); // dead-session stream 404s and self-terminates
-    const res = await postUserMessage(base, pat, sid, text, page);
-    if (res.status === 404) return false;
-    if (res.status === 409) throw new Error('previous turn still running');
-    if (!res.ok) throw new Error(`send message: HTTP ${res.status}`);
-    posted = true;
-    await streaming;
-    return true;
+    const turn = new AbortController();
+    const turnSignal = AbortSignal.any([signal, turn.signal]); // Chrome 116+
+    try {
+      const streaming = streamReply(base, pat, sid, turnSignal, send, () => posted);
+      streaming.catch(() => {}); // dead-session 404s and failure-path aborts self-terminate
+      let res = await postUserMessage(base, pat, sid, text, page);
+      if (res.status === 409) {
+        // previous turn still running (e.g. re-submit): cancel it, then retry the post
+        await api(base, pat, `/sessions/${sid}/cancel`, { method: 'POST' });
+        // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
+        for (let i = 0; i < 5 && res.status === 409; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          res = await postUserMessage(base, pat, sid, text, page);
+        }
+      }
+      if (res.status === 404) return false;
+      if (!res.ok) throw new Error(`send message: HTTP ${res.status}`);
+      posted = true;
+      await streaming;
+      return true;
+    } finally {
+      turn.abort(); // success: streaming already resolved, no-op; failure: reclaim the SSE fetch
+    }
   };
 
   if (!sessionId || !(await tryTurn(sessionId))) {
@@ -149,7 +165,8 @@ export default defineBackground(() => {
         }
       };
       handleChat(msg.text, msg.page, abort.signal, send).catch((err) => {
-        if (!abort.signal.aborted) send({ type: 'error', message: String(err?.message ?? err) });
+        if (!abort.signal.aborted)
+          send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
       });
     });
   });
