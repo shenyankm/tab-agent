@@ -1,4 +1,7 @@
-import { serverUrlItem, patItem, agentIdItem, envIdItem, sessionIdItem } from '@/lib/settings';
+import { patItem, agentIdItem, envIdItem, sessionIdItem } from '@/lib/settings';
+
+// matches host_permissions in wxt.config.ts
+const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
 
 type ChatOut =
   | { type: 'delta'; text: string }
@@ -28,11 +31,18 @@ async function createSession(base: string, pat: string, agentId: string, envId: 
   return session.id as string;
 }
 
-function postUserMessage(base: string, pat: string, sessionId: string, text: string) {
+type PageContext = { url: string; title: string; text: string };
+
+function postUserMessage(base: string, pat: string, sessionId: string, text: string, page?: PageContext) {
+  // context is inlined into the user message: agents with browser tools ignore
+  // side-channel context and open their own (blank) cloud browser instead
+  const body = page
+    ? `${text}\n\n---\n[Page context] The page below is already open in the user's LOCAL browser. Answer from this content. Do NOT use your own browser tools — your cloud browser cannot see the user's page.\nURL: ${page.url}\nTitle: ${page.title}\n\n${page.text}`
+    : text;
   return api(base, pat, `/sessions/${sessionId}/events`, {
     method: 'POST',
     body: JSON.stringify({
-      events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
+      events: [{ type: 'user.message', content: [{ type: 'text', text: body }] }],
     }),
   });
 }
@@ -85,17 +95,22 @@ async function streamReply(
   }
 }
 
-async function handleChat(text: string, signal: AbortSignal, send: (msg: ChatOut) => void) {
-  const [base, pat, agentId, envId] = await Promise.all([
-    serverUrlItem.getValue(),
+async function handleChat(
+  text: string,
+  page: PageContext | undefined,
+  signal: AbortSignal,
+  send: (msg: ChatOut) => void,
+) {
+  const [pat, agentId, envId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
     envIdItem.getValue(),
   ]);
-  if (!base || !pat || !agentId || !envId) {
+  if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
     return;
   }
+  const base = GATEWAY;
 
   let sessionId = await sessionIdItem.getValue();
 
@@ -104,7 +119,7 @@ async function handleChat(text: string, signal: AbortSignal, send: (msg: ChatOut
     let posted = false;
     const streaming = streamReply(base, pat, sid, signal, send, () => posted);
     streaming.catch(() => {}); // dead-session stream 404s and self-terminates
-    const res = await postUserMessage(base, pat, sid, text);
+    const res = await postUserMessage(base, pat, sid, text, page);
     if (res.status === 404) return false;
     if (res.status === 409) throw new Error('previous turn still running');
     if (!res.ok) throw new Error(`send message: HTTP ${res.status}`);
@@ -125,7 +140,7 @@ export default defineBackground(() => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
     port.onDisconnect.addListener(() => abort.abort());
-    port.onMessage.addListener((msg: { text: string }) => {
+    port.onMessage.addListener((msg: { text: string; page?: PageContext }) => {
       const send = (out: ChatOut) => {
         try {
           port.postMessage(out);
@@ -133,7 +148,7 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      handleChat(msg.text, abort.signal, send).catch((err) => {
+      handleChat(msg.text, msg.page, abort.signal, send).catch((err) => {
         if (!abort.signal.aborted) send({ type: 'error', message: String(err?.message ?? err) });
       });
     });

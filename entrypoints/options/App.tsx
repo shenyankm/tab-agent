@@ -12,7 +12,7 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
-import { themeItem, autoUpdateItem, petEnabledItem, serverUrlItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
+import { themeItem, autoUpdateItem, petEnabledItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
 
@@ -100,7 +100,6 @@ function PrivacyPage() {
 
 // Qoder Cloud Agents connection fields: i18n key, storage item, placeholder, input type
 const connFields = [
-  ['serverUrl', serverUrlItem, 'https://api.qoder.com/api/v1/cloud', 'url'],
   ['pat', patItem, 'pt-...', 'password'],
   ['agentId', agentIdItem, 'agent_...', 'text'],
   ['envId', envIdItem, 'env_...', 'text'],

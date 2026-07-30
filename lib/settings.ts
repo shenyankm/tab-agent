@@ -6,13 +6,11 @@ export const petEnabledItem = storage.defineItem<boolean>('local:petEnabled', { 
 export const petPosItem = storage.defineItem<{ right: number; bottom: number }>('local:petPos', {
   fallback: { right: 20, bottom: 20 },
 });
-export const serverUrlItem = storage.defineItem<string>('local:serverUrl', {
-  fallback: 'https://api.qoder.com/api/v1/cloud',
-});
 export const patItem = storage.defineItem<string>('local:pat', { fallback: '' });
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
-export const sessionIdItem = storage.defineItem<string>('local:sessionId', { fallback: '' });
+// v2: key bumped to abandon sessions polluted by pre-page-context history
+export const sessionIdItem = storage.defineItem<string>('local:sessionId.v2', { fallback: '' });
 
 export function applyTheme(theme: Theme) {
   const isDark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
