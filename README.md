@@ -17,6 +17,13 @@ pnpm dev          # Chrome dev server with HMR
 pnpm dev:firefox  # Firefox
 ```
 
+## Configuration
+
+The extension talks to your own [Qoder Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart). Three credentials go into the extension's Settings page:
+
+- **PAT** — Qoder console → Settings → Personal Access Tokens
+- **Agent ID** (`agent_…`) and **Environment ID** (`env_…`) — [Cloud Agents console](https://qoder.com/cloud/agents)
+
 ## Build
 
 ```bash
