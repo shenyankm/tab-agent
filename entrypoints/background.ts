@@ -1,8 +1,5 @@
-import { patItem, agentIdItem, envIdItem, sessionIdItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { parseSSE } from '@/lib/sse';
-
-// matches host_permissions in wxt.config.ts
-const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
 
 type ChatOut =
   | { type: 'delta'; text: string }
@@ -25,10 +22,15 @@ async function api(base: string, pat: string, path: string, init?: RequestInit) 
   return res;
 }
 
-async function createSession(base: string, pat: string, agentId: string, envId: string) {
+async function createSession(base: string, pat: string, agentId: string, envId: string, vaultId: string) {
   const res = await api(base, pat, '/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent: { id: agentId, type: 'agent' }, environment_id: envId, title: 'Pixel Agent' }),
+    body: JSON.stringify({
+      agent: { id: agentId, type: 'agent' },
+      environment_id: envId,
+      title: 'Pixel Agent',
+      ...(vaultId ? { vault_ids: [vaultId] } : {}),
+    }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
   const session = await res.json();
@@ -123,10 +125,11 @@ async function handleChat(
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
 ) {
-  const [pat, agentId, envId] = await Promise.all([
+  const [pat, agentId, envId, vaultId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
     envIdItem.getValue(),
+    vaultIdItem.getValue(),
   ]);
   if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
@@ -178,7 +181,7 @@ async function handleChat(
 
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
-    sessionId = await createSession(base, pat, agentId, envId);
+    sessionId = await createSession(base, pat, agentId, envId, vaultId);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
 }
