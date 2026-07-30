@@ -14,7 +14,6 @@ const langItem = storage.defineItem<Lang>('local:lang', { fallback: 'zh-CN' });
 const dict: Record<Lang, Record<string, string>> = {
   en: {
     'app.title': 'Pixel Agent',
-    'popup.count': 'Count: {n}',
     'widget.open': 'Open Pixel Agent',
     'widget.close': 'Close Pixel Agent',
     'widget.status.idle': 'Ready',
@@ -50,7 +49,6 @@ const dict: Record<Lang, Record<string, string>> = {
   },
   'zh-CN': {
     'app.title': 'Pixel Agent',
-    'popup.count': '计数: {n}',
     'widget.open': '打开 Pixel Agent',
     'widget.close': '关闭 Pixel Agent',
     'widget.status.idle': '随时待命',
@@ -86,7 +84,6 @@ const dict: Record<Lang, Record<string, string>> = {
   },
   'zh-TW': {
     'app.title': 'Pixel Agent',
-    'popup.count': '計數: {n}',
     'widget.open': '開啟 Pixel Agent',
     'widget.close': '關閉 Pixel Agent',
     'widget.status.idle': '隨時待命',
@@ -122,7 +119,6 @@ const dict: Record<Lang, Record<string, string>> = {
   },
   ja: {
     'app.title': 'Pixel Agent',
-    'popup.count': 'カウント: {n}',
     'widget.open': 'Pixel Agent を開く',
     'widget.close': 'Pixel Agent を閉じる',
     'widget.status.idle': '待機中',
