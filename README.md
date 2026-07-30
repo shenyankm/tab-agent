@@ -52,4 +52,4 @@ pnpm dlx shadcn@latest add @retroui/<name>
 
 ## License
 
-Private. Built with [Qoder](https://qoder.com).
+[MIT](LICENSE) © sheny. Built with [Qoder](https://qoder.com).
