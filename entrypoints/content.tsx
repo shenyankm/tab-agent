@@ -61,10 +61,10 @@ function FloatingAgent() {
   const [enabled, setEnabled] = useState(true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
-  const [lastQuery, setLastQuery] = useState('');
+  const [reply, setReply] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
-  const timerRef = useRef<number | undefined>(undefined);
+  const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
   const movedRef = useRef(false);
   const { t } = useI18n();
@@ -87,7 +87,7 @@ function FloatingAgent() {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  useEffect(() => () => window.clearTimeout(timerRef.current), []);
+  useEffect(() => () => portRef.current?.disconnect(), []);
 
   const isDark = theme === 'dark'
     || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -97,18 +97,33 @@ function FloatingAgent() {
     const message = query.trim();
     if (!message || state === 'thinking') return;
 
-    window.clearTimeout(timerRef.current);
-    setLastQuery(message);
+    portRef.current?.disconnect();
     setQuery('');
+    setReply('');
     setState('thinking');
-    timerRef.current = window.setTimeout(() => setState('done'), 900);
+
+    const port = browser.runtime.connect({ name: 'chat' });
+    portRef.current = port;
+    port.onMessage.addListener((msg: { type: string; text?: string; code?: string; message?: string }) => {
+      if (msg.type === 'delta') {
+        setReply((r) => r + msg.text);
+      } else if (msg.type === 'done') {
+        setState('done');
+        port.disconnect();
+      } else if (msg.type === 'error') {
+        setReply(msg.code === 'unconfigured'
+          ? t('widget.error.unconfigured')
+          : t('widget.error.generic', { message: msg.message ?? '' }));
+        setState('done');
+        port.disconnect();
+      }
+    });
+    port.postMessage({ text: message });
   };
 
   const response = state === 'idle'
     ? t('widget.greeting')
-    : state === 'thinking'
-      ? `${t('widget.status.thinking')}…`
-      : t('widget.reply', { message: lastQuery });
+    : reply || `${t('widget.status.thinking')}…`;
 
   const closePanel = () => {
     setOpen(false);
@@ -193,7 +208,6 @@ function FloatingAgent() {
             <div className="pixel-agent-response" aria-live="polite">
               {response}
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">{t('widget.note')}</p>
           </CardContent>
 
           <CardFooter className="p-3">

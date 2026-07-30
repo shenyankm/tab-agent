@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Settings, ChevronDown, MessageSquare, Shield, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { Menubar, MenubarMenu, MenubarTrigger } from '@/components/ui/menubar';
 import {
   DropdownMenu,
@@ -11,7 +12,7 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
-import { themeItem, autoUpdateItem, petEnabledItem, type Theme } from '@/lib/settings';
+import { themeItem, autoUpdateItem, petEnabledItem, serverUrlItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
 
@@ -104,16 +105,28 @@ function PrivacyPage() {
   );
 }
 
+// Qoder Cloud Agents connection fields: i18n key, storage item, placeholder, input type
+const connFields = [
+  ['serverUrl', serverUrlItem, 'https://api.qoder.com/api/v1/cloud', 'url'],
+  ['pat', patItem, 'pt-...', 'password'],
+  ['agentId', agentIdItem, 'agent_...', 'text'],
+  ['envId', envIdItem, 'env_...', 'text'],
+] as const;
+
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [petEnabled, setPetEnabled] = useState(true);
+  const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
     autoUpdateItem.getValue().then(setAutoUpdate);
     petEnabledItem.getValue().then(setPetEnabled);
+    connFields.forEach(([key, item]) => {
+      item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
+    });
   }, []);
 
   const onThemeChange = (th: Theme) => {
@@ -190,6 +203,24 @@ function SettingsPage() {
           <span className="shrink-0 text-sm font-medium">{t('settings.autoUpdate')}</span>
           <Switch checked={autoUpdate} onCheckedChange={onAutoUpdateChange} />
         </div>
+      </div>
+
+      <hr className="my-6 border-border" />
+
+      <div className="flex flex-col gap-4">
+        {connFields.map(([key, item, placeholder, type]) => (
+          <div key={key} className="flex items-center justify-between gap-4">
+            <span className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</span>
+            <Input
+              value={conn[key] ?? ''}
+              onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
+              onBlur={() => item.setValue((conn[key] ?? '').trim())}
+              placeholder={placeholder}
+              type={type}
+              className="max-w-60"
+            />
+          </div>
+        ))}
       </div>
     </>
   );

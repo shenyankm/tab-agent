@@ -7,6 +7,8 @@ export default defineConfig({
   manifest: {
     name: 'Pixel Agent',
     permissions: ['storage'],
+    // ponytail: fixed to the Qoder gateway; widen if serverUrl points elsewhere
+    host_permissions: ['https://api.qoder.com/*'],
     web_accessible_resources: [
       {
         matches: ['<all_urls>'],
