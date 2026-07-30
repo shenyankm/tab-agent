@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import ReactDOM from 'react-dom/client';
 import { CheckCircle2, LoaderCircle, Send, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
-import { themeItem, type Theme } from '@/lib/settings';
+import { themeItem, petEnabledItem, petPosItem, type Theme } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -48,20 +48,39 @@ function Mascot({ state, size }: { state: AgentState; size: number }) {
   );
 }
 
+// keep the pet fully on screen regardless of viewport size
+const clampPos = (p: { right: number; bottom: number }) => ({
+  right: Math.min(Math.max(p.right, 0), window.innerWidth - 84),
+  bottom: Math.min(Math.max(p.bottom, 0), window.innerHeight - 78),
+});
+
 function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
   const [theme, setTheme] = useState<Theme>('system');
+  const [enabled, setEnabled] = useState(true);
+  const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
   const [lastQuery, setLastQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const timerRef = useRef<number | undefined>(undefined);
+  const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
+  const movedRef = useRef(false);
   const { t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
     return themeItem.watch(setTheme);
+  }, []);
+
+  useEffect(() => {
+    petEnabledItem.getValue().then(setEnabled);
+    return petEnabledItem.watch(setEnabled);
+  }, []);
+
+  useEffect(() => {
+    petPosItem.getValue().then((p) => setPos(clampPos(p)));
   }, []);
 
   useEffect(() => {
@@ -96,9 +115,42 @@ function FloatingAgent() {
     requestAnimationFrame(() => launcherRef.current?.focus());
   };
 
+  if (!enabled) return null;
+
+  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    dragRef.current = { x: event.clientX, y: event.clientY, ...pos, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = event.clientX - d.x;
+    const dy = event.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 4) return; // below threshold: still a click
+    d.moved = true;
+    setPos(clampPos({ right: d.right - dx, bottom: d.bottom - dy }));
+  };
+
+  const onPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    movedRef.current = !!d?.moved;
+    if (!d?.moved) return;
+    petPosItem.setValue(clampPos({
+      right: d.right - (event.clientX - d.x),
+      bottom: d.bottom - (event.clientY - d.y),
+    }));
+  };
+
+  // open the panel toward the roomier half of the viewport so it never gets clipped
+  const below = window.innerHeight - pos.bottom - 39 < window.innerHeight / 2;
+  const alignLeft = window.innerWidth - pos.right - 42 < window.innerWidth / 2;
+
   return (
     <div
       className={`pixel-agent-shell${isDark ? ' dark' : ''}`}
+      style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') closePanel();
       }}
@@ -106,7 +158,8 @@ function FloatingAgent() {
       {open && (
         <Card
           id="pixel-agent-panel"
-          className="pixel-agent-panel gap-0 py-0"
+          className={`pixel-agent-panel${below ? ' pixel-agent-panel--below' : ''}${alignLeft ? ' pixel-agent-panel--left' : ''} gap-0 py-0`}
+          style={{ maxHeight: Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98) }}
           role="dialog"
           aria-label="Pixel Agent"
         >
@@ -174,7 +227,13 @@ function FloatingAgent() {
         type="button"
         variant="ghost"
         className="pixel-agent-launcher"
-        onClick={() => setOpen((value) => !value)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onClick={() => {
+          if (movedRef.current) return; // drag, not a click
+          setOpen((value) => !value);
+        }}
         aria-label={open ? t('widget.close') : t('widget.open')}
         aria-expanded={open}
         aria-controls="pixel-agent-panel"
