@@ -21,11 +21,11 @@ entrypoints/
   options/         # 设置页（独立标签页）：凭证 / 主题 / 语言 / 隐私
 lib/
   settings.ts      # 全部持久化项（storage.defineItem）+ 主题工具
-  sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖，可在 Node 下测试）
+  sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   i18n.tsx         # 多语言
   utils.ts         # cn()（clsx + tailwind-merge）
 components/ui/     # RetroUI 组件源码（shadcn CLI 添加）
-scripts/sse-check.ts  # sse.ts 的独立自检脚本（pnpm check:sse）
+tests/             # vitest 单元测试（pnpm test）
 ```
 
 ## 3. 运行时架构
@@ -147,7 +147,7 @@ user.message → session.status_running → agent.thinking
 ## 8. 权限与安全
 
 - manifest 权限：`storage` + host `https://api.qoder.com/*`，无其他。
-- 凭证输入框为 password 型且拦截 copy/cut；PAT 只在 background 的请求头中出现。
+- 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现。
 - 信任边界校验：附件 1MB 上限（Port 消息体量）、文件名清洗（`/`、`\` → `_`）后再作 mount path。
 
 ## 9. 构建与校验
@@ -156,8 +156,8 @@ user.message → session.status_running → agent.thinking
 pnpm dev / dev:firefox      # HMR 开发
 pnpm build / build:firefox  # 产物 → .output/{chrome,firefox}-mv3/
 pnpm compile                # tsc --noEmit 类型检查
-pnpm check:sse              # SSE 解析器自检（唯一的逻辑测试）
+pnpm test                   # vitest 单元测试
 pnpm zip                    # 打包提交商店
 ```
 
-无测试框架；业务代码改动后以 `pnpm build` 通过为准。
+业务代码改动后以 `pnpm build` + `pnpm test` 通过为准。

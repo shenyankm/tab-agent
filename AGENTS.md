@@ -13,7 +13,7 @@ pnpm compile          # Type-check only (tsc --noEmit)
 pnpm zip              # Build + package for store submission
 ```
 
-No test framework is configured.
+Tests run with vitest: `pnpm test` (or `pnpm test:watch`).
 
 Always run `pnpm build` after modifying business code to verify the build passes.
 
