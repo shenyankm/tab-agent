@@ -95,6 +95,9 @@ user.message → session.status_running → agent.thinking
 - MCP 服务器（均 streamable http、自动允许）：
   - notion（`mcp.notion.com/mcp`）
   - 阿里云 OpenAPI（`openapi-mcp.cn-hangzhou.aliyuncs.com`）
+  - ModelScope（`mcp.api-inference.modelscope.net`）
+  - 阿里云 IQS 搜索（`iqs-mcp.aliyuncs.com/.../iqs-mcp-server-search`，工具 `common_search`：开放域实时搜索）
+  - 阿里云 IQS 网页解析（`iqs-mcp.aliyuncs.com/.../iqs-mcp-server-readpage`，工具 `readpage_basic`：静态网页正文提取）
 - Skills（custom）：深入研究、内容研究撰写、市场研究报告、分析数据分析
 - BrowserUse（云端浏览器，Beta）：**未开启** —— 页面内容由扩展内联进消息（见 §5），云端浏览器看不到用户本地页面，开了反而误导 Agent
 
@@ -104,7 +107,7 @@ user.message → session.status_running → agent.thinking
 
 **Vault**
 
-- 存放上述两个 MCP 服务器的 OAuth 凭证（notion + 阿里云）—— 这就是创建会话时附带 `vault_ids` 的原因：不挂 vault，MCP 工具鉴权失败
+- 存放三个 MCP 服务器的凭证：notion、阿里云为 MCP OAuth，ModelScope 为 Static Bearer —— 这就是创建会话时附带 `vault_ids` 的原因：不挂 vault，MCP 工具鉴权失败
 
 ## 5. 一次对话回合（tryTurn）
 
