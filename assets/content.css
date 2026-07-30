@@ -64,28 +64,27 @@ body {
   overscroll-behavior: contain;
 }
 
-/* neobrutalism.com-style scrollbar: flat track, bordered primary thumb */
+/* neobrutalism.com scrollbar */
 .pixel-agent-messages::-webkit-scrollbar,
 .pixel-agent-md pre::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .pixel-agent-messages::-webkit-scrollbar-track,
 .pixel-agent-md pre::-webkit-scrollbar-track {
   background: var(--background);
-  border-left: 2px solid var(--border);
-}
-
-.pixel-agent-md pre::-webkit-scrollbar-track {
-  border-left: 0;
-  border-top: 2px solid var(--border);
 }
 
 .pixel-agent-messages::-webkit-scrollbar-thumb,
 .pixel-agent-md pre::-webkit-scrollbar-thumb {
   background: var(--primary);
   border: 2px solid var(--border);
+}
+
+.pixel-agent-messages::-webkit-scrollbar-thumb:hover,
+.pixel-agent-md pre::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-hover);
 }
 
 .pixel-agent-bubble-user {
