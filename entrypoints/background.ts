@@ -14,7 +14,8 @@ async function api(base: string, pat: string, path: string, init?: RequestInit) 
     ...init,
     headers: {
       Authorization: `Bearer ${pat}`,
-      'Content-Type': 'application/json',
+      // multipart body: let fetch set the boundary itself
+      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...init?.headers,
     },
   });
@@ -36,13 +37,31 @@ async function createSession(base: string, pat: string, agentId: string, envId: 
 }
 
 type PageContext = { url: string; title: string; text: string };
+type FileIn = { name: string; text: string };
 
-function postUserMessage(base: string, pat: string, sessionId: string, text: string, page?: PageContext) {
+async function uploadFile(base: string, pat: string, file: FileIn) {
+  const form = new FormData();
+  form.append('file', new Blob([file.text]), file.name);
+  const res = await api(base, pat, '/files', { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`upload file: HTTP ${res.status}`);
+  return (await res.json()).id as string;
+}
+
+function postUserMessage(
+  base: string,
+  pat: string,
+  sessionId: string,
+  text: string,
+  page?: PageContext,
+  mountPath?: string,
+) {
   // context is inlined into the user message: agents with browser tools ignore
   // side-channel context and open their own (blank) cloud browser instead
-  const body = page
+  let body = page
     ? `${text}\n\n---\n[Page context] The page below is already open in the user's LOCAL browser. Answer from this content. Do NOT use your own browser tools — your cloud browser cannot see the user's page.\nURL: ${page.url}\nTitle: ${page.title}\n\n${page.text}`
     : text;
+  if (mountPath)
+    body += `\n\n[Attached file] The user attached a file, mounted at ${mountPath} in your workspace. Read it from there when relevant.`;
   return api(base, pat, `/sessions/${sessionId}/events`, {
     method: 'POST',
     body: JSON.stringify({
@@ -100,6 +119,7 @@ async function streamReply(
 async function handleChat(
   text: string,
   page: PageContext | undefined,
+  file: FileIn | undefined,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
 ) {
@@ -116,22 +136,34 @@ async function handleChat(
 
   let sessionId = await sessionIdItem.getValue();
 
+  // file is uploaded once; mounting is per-session, so it happens inside tryTurn
+  const fileId = file ? await uploadFile(base, pat, file) : null;
+  const mountPath = file ? `/data/input/${file.name.replace(/[/\\]/g, '_')}` : undefined;
+
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
     let posted = false;
     const turn = new AbortController();
     const turnSignal = AbortSignal.any([signal, turn.signal]); // Chrome 116+
     try {
+      if (fileId) {
+        const mounted = await api(base, pat, `/sessions/${sid}/resources`, {
+          method: 'POST',
+          body: JSON.stringify({ type: 'file', file_id: fileId, mount_path: mountPath }),
+        });
+        if (mounted.status === 404) return false; // dead session: recreate and re-mount
+        if (!mounted.ok) throw new Error(`mount file: HTTP ${mounted.status}`);
+      }
       const streaming = streamReply(base, pat, sid, turnSignal, send, () => posted);
       streaming.catch(() => {}); // dead-session 404s and failure-path aborts self-terminate
-      let res = await postUserMessage(base, pat, sid, text, page);
+      let res = await postUserMessage(base, pat, sid, text, page, mountPath);
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then retry the post
         await api(base, pat, `/sessions/${sid}/cancel`, { method: 'POST' });
         // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
         for (let i = 0; i < 5 && res.status === 409; i++) {
           await new Promise((r) => setTimeout(r, 1000));
-          res = await postUserMessage(base, pat, sid, text, page);
+          res = await postUserMessage(base, pat, sid, text, page, mountPath);
         }
       }
       if (res.status === 404) return false;
@@ -156,7 +188,7 @@ export default defineBackground(() => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
     port.onDisconnect.addListener(() => abort.abort());
-    port.onMessage.addListener((msg: { text: string; page?: PageContext }) => {
+    port.onMessage.addListener((msg: { text: string; page?: PageContext; file?: FileIn }) => {
       const send = (out: ChatOut) => {
         try {
           port.postMessage(out);
@@ -164,7 +196,7 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      handleChat(msg.text, msg.page, abort.signal, send).catch((err) => {
+      handleChat(msg.text, msg.page, msg.file, abort.signal, send).catch((err) => {
         if (!abort.signal.aborted)
           send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
       });
