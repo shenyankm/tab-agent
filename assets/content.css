@@ -32,7 +32,7 @@ body {
   right: 0;
   bottom: calc(100% + 12px);
   width: min(360px, calc(100vw - 40px));
-  overflow-y: auto;
+  overflow: hidden; /* scrolling lives in the messages area, footer stays pinned */
   border-color: var(--border);
   transform-origin: bottom right;
   animation: pixel-agent-pop 160ms ease-out;
@@ -54,13 +54,140 @@ body {
   transform-origin: top left;
 }
 
-.pixel-agent-response {
+.pixel-agent-messages {
+  display: flex;
+  flex: 1;
   min-height: 78px;
-  padding: 12px;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* neobrutalism.com-style scrollbar: flat track, bordered primary thumb */
+.pixel-agent-messages::-webkit-scrollbar,
+.pixel-agent-md pre::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.pixel-agent-messages::-webkit-scrollbar-track,
+.pixel-agent-md pre::-webkit-scrollbar-track {
+  background: var(--background);
+  border-left: 2px solid var(--border);
+}
+
+.pixel-agent-md pre::-webkit-scrollbar-track {
+  border-left: 0;
+  border-top: 2px solid var(--border);
+}
+
+.pixel-agent-messages::-webkit-scrollbar-thumb,
+.pixel-agent-md pre::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border: 2px solid var(--border);
+}
+
+.pixel-agent-bubble-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 8px 12px;
+  border: 2px solid var(--border);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 2px 2px 0 0 var(--border);
+  font-size: 0.875rem;
+  line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+/* neobrutalism-style typography for agent markdown */
+.pixel-agent-md {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pixel-agent-md > *:first-child { margin-top: 0; }
+.pixel-agent-md > *:last-child { margin-bottom: 0; }
+
+.pixel-agent-md h1,
+.pixel-agent-md h2,
+.pixel-agent-md h3,
+.pixel-agent-md h4 {
+  margin: 16px 0 8px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.pixel-agent-md h1 { font-size: 1.25rem; }
+.pixel-agent-md h2 { font-size: 1.125rem; }
+.pixel-agent-md h3,
+.pixel-agent-md h4 { font-size: 1rem; }
+
+.pixel-agent-md p { margin: 8px 0; }
+
+.pixel-agent-md ul,
+.pixel-agent-md ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.pixel-agent-md ul { list-style: disc; }
+.pixel-agent-md ol { list-style: decimal; }
+.pixel-agent-md li { margin: 4px 0; }
+
+.pixel-agent-md code {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+
+.pixel-agent-md pre {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
   border: 2px solid var(--border);
   background: var(--muted);
-  line-height: 1.5;
+}
+
+.pixel-agent-md pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.pixel-agent-md blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  font-style: italic;
+}
+
+.pixel-agent-md a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pixel-agent-md table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.pixel-agent-md th,
+.pixel-agent-md td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+
+.pixel-agent-md hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 2px solid var(--border);
 }
 
 [data-slot="button"].pixel-agent-launcher {

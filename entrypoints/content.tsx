@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import ReactDOM from 'react-dom/client';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { CheckCircle2, LoaderCircle, Send, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -54,6 +56,8 @@ const clampPos = (p: { right: number; bottom: number }) => ({
   bottom: Math.min(Math.max(p.bottom, 0), window.innerHeight - 78),
 });
 
+type ChatMessage = { role: 'user' | 'agent'; text: string };
+
 function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
@@ -61,7 +65,8 @@ function FloatingAgent() {
   const [enabled, setEnabled] = useState(true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
-  const [reply, setReply] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
@@ -85,12 +90,26 @@ function FloatingAgent() {
 
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
+    // greet on first open
+    if (open) setMessages((m) => (m.length ? m : [{ role: 'agent', text: t('widget.greeting') }]));
   }, [open]);
+
+  // keep the newest message in view
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   useEffect(() => () => portRef.current?.disconnect(), []);
 
   const isDark = theme === 'dark'
     || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+
+  // append streamed text to the trailing agent message
+  const patchLast = (text: string, replace = false) =>
+    setMessages((m) => m.map((msg, i) => (
+      i === m.length - 1 ? { ...msg, text: replace ? text : msg.text + text } : msg
+    )));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -99,31 +118,36 @@ function FloatingAgent() {
 
     portRef.current?.disconnect();
     setQuery('');
-    setReply('');
+    setMessages((m) => [...m, { role: 'user', text: message }, { role: 'agent', text: '' }]);
     setState('thinking');
 
     const port = browser.runtime.connect({ name: 'chat' });
     portRef.current = port;
     port.onMessage.addListener((msg: { type: string; text?: string; code?: string; message?: string }) => {
       if (msg.type === 'delta') {
-        setReply((r) => r + msg.text);
+        patchLast(msg.text ?? '');
       } else if (msg.type === 'done') {
         setState('done');
         port.disconnect();
       } else if (msg.type === 'error') {
-        setReply(msg.code === 'unconfigured'
+        patchLast(msg.code === 'unconfigured'
           ? t('widget.error.unconfigured')
-          : t('widget.error.generic', { message: msg.message ?? '' }));
+          : t('widget.error.generic', { message: msg.message ?? '' }), true);
         setState('done');
         port.disconnect();
       }
     });
-    port.postMessage({ text: message });
+    port.postMessage({
+      text: message,
+      // page context so the cloud agent can actually see the current page
+      // ponytail: raw innerText capped at 20k chars; swap in Readability if noise hurts answers
+      page: {
+        url: location.href,
+        title: document.title,
+        text: document.body.innerText.slice(0, 20000),
+      },
+    });
   };
-
-  const response = state === 'idle'
-    ? t('widget.greeting')
-    : reply || `${t('widget.status.thinking')}…`;
 
   const closePanel = () => {
     setOpen(false);
@@ -174,7 +198,7 @@ function FloatingAgent() {
         <Card
           id="pixel-agent-panel"
           className={`pixel-agent-panel${below ? ' pixel-agent-panel--below' : ''}${alignLeft ? ' pixel-agent-panel--left' : ''} gap-0 py-0`}
-          style={{ maxHeight: Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98) }}
+          style={{ maxHeight: Math.min(480, Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98)) }}
           role="dialog"
           aria-label="Pixel Agent"
         >
@@ -204,10 +228,18 @@ function FloatingAgent() {
             </Button>
           </CardHeader>
 
-          <CardContent className="p-4">
-            <div className="pixel-agent-response" aria-live="polite">
-              {response}
-            </div>
+          <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
+            {messages.map((msg, i) => (
+              msg.role === 'user' ? (
+                <div key={i} className="pixel-agent-bubble-user">{msg.text}</div>
+              ) : (
+                <div key={i} className="pixel-agent-md">
+                  {msg.text
+                    ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                    : `${t('widget.status.thinking')}…`}
+                </div>
+              )
+            ))}
           </CardContent>
 
           <CardFooter className="p-3">
