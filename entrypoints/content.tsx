@@ -2,14 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, LoaderCircle, Send, Sparkles, X } from 'lucide-react';
+import { Paperclip, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardFooter,
   CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
@@ -57,6 +56,10 @@ const clampPos = (p: { right: number; bottom: number }) => ({
 });
 
 type ChatMessage = { role: 'user' | 'agent'; text: string };
+type Attachment = { name: string; text: string };
+
+// ponytail: text files only per the Files API; 1 MB cap keeps the port message sane
+const MAX_FILE_BYTES = 1_000_000;
 
 function FloatingAgent() {
   const [open, setOpen] = useState(false);
@@ -65,9 +68,11 @@ function FloatingAgent() {
   const [enabled, setEnabled] = useState(true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
+  const [file, setFile] = useState<Attachment | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
@@ -108,6 +113,15 @@ function FloatingAgent() {
       i === m.length - 1 ? { ...msg, text: replace ? text : msg.text + text } : msg
     )));
 
+  const pickFile = async (picked: File | undefined) => {
+    if (!picked) return;
+    if (picked.size > MAX_FILE_BYTES) {
+      setMessages((m) => [...m, { role: 'agent', text: t('widget.fileTooLarge') }]);
+      return;
+    }
+    setFile({ name: picked.name, text: await picked.text() });
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const message = query.trim();
@@ -143,6 +157,7 @@ function FloatingAgent() {
     });
     port.postMessage({
       text: message,
+      file: file ?? undefined,
       // page context so the cloud agent can actually see the current page
       // ponytail: raw innerText capped at 20k chars; swap in Readability if noise hurts answers
       page: {
@@ -151,6 +166,7 @@ function FloatingAgent() {
         text: document.body.innerText.slice(0, 20000),
       },
     });
+    setFile(null);
   };
 
   const closePanel = () => {
@@ -206,21 +222,7 @@ function FloatingAgent() {
           role="dialog"
           aria-label="Pixel Agent"
         >
-          <CardHeader className="flex flex-row items-center gap-3 border-b-2 bg-primary p-3 text-primary-foreground">
-            <Mascot state={state} size={48} />
-            <div className="min-w-0 flex-1">
-              <CardTitle className="font-head text-base">Pixel Agent</CardTitle>
-              <div className="mt-0.5 flex items-center gap-1.5 text-xs">
-                {state === 'thinking' ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                ) : state === 'done' ? (
-                  <CheckCircle2 className="size-3.5" />
-                ) : (
-                  <Sparkles className="size-3.5" />
-                )}
-                {t(`widget.status.${state}`)}
-              </div>
-            </div>
+          <CardHeader className="flex flex-row items-center justify-end border-b-2 bg-primary p-3 text-primary-foreground">
             <Button
               type="button"
               variant="ghost"
@@ -246,8 +248,32 @@ function FloatingAgent() {
             ))}
           </CardContent>
 
-          <CardFooter className="p-3">
+          <CardFooter className="flex-col gap-2 p-3">
+            {file && (
+              <div className="flex w-full items-center gap-1.5 text-xs">
+                <Paperclip className="size-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{file.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setFile(null)}
+                  aria-label={t('widget.removeFile')}
+                >
+                  <X />
+                </Button>
+              </div>
+            )}
             <form className="flex w-full gap-2" onSubmit={submit}>
+              <input
+                ref={fileRef}
+                type="file"
+                hidden
+                onChange={(event) => {
+                  pickFile(event.target.files?.[0]);
+                  event.target.value = ''; // allow re-picking the same file
+                }}
+              />
               <label className="sr-only" htmlFor="pixel-agent-query">
                 {t('widget.placeholder')}
               </label>
@@ -259,6 +285,15 @@ function FloatingAgent() {
                 placeholder={t('widget.placeholder')}
                 autoComplete="off"
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => fileRef.current?.click()}
+                aria-label={t('widget.attach')}
+              >
+                <Paperclip />
+              </Button>
               <Button
                 type="submit"
                 size="icon"
