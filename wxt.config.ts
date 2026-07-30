@@ -7,6 +7,12 @@ export default defineConfig({
   manifest: {
     name: 'Pixel Agent',
     permissions: ['storage'],
+    web_accessible_resources: [
+      {
+        matches: ['<all_urls>'],
+        resources: ['mascot-expressions.webp'],
+      },
+    ],
   },
   vite: () => ({
     plugins: [tailwindcss()],
