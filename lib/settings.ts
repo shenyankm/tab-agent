@@ -11,9 +11,11 @@ export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '
 // v2: key bumped to abandon sessions polluted by pre-page-context history
 export const sessionIdItem = storage.defineItem<string>('local:sessionId.v2', { fallback: '' });
 
+export const isDark = (theme: Theme) =>
+  theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+
 export function applyTheme(theme: Theme) {
-  const isDark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.classList.toggle('dark', isDark);
+  document.documentElement.classList.toggle('dark', isDark(theme));
 }
 
 /** Apply the saved theme on startup and keep every open page in sync. */

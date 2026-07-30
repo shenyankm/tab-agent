@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
-import { themeItem, petEnabledItem, petPosItem, type Theme } from '@/lib/settings';
+import { themeItem, petEnabledItem, petPosItem, isDark, type Theme } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -102,9 +102,6 @@ function FloatingAgent() {
 
   useEffect(() => () => portRef.current?.disconnect(), []);
 
-  const isDark = theme === 'dark'
-    || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-
   // append streamed text to the trailing agent message
   const patchLast = (text: string, replace = false) =>
     setMessages((m) => m.map((msg, i) => (
@@ -188,7 +185,7 @@ function FloatingAgent() {
 
   return (
     <div
-      className={`pixel-agent-shell${isDark ? ' dark' : ''}`}
+      className={`pixel-agent-shell${isDark(theme) ? ' dark' : ''}`}
       style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') closePanel();
