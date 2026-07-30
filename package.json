@@ -12,6 +12,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "check:sse": "node scripts/sse-check.ts",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
