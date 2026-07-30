@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, ChevronDown, Shield } from 'lucide-react';
+import { Settings, ChevronDown, Shield, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -14,9 +14,9 @@ import {
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
 import { themeItem, petEnabledItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
 
-type Tab = 'settings' | 'privacy';
+type Tab = 'settings' | 'guide' | 'privacy';
 
-const tabs: Tab[] = ['settings', 'privacy'];
+const tabs: Tab[] = ['settings', 'guide', 'privacy'];
 
 function App() {
   // tab persisted in URL hash so refresh keeps the current page
@@ -40,12 +40,18 @@ function App() {
         </TabsList>
 
         <TabsContent value="settings" className="w-full"><SettingsPage /></TabsContent>
+        <TabsContent value="guide" className="w-full">
+          <div className="mb-8 flex items-center gap-3">
+            <BookOpen className="size-6" />
+            <h1 className="font-head text-2xl">{t('nav.guide')}</h1>
+          </div>
+          <p className="text-sm leading-6">{t('guide.intro')}</p>
+          <p className="mt-8 text-sm text-muted-foreground">
+            {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
+          </p>
+        </TabsContent>
         <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
       </Tabs>
-
-      <footer className="mt-16 text-center text-sm text-muted-foreground">
-        {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
-      </footer>
     </div>
   );
 }
@@ -67,7 +73,12 @@ function PrivacyPage() {
       <ul className="text-sm my-4 ml-6 list-disc [&>li]:mt-2">
         <li>{t('settings.language')}</li>
         <li>{t('settings.theme')}</li>
+        <li>{t('settings.pet')}</li>
+        <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')}</li>
       </ul>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.network.title')}</h3>
+      <p className="text-sm leading-6 mt-2">{t('privacy.network.body')}</p>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.permission.title')}</h3>
       <p className="text-sm leading-6 mt-2">{t('privacy.permission.body')}</p>
