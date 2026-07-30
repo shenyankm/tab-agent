@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, ChevronDown, MessageSquare, Shield, HelpCircle } from 'lucide-react';
+import { Settings, ChevronDown, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -12,11 +12,11 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
-import { themeItem, autoUpdateItem, petEnabledItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
+import { themeItem, petEnabledItem, patItem, agentIdItem, envIdItem, type Theme } from '@/lib/settings';
 
-type Tab = 'settings' | 'sessions' | 'privacy' | 'support';
+type Tab = 'settings' | 'privacy';
 
-const tabs: Tab[] = ['settings', 'sessions', 'privacy', 'support'];
+const tabs: Tab[] = ['settings', 'privacy'];
 
 function App() {
   // tab persisted in URL hash so refresh keeps the current page
@@ -40,27 +40,13 @@ function App() {
         </TabsList>
 
         <TabsContent value="settings" className="w-full"><SettingsPage /></TabsContent>
-        <TabsContent value="sessions" className="w-full"><PlaceholderPage icon={<MessageSquare className="size-6" />} title={t('nav.sessions')} /></TabsContent>
         <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
-        <TabsContent value="support" className="w-full"><PlaceholderPage icon={<HelpCircle className="size-6" />} title={t('nav.support')} /></TabsContent>
       </Tabs>
 
       <footer className="mt-16 text-center text-sm text-muted-foreground">
         {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
       </footer>
     </div>
-  );
-}
-
-function PlaceholderPage({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <>
-      <div className="mb-8 flex items-center gap-3">
-        {icon}
-        <h1 className="font-head text-2xl">{title}</h1>
-      </div>
-      <p className="text-sm text-muted-foreground">Coming soon.</p>
-    </>
   );
 }
 
@@ -81,7 +67,6 @@ function PrivacyPage() {
       <ul className="text-sm my-4 ml-6 list-disc [&>li]:mt-2">
         <li>{t('settings.language')}</li>
         <li>{t('settings.theme')}</li>
-        <li>{t('settings.autoUpdate')}</li>
       </ul>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.permission.title')}</h3>
@@ -91,9 +76,6 @@ function PrivacyPage() {
       <p className="text-sm leading-6 mt-2">{t('privacy.share.body')}</p>
 
       <blockquote className="text-sm mt-6 border-l-2 border-border pl-6 italic">{t('privacy.promise')}</blockquote>
-
-      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.contact.title')}</h3>
-      <p className="text-sm leading-6 mt-2">{t('privacy.contact.body')}</p>
     </>
   );
 }
@@ -107,14 +89,12 @@ const connFields = [
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
-  const [autoUpdate, setAutoUpdate] = useState(true);
   const [petEnabled, setPetEnabled] = useState(true);
   const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
-    autoUpdateItem.getValue().then(setAutoUpdate);
     petEnabledItem.getValue().then(setPetEnabled);
     connFields.forEach(([key, item]) => {
       item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
@@ -124,11 +104,6 @@ function SettingsPage() {
   const onThemeChange = (th: Theme) => {
     setTheme(th);
     themeItem.setValue(th); // initTheme() watcher applies it everywhere
-  };
-
-  const onAutoUpdateChange = (v: boolean) => {
-    setAutoUpdate(v);
-    autoUpdateItem.setValue(v);
   };
 
   const onPetEnabledChange = (v: boolean) => {
@@ -189,11 +164,6 @@ function SettingsPage() {
         <div className="flex items-center justify-between">
           <span className="shrink-0 text-sm font-medium">{t('settings.pet')}</span>
           <Switch checked={petEnabled} onCheckedChange={onPetEnabledChange} />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.autoUpdate')}</span>
-          <Switch checked={autoUpdate} onCheckedChange={onAutoUpdateChange} />
         </div>
       </div>
 
