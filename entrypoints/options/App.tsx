@@ -3,7 +3,7 @@ import { Settings, ChevronDown, MessageSquare, Shield, HelpCircle } from 'lucide
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
-import { Menubar, MenubarMenu, MenubarTrigger } from '@/components/ui/menubar';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -32,25 +32,18 @@ function App() {
 
   return (
     <div className="mx-auto max-w-lg p-8">
-      <Menubar className="mb-8 justify-center">
-        <MenubarMenu>
-          <MenubarTrigger className={tab === 'settings' ? 'bg-accent' : ''} onClick={() => setTab('settings')}>{t('nav.settings')}</MenubarTrigger>
-        </MenubarMenu>
-        <MenubarMenu>
-          <MenubarTrigger className={tab === 'sessions' ? 'bg-accent' : ''} onClick={() => setTab('sessions')}>{t('nav.sessions')}</MenubarTrigger>
-        </MenubarMenu>
-        <MenubarMenu>
-          <MenubarTrigger className={tab === 'privacy' ? 'bg-accent' : ''} onClick={() => setTab('privacy')}>{t('nav.privacy')}</MenubarTrigger>
-        </MenubarMenu>
-        <MenubarMenu>
-          <MenubarTrigger className={tab === 'support' ? 'bg-accent' : ''} onClick={() => setTab('support')}>{t('nav.support')}</MenubarTrigger>
-        </MenubarMenu>
-      </Menubar>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="items-center">
+        <TabsList className="mb-8">
+          {tabs.map((tb) => (
+            <TabsTrigger key={tb} value={tb}>{t(`nav.${tb}`)}</TabsTrigger>
+          ))}
+        </TabsList>
 
-      {tab === 'settings' && <SettingsPage />}
-      {tab === 'sessions' && <PlaceholderPage icon={<MessageSquare className="size-6" />} title={t('nav.sessions')} />}
-      {tab === 'privacy' && <PrivacyPage />}
-      {tab === 'support' && <PlaceholderPage icon={<HelpCircle className="size-6" />} title={t('nav.support')} />}
+        <TabsContent value="settings" className="w-full"><SettingsPage /></TabsContent>
+        <TabsContent value="sessions" className="w-full"><PlaceholderPage icon={<MessageSquare className="size-6" />} title={t('nav.sessions')} /></TabsContent>
+        <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
+        <TabsContent value="support" className="w-full"><PlaceholderPage icon={<HelpCircle className="size-6" />} title={t('nav.support')} /></TabsContent>
+      </Tabs>
 
       <footer className="mt-16 text-center text-sm text-muted-foreground">
         {t('footer.builtWith').split('{link}')[0]}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{t('footer.builtWith').split('{link}')[1]}
