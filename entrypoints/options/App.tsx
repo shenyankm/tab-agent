@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
@@ -66,6 +67,7 @@ function PrivacyPage() {
         <li>{t('settings.language')}</li>
         <li>{t('settings.theme')}</li>
         <li>{t('settings.pet')}</li>
+        <li>{t('settings.pageCarry')}</li>
         <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')} / {t('settings.vaultId')}</li>
       </ul>
 
@@ -150,7 +152,7 @@ function SettingsPage() {
         </div>
       </div>
 
-      <hr className="my-6 border-border" />
+      <Separator className="my-6" />
 
       <div className="flex flex-col gap-4">
         {connFields.map(([key, item, placeholder]) => (
