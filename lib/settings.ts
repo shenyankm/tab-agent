@@ -17,11 +17,6 @@ export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '
 export const vaultIdItem = storage.defineItem<string>('local:vaultId', { fallback: '' });
 // v3: key bumped so a fresh session is created with vault_ids attached (v2: pre-page-context history)
 export const sessionIdItem = storage.defineItem<string>('local:sessionId.v3', { fallback: '' });
-export const deepseekKeyItem = storage.defineItem<string>('local:deepseekKey', { fallback: '' });
-// 双语翻译总开关：popup 与页内面板共用的开关源，content 侧 watch 生效
-export const transEnabledItem = storage.defineItem<boolean>('local:transEnabled', { fallback: false });
-// 空串 = 跟随 UI 语言（langItem）；显式设置则覆盖
-export const transTargetItem = storage.defineItem<string>('local:transTarget', { fallback: '' });
 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);

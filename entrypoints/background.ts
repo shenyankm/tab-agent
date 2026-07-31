@@ -1,4 +1,4 @@
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, deepseekKeyItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
 
@@ -198,82 +198,6 @@ async function handleChat(
   }
 }
 
-// ---- 双语对照翻译：DeepSeek Responses API 代理 ----
-// ponytail: 内存 Map 缓存，SW 挂起即失效；若命中率不够再升级 Cache API + hash 键
-const transCache = new Map<string, string>();
-
-// 并发上限：https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit 用户级并发限额
-const DEEPSEEK_CONCURRENCY = 200;
-
-async function deepseekTranslate(texts: string[], to: string): Promise<string[]> {
-  const key = await deepseekKeyItem.getValue();
-  if (!key) throw Object.assign(new Error('no deepseek key'), { code: 'unconfigured' });
-
-  const out = texts.map((t) => transCache.get(`${to}|${t}`));
-  const misses = texts.map((_, i) => i).filter((i) => out[i] === undefined);
-
-  // 按字符量切批（≤3000 字符且 ≤30 段）：LLM 单请求延迟高，批太大首屏等待过久
-  const batches: number[][] = [];
-  for (let start = 0; start < misses.length; ) {
-    const batch: number[] = [];
-    let chars = 0;
-    while (start < misses.length && batch.length < 30 && chars < 3000) {
-      chars += texts[misses[start]].length;
-      batch.push(misses[start++]);
-    }
-    batches.push(batch);
-  }
-
-  const run = async (batch: number[]) => {
-    const body = JSON.stringify({
-      model: 'deepseek-v4-flash', // Responses API 目前仅支持此模型
-      instructions: `You are a translation engine. Translate each string in the user's JSON array into ${to}. Reply with ONLY a JSON object {"t": string[]} where t has the same length and order as the input. Keep untranslatable strings (numbers, codes) unchanged.`,
-      input: JSON.stringify(batch.map((i) => texts[i])),
-      text: { format: { type: 'json_object' } },
-      temperature: 1.3, // DeepSeek 官方翻译场景推荐值
-    });
-
-    let res: Response;
-    for (let attempt = 0; ; attempt++) {
-      res = await fetch('https://api.deepseek.com/v1/responses', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body,
-      });
-      if ((res.status !== 429 && res.status < 500) || attempt >= 3) break;
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-    }
-    if (res.status === 401 || res.status === 403)
-      throw Object.assign(new Error(`HTTP ${res.status}`), { code: 'auth' as const });
-    if (!res.ok) throw new Error(`translate: HTTP ${res.status}`);
-
-    // 非流式响应：output 里 type==='message' 项的 output_text 块即译文 JSON
-    const data = await res.json();
-    const raw = data.output
-      ?.find((o: { type: string }) => o.type === 'message')
-      ?.content?.find((c: { type: string }) => c.type === 'output_text')?.text;
-    let translated: unknown;
-    try {
-      translated = JSON.parse(raw).t;
-    } catch {
-      translated = null;
-    }
-    // 长度对不上 = 模型跑偏：该批保持原文，不注入错位译文
-    if (!Array.isArray(translated) || translated.length !== batch.length) return;
-    batch.forEach((idx, j) => {
-      out[idx] = String(translated[j]);
-      transCache.set(`${to}|${texts[idx]}`, out[idx]!);
-    });
-  };
-
-  // 按并发上限分组并行；每次 fetch 也顺带重置 MV3 SW 的 30s 空闲计时器
-  for (let i = 0; i < batches.length; i += DEEPSEEK_CONCURRENCY)
-    await Promise.all(batches.slice(i, i + DEEPSEEK_CONCURRENCY).map(run));
-
-  // 失败批的段落回退为原文（content 侧≡原文不注入）
-  return out.map((t, i) => t ?? texts[i]);
-}
-
 export default defineBackground(() => {
   // "save clip" context menu; title follows the UI language
   browser.runtime.onInstalled.addListener(async () => {
@@ -292,11 +216,6 @@ export default defineBackground(() => {
       browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
         /* no content script on this page (chrome://, store) */
       });
-  });
-
-  // 整页翻译：content 受页面 CORS 限制，由这里持 host_permissions 代发；返回 Promise 保持通道开放
-  browser.runtime.onMessage.addListener((msg: { type?: string; texts?: string[]; to?: string }) => {
-    if (msg?.type === 'translate' && msg.texts && msg.to) return deepseekTranslate(msg.texts, msg.to);
   });
 
   browser.runtime.onConnect.addListener((port) => {

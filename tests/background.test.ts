@@ -21,7 +21,6 @@ vi.mock('@/lib/settings', () => ({
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
-  deepseekKeyItem: { getValue: () => Promise.resolve('') },
 }));
 
 vi.mock('@/lib/i18n', () => ({

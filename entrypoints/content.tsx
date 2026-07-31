@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
-import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Languages } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
@@ -15,10 +14,9 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
-import { useI18n, langItem } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n';
 import { addClip, buildClipUrl, clipsItem, highlightClip, removeMarks, clipNavUrl, type Clip } from '@/lib/clips';
-import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark, transEnabledItem, transTargetItem, type Theme, type PageCarry } from '@/lib/settings';
-import { startTranslate, setTranslationsVisible, stopTranslate } from '@/lib/translate';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark, type Theme, type PageCarry } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -108,23 +106,22 @@ function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
     return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
 
   return pageClips.map((clip) => (
-    <div key={clip.id} className="flex items-center gap-2">
-      <button
-        type="button"
-        className="min-w-0 flex-1 cursor-pointer text-left"
-        onClick={() => showClip(clip) || window.open(clipNavUrl(clip))}
-        title={clip.text}
-      >
-        <span className="line-clamp-2 text-sm">{clip.text}</span>
-        <span className="mt-1 block truncate text-[10px] text-muted-foreground">
-          {new Date(clip.createdAt).toLocaleString()}
-        </span>
-      </button>
-    </div>
+    <button
+      key={clip.id}
+      type="button"
+      className="min-w-0 cursor-pointer text-left"
+      onClick={() => showClip(clip) || window.open(clipNavUrl(clip))}
+      title={clip.text}
+    >
+      <span className="line-clamp-2 text-sm">{clip.text}</span>
+      <span className="mt-1 block truncate text-[10px] text-muted-foreground">
+        {new Date(clip.createdAt).toLocaleString()}
+      </span>
+    </button>
   ));
 }
 
-export function FloatingAgent({ ctx }: { ctx?: ContentScriptContext }) {
+export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
   const [theme, setTheme] = useState<Theme>('system');
@@ -135,7 +132,6 @@ export function FloatingAgent({ ctx }: { ctx?: ContentScriptContext }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
   const [clips, setClips] = useState<Clip[]>([]);
-  const [trans, setTrans] = useState<'off' | 'on' | 'hidden'>('off');
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -189,59 +185,6 @@ export function FloatingAgent({ ctx }: { ctx?: ContentScriptContext }) {
   }, [messages]);
 
   useEffect(() => () => portRef.current?.disconnect(), []);
-
-  // 启动翻译：错误落到聊天气泡并关掉总开关（popup 的 Switch 一并归位）
-  const beginTranslate = async () => {
-    const to = (await transTargetItem.getValue()) || (await langItem.getValue());
-    startTranslate(to, (err) => {
-      // background 抛错跨消息通道只剩 message 字符串，按内容判未配置
-      const nokey = String(err).includes('no deepseek key');
-      setMessages((m) => [...m, {
-        role: 'agent',
-        text: nokey ? t('translate.error.nokey') : t('widget.error.generic', { message: String(err) }),
-        at: Date.now(),
-      }]);
-      setOpen(true);
-      transEnabledItem.setValue(false); // watch 回调负责 stop + 复位
-    });
-    setTrans('on');
-  };
-  // 下面两个 []-依赖 effect 经 ref 调最新闭包，避免错误文案用到首次渲染的旧语言
-  const beginRef = useRef(beginTranslate);
-  beginRef.current = beginTranslate;
-
-  // 总开关（popup Switch / 面板按钮共用开关源）：on → 整页翻译，off → 恢复原文
-  useEffect(() => {
-    transEnabledItem.getValue().then((on) => { if (on) beginRef.current(); });
-    return transEnabledItem.watch((on) => {
-      if (on) return void beginRef.current();
-      stopTranslate();
-      setTrans('off');
-    });
-  }, []);
-
-  // SPA 路由切换：旧页译文作废；开关仍开则对新页面重新翻译
-  useEffect(() => {
-    if (!ctx) return;
-    ctx.addEventListener(window, 'wxt:locationchange', () => {
-      stopTranslate();
-      setTrans('off');
-      transEnabledItem.getValue().then((on) => { if (on) beginRef.current(); });
-    });
-  }, []);
-
-  // 三态循环：未翻译 → 翻译并显示 → 隐藏（译文保留，复显零 API 成本）→ 复显
-  const toggleTranslate = () => {
-    if (trans === 'off') {
-      transEnabledItem.setValue(true); // watch 回调负责启动，popup 同步亮起
-    } else if (trans === 'on') {
-      setTranslationsVisible(false);
-      setTrans('hidden');
-    } else {
-      setTranslationsVisible(true);
-      setTrans('on');
-    }
-  };
 
   useEffect(() => {
     clipsItem.getValue().then(setClips);
@@ -398,27 +341,15 @@ export function FloatingAgent({ ctx }: { ctx?: ContentScriptContext }) {
                 {t('nav.clips')}
               </MenubarTrigger>
             </Menubar>
-            <div className="flex items-center">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={toggleTranslate}
-                aria-label={t(trans === 'on' ? 'translate.hide' : trans === 'hidden' ? 'translate.show' : 'translate.toggle')}
-                aria-pressed={trans === 'on'}
-              >
-                <Languages />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={closePanel}
-                aria-label={t('widget.close')}
-              >
-                <X />
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={closePanel}
+              aria-label={t('widget.close')}
+            >
+              <X />
+            </Button>
           </CardHeader>
 
           <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
@@ -547,7 +478,7 @@ export default defineContentScript({
       isolateEvents: true,
       onMount(container) {
         const root = ReactDOM.createRoot(container);
-        root.render(<FloatingAgent ctx={ctx} />);
+        root.render(<FloatingAgent />);
         return root;
       },
       onRemove(root) {

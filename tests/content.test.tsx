@@ -33,8 +33,6 @@ vi.mock('@/lib/settings', () => ({
   petPosItem: { getValue: () => mockPosGet(), setValue: (v: unknown) => mockPosSet(v) },
   pageCarryItem: { getValue: () => mockCarryGet(), watch: () => () => {} },
   clipHighlightItem: { getValue: () => mockHighlightOn(), watch: () => () => {} },
-  transEnabledItem: { getValue: () => Promise.resolve(false), setValue: vi.fn(), watch: () => () => {} },
-  transTargetItem: { getValue: () => Promise.resolve('') },
   isDark: () => false,
 }));
 

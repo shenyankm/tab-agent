@@ -10,7 +10,7 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
-import { petEnabledItem, pageCarryItem, clipHighlightItem, transEnabledItem, type PageCarry } from '@/lib/settings';
+import { petEnabledItem, pageCarryItem, clipHighlightItem, type PageCarry } from '@/lib/settings';
 
 const carries: PageCarry[] = ['none', 'article', 'screenshot'];
 
@@ -19,7 +19,6 @@ function App() {
   const [petEnabled, setPetEnabled] = useState(true);
   const [carry, setCarry] = useState<PageCarry>('article');
   const [highlight, setHighlight] = useState(true);
-  const [translate, setTranslate] = useState(false);
 
   // watch keeps the popup in sync with the options page
   useEffect(() => {
@@ -35,11 +34,6 @@ function App() {
   useEffect(() => {
     clipHighlightItem.getValue().then(setHighlight);
     return clipHighlightItem.watch(setHighlight);
-  }, []);
-
-  useEffect(() => {
-    transEnabledItem.getValue().then(setTranslate);
-    return transEnabledItem.watch(setTranslate);
   }, []);
 
   // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep old choice
@@ -70,11 +64,6 @@ function App() {
       <div className="flex w-full items-center justify-between gap-4">
         <span className="shrink-0 text-sm font-medium">{t('settings.clipHighlight')}</span>
         <Switch checked={highlight} onCheckedChange={(v) => clipHighlightItem.setValue(v)} />
-      </div>
-
-      <div className="flex w-full items-center justify-between gap-4">
-        <span className="shrink-0 text-sm font-medium">{t('settings.translate')}</span>
-        <Switch checked={translate} onCheckedChange={(v) => transEnabledItem.setValue(v)} />
       </div>
 
       <div className="flex w-full items-center justify-between gap-4">

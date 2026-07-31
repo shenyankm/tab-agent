@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/pagination';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
 import { clipsItem, removeClip, clipNavUrl, type Clip } from '@/lib/clips';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, deepseekKeyItem, transTargetItem, type Theme } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'clips' | 'privacy';
 
@@ -94,8 +94,10 @@ function ClipsPage() {
 
   // site view: newest-first inside groups, groups ordered by their newest clip
   const bySite = new Map<string, Clip[]>();
-  for (const c of view === 'site' ? sorted : [])
-    bySite.set(new URL(c.pageUrl).hostname, [...(bySite.get(new URL(c.pageUrl).hostname) ?? []), c]);
+  for (const c of view === 'site' ? sorted : []) {
+    const host = new URL(c.pageUrl).hostname;
+    bySite.set(host, [...(bySite.get(host) ?? []), c]);
+  }
 
   const row = (clip: Clip) => (
     <div key={clip.id} className="flex items-center gap-2 border-b border-border py-3">
@@ -226,6 +228,7 @@ function PrivacyPage() {
         <li>{t('settings.theme')}</li>
         <li>{t('settings.pet')}</li>
         <li>{t('settings.pageCarry')}</li>
+        <li>{t('nav.clips')} / {t('settings.clipHighlight')}</li>
         <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')} / {t('settings.vaultId')}</li>
       </ul>
 
@@ -249,18 +252,15 @@ const connFields = [
   ['agentId', agentIdItem, 'agent_...'],
   ['envId', envIdItem, 'env_...'],
   ['vaultId', vaultIdItem, 'vault_...'],
-  ['deepseekKey', deepseekKeyItem, 'sk-...'],
 ] as const;
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [conn, setConn] = useState<Record<string, string>>({});
-  const [transTarget, setTransTarget] = useState('');
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
-    transTargetItem.getValue().then(setTransTarget);
     connFields.forEach(([key, item]) => {
       item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
     });
@@ -307,28 +307,6 @@ function SettingsPage() {
                 <DropdownMenuRadioItem value="system">{t('theme.system')}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="dark">{t('theme.dark')}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="light">{t('theme.light')}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.transTarget')}</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                {transTarget ? langLabels[transTarget as Lang] : t('transTarget.follow')}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuRadioGroup
-                value={transTarget}
-                onValueChange={(v) => { setTransTarget(v); transTargetItem.setValue(v); }}
-              >
-                <DropdownMenuRadioItem value="">{t('transTarget.follow')}</DropdownMenuRadioItem>
-                {Object.entries(langLabels).map(([value, label]) => (
-                  <DropdownMenuRadioItem key={value} value={value}>{label}</DropdownMenuRadioItem>
-                ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -7,7 +7,7 @@ export default defineConfig({
   manifest: {
     name: 'Pixel Agent',
     permissions: ['storage', 'contextMenus'],
-    host_permissions: ['https://api.qoder.com/*', 'https://api.deepseek.com/*'],
+    host_permissions: ['https://api.qoder.com/*'],
     // tabs.captureVisibleTab (screenshot page context) needs <all_urls>; requested
     // at runtime in the popup when the user picks "screenshot" (least privilege)
     optional_host_permissions: ['<all_urls>'],
