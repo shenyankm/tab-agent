@@ -39,7 +39,6 @@ async function createSession(pat: string, agentId: string, envId: string, vaultI
 }
 
 type PageContext = { url: string; title: string; text: string };
-type FileIn = { name: string; text: string };
 type Mount = { fileId: string; path: string; note: string };
 
 async function uploadFile(pat: string, name: string, blob: Blob) {
@@ -119,7 +118,6 @@ async function streamReply(
 async function handleChat(
   text: string,
   page: PageContext | undefined,
-  file: FileIn | undefined,
   screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
@@ -139,14 +137,6 @@ async function handleChat(
 
   // uploads happen once; mounting is per-session, so it happens inside tryTurn
   const mounts: Mount[] = [];
-  if (file) {
-    const path = `/data/input/${file.name.replace(/[/\\]/g, '_')}`;
-    mounts.push({
-      fileId: await uploadFile(pat, file.name, new Blob([file.text])),
-      path,
-      note: `[Attached file] The user attached a file, mounted at ${path} in your workspace. Read it from there when relevant.`,
-    });
-  }
   if (screenshot) {
     // captured here, not in the content script: tabs.captureVisibleTab only exists
     // in extension contexts and needs the <all_urls> host permission
@@ -206,7 +196,7 @@ export default defineBackground(() => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
     port.onDisconnect.addListener(() => abort.abort());
-    port.onMessage.addListener((msg: { text: string; page?: PageContext; file?: FileIn; screenshot?: boolean }) => {
+    port.onMessage.addListener((msg: { text: string; page?: PageContext; screenshot?: boolean }) => {
       const send = (out: ChatOut) => {
         try {
           port.postMessage(out);
@@ -214,7 +204,7 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      handleChat(msg.text, msg.page, msg.file, !!msg.screenshot, abort.signal, send).catch((err) => {
+      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send).catch((err) => {
         if (!abort.signal.aborted)
           send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
       });
