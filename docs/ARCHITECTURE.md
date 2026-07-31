@@ -15,13 +15,14 @@
 
 ```
 entrypoints/
-  background.ts    # Service worker：与 Qoder 网关的全部网络交互
-  content.tsx      # 内容脚本：悬浮宠物 + 聊天面板（Shadow DOM）
-  popup/           # 浏览器动作弹窗：宠物开关 + 携带页面 + 打开设置
-  options/         # 设置页（独立标签页）：凭证 / 主题 / 语言 / 隐私
+  background.ts    # Service worker：与 Qoder 网关的全部网络交互 + 右键菜单
+  content.tsx      # 内容脚本：悬浮宠物 + 聊天面板（Shadow DOM）+ 摘录高亮
+  popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
+  options/         # 设置页（独立标签页）：凭证 / 主题 / 语言 / 摘录管理 / 隐私
 lib/
   settings.ts      # 全部持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
+  clips.ts         # 摘录：text-fragment URL 生成/解析/高亮（text-fragments-polyfill）
   i18n.tsx         # 多语言
   utils.ts         # cn()（clsx + tailwind-merge）
 components/ui/     # RetroUI 组件源码（shadcn CLI 添加）
@@ -49,6 +50,8 @@ tests/             # vitest 单元测试（pnpm test）
 ```
 
 关键决策：**所有网络请求收敛在 background**。内容脚本只通过长连接 Port 收发消息，凭证不进入页面上下文；Port 断开即中止后台请求（AbortController）。
+
+另有一条轻量消息路径（`runtime.sendMessage`）：**摘录** —— background 的右键菜单 → `{type:'saveClip'}` → content 用当前 Selection 生成 text-fragment URL 存入 storage。
 
 ## 4. 云端架构（Qoder Cloud Agents）
 
@@ -136,6 +139,7 @@ user.message → session.status_running → agent.thinking
 |---|---|
 | `theme` / `petEnabled` / `petPos` | 外观、宠物开关、宠物位置 |
 | `pageCarry` | 携带页面：none / article / screenshot |
+| `clips` / `clipHighlight`（clips 定义在 `lib/clips.ts`） | 摘录列表与高亮开关 |
 | `lang`（定义在 `lib/i18n.tsx`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `sessionId.v3` | 云端会话缓存；**语义变化时 bump key 版本号**强制新会话（v2→v3 为挂载 vault_ids） |
@@ -148,7 +152,7 @@ user.message → session.status_running → agent.thinking
 
 ## 8. 权限与安全
 
-- manifest 权限：`storage` + host `https://api.qoder.com/*`；截图所需 `<all_urls>` 为 `optional_host_permissions`，用户在 popup 选「截图」的点击手势内才申请。
+- manifest 权限：`storage` + `contextMenus`（右键保存摘录）+ host `https://api.qoder.com/*`；截图所需 `<all_urls>` 为 `optional_host_permissions`，用户在 popup 选「截图」的点击手势内才申请。
 - 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。
 
 ## 9. 构建与校验

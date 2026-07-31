@@ -2,7 +2,7 @@
 
 ## 1. 产品概述
 
-Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。
+Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键保存选中文字为摘录（text-fragment 高亮、可跨页跳转）。
 
 **目标用户**：拥有 Qoder Cloud Agents 账号、希望在浏览网页时随手向自己的云端 Agent 提问的开发者。
 
@@ -31,17 +31,25 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 | 错误提示 | 区分「未配置凭证」「鉴权失败」「通用错误」三类文案 |
 | 无障碍 | dialog role、aria-live 消息区、Esc 关闭、焦点管理 |
 
-### 2.3 设置（Options 页 + Popup）
+### 2.3 摘录（Clips）
+
+| 需求 | 说明 |
+|---|---|
+| 保存 | 选中文字 → 右键菜单「保存为摘录」；生成 text-fragment URL（同 Chrome「复制指向突出显示内容的链接」算法，失败时单词回退） |
+| 高亮 | 页面加载时重新标记本页摘录；开关可关（关闭时点击仅定位，3s 后淡出） |
+| 管理 | 面板内列本页摘录（点击页内跳转）；Options 页全量列表：搜索 / 按时间或站点分组 / 分页 / 删除（二次确认）/ 跨页跳转 |
+
+### 2.4 设置（Options 页 + Popup）
 
 | 需求 | 说明 |
 |---|---|
 | 凭证 | PAT / Agent ID / Environment ID / Vault ID（可选），密码型输入框、禁止复制剪切、失焦保存 |
 | 外观 | 主题 system / dark / light；多语言（en / 简 / 繁 / 日） |
 | 携带页面 | Popup 下拉选择 无 / 正文 / 截图；选截图时在点击手势内申请 `<all_urls>` 可选权限，拒绝则保持原选项 |
-| 页签 | Settings / Privacy，页签状态持久化在 URL hash |
+| 页签 | Settings / Clips / Privacy，页签状态持久化在 URL hash |
 | 隐私声明 | 列出本地存储项、网络访问范围、权限用途、不共享承诺 |
 
-### 2.4 会话管理
+### 2.5 会话管理
 
 - 会话惰性创建并缓存 session id；会话失效（404）自动重建并重试一次。
 - 上一回合未结束时发新消息（409）：自动 cancel 旧回合后有界轮询重发。
@@ -50,7 +58,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 ## 3. 非功能需求
 
 - **隐私**：所有数据仅存 `storage.local`；网络请求仅发往 `api.qoder.com`；凭证不落任何第三方。
-- **权限最小化**：仅 `storage` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请。
+- **权限最小化**：`storage` + `contextMenus` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请。
 - **性能**：内容脚本注入所有页面，UI 保持轻量；流式渲染不阻塞页面。
 - **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用。
 

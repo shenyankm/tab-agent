@@ -1,6 +1,6 @@
 # Pixel Agent
 
-一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。
+一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键保存选中文字为摘录（text-fragment 高亮）。
 
 [English](README.md) | **中文**
 
@@ -78,7 +78,7 @@ entrypoints/
   popup/            # 工具栏弹窗
   options/          # 设置页
 components/ui/      # RetroUI 组件（shadcn CLI）
-lib/                # 共享工具（i18n、设置、SSE 解析器）
+lib/                # 共享工具（i18n、设置、SSE 解析器、摘录）
 tests/              # Vitest 测试套件
 ```
 

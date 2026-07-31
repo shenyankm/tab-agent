@@ -1,6 +1,6 @@
 # Pixel Agent
 
-A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing.
+A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu, text-fragment highlights).
 
 **English** | [中文](README.zh-CN.md)
 
@@ -78,7 +78,7 @@ entrypoints/
   popup/            # Browser action popup
   options/          # Settings page
 components/ui/      # RetroUI components (shadcn CLI)
-lib/                # Shared utilities (i18n, settings, SSE parser)
+lib/                # Shared utilities (i18n, settings, SSE parser, clips)
 tests/              # Vitest test suites
 ```
 
