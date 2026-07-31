@@ -21,6 +21,8 @@ export type Clip = {
 
 export const clipsItem = storage.defineItem<Clip[]>('local:clips', { fallback: [] });
 
+export const stripHash = (url: string) => url.split('#')[0];
+
 export async function addClip(clip: Omit<Clip, 'id' | 'createdAt'>): Promise<Clip> {
   const full = { ...clip, id: crypto.randomUUID(), createdAt: Date.now() };
   const clips = await clipsItem.getValue();
@@ -48,7 +50,7 @@ const fragmentDirective = (f: TextFragment) =>
 
 /** Build the clip's target URL — same algorithm as Chrome's "Copy link to highlight". */
 export function buildClipUrl(pageUrl: string, selection: Selection): string {
-  const base = pageUrl.split('#')[0];
+  const base = stripHash(pageUrl);
   try {
     const { status, fragment } = generateFragment(selection);
     if (status === GenerateFragmentStatus.SUCCESS && fragment)
@@ -92,7 +94,7 @@ function trimRangeToText(range: Range, text: string) {
 /** 跨页跳转用 URL：不带 text fragment（原生 ::target-text 高亮无法编程清除，
  * “摘录高亮关闭时淡出”会失效），改带 clip id，由目标页 content script 走 showClip
  * 同一条定位/高亮/淡出路径。 */
-export const clipNavUrl = (clip: Clip) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`;
+export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#pixel-agent-clip=${clip.id}`;
 
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
 export function highlightClip(clip: Clip): Element[] {
