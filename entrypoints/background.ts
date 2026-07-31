@@ -196,6 +196,25 @@ async function handleChat(
 }
 
 export default defineBackground(() => {
+  // env health probe for the widget badge: config present + GET /agents/{id} reachable
+  // ponytail: env ID is only truly validated at session creation; not probed separately
+  browser.runtime.onMessage.addListener((msg: { type?: string }) => {
+    if (msg?.type !== 'envCheck') return;
+    return (async () => {
+      const [pat, agentId, envId] = await Promise.all([
+        patItem.getValue(),
+        agentIdItem.getValue(),
+        envIdItem.getValue(),
+      ]);
+      if (!pat || !agentId || !envId) return { ok: false };
+      try {
+        return { ok: (await api(pat, `/agents/${agentId}`)).ok };
+      } catch {
+        return { ok: false };
+      }
+    })();
+  });
+
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
@@ -208,10 +227,15 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send).catch((err) => {
-        if (!abort.signal.aborted)
-          send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
-      });
+      // MV3 kills the worker after 30s without extension API activity; a screenshot
+      // turn (tool call + thinking) can stream nothing for that long, so ping to stay alive
+      const keepalive = setInterval(() => browser.runtime.getPlatformInfo(), 20_000);
+      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send)
+        .catch((err) => {
+          if (!abort.signal.aborted)
+            send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
+        })
+        .finally(() => clearInterval(keepalive));
     });
   });
 });
