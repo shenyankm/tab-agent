@@ -42,7 +42,7 @@ describe('useI18n t()', () => {
 
   it('looks up a key in the dictionary', async () => {
     const { result } = renderHook(() => useI18n());
-    await waitFor(() => expect(result.current.t('settings.title')).toBe('Settings'));
+    await waitFor(() => expect(result.current.t('settings.language')).toBe('Language'));
   });
 
   it('interpolates variables', async () => {
@@ -60,6 +60,6 @@ describe('useI18n t()', () => {
   it('returns zh-CN translations when lang is zh-CN', async () => {
     mockGetValue.mockResolvedValue('zh-CN');
     const { result } = renderHook(() => useI18n());
-    await waitFor(() => expect(result.current.t('settings.title')).toBe('设置'));
+    await waitFor(() => expect(result.current.t('settings.language')).toBe('显示语言'));
   });
 });

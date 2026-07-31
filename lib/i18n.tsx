@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useStorageValue } from '@/lib/utils';
 
 export type Lang = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
 
@@ -18,9 +18,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     'app.title': 'Pixel Agent',
     'widget.open': 'Open Pixel Agent',
     'widget.close': 'Close Pixel Agent',
-    'widget.status.idle': 'Ready',
     'widget.status.thinking': 'Thinking',
-    'widget.status.done': 'Complete',
     'widget.greeting': 'Hi! What would you like to know about this page?',
     'widget.placeholder': 'Ask about this page…',
     'widget.translate': 'Translate into English: {text}',
@@ -30,7 +28,6 @@ export const dict: Record<Lang, Record<string, string>> = {
     'widget.error.generic': 'Request failed: {message}',
     'widget.error.disconnected': 'Connection to the extension was lost. Please try again.',
     'widget.tab.chat': 'Chat',
-    'settings.title': 'Settings',
     'settings.language': 'Language',
     'settings.theme': 'Theme',
     'settings.pet': 'Show Pet',
@@ -75,9 +72,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     'app.title': 'Pixel Agent',
     'widget.open': '打开 Pixel Agent',
     'widget.close': '关闭 Pixel Agent',
-    'widget.status.idle': '随时待命',
     'widget.status.thinking': '思考中',
-    'widget.status.done': '已完成',
     'widget.greeting': '你好！想了解当前页面的什么内容？',
     'widget.placeholder': '询问当前页面…',
     'widget.translate': '翻译成简体中文：{text}',
@@ -87,7 +82,6 @@ export const dict: Record<Lang, Record<string, string>> = {
     'widget.error.generic': '请求失败：{message}',
     'widget.error.disconnected': '与扩展的连接中断，请重试。',
     'widget.tab.chat': '会话',
-    'settings.title': '设置',
     'settings.language': '显示语言',
     'settings.theme': '切换主题',
     'settings.pet': '显示宠物',
@@ -132,9 +126,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     'app.title': 'Pixel Agent',
     'widget.open': '開啟 Pixel Agent',
     'widget.close': '關閉 Pixel Agent',
-    'widget.status.idle': '隨時待命',
     'widget.status.thinking': '思考中',
-    'widget.status.done': '已完成',
     'widget.greeting': '你好！想瞭解目前頁面的什麼內容？',
     'widget.placeholder': '詢問目前頁面…',
     'widget.translate': '翻譯成繁體中文：{text}',
@@ -144,7 +136,6 @@ export const dict: Record<Lang, Record<string, string>> = {
     'widget.error.generic': '請求失敗：{message}',
     'widget.error.disconnected': '與擴充功能的連線中斷，請重試。',
     'widget.tab.chat': '會話',
-    'settings.title': '設定',
     'settings.language': '顯示語言',
     'settings.theme': '切換主題',
     'settings.pet': '顯示寵物',
@@ -189,9 +180,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     'app.title': 'Pixel Agent',
     'widget.open': 'Pixel Agent を開く',
     'widget.close': 'Pixel Agent を閉じる',
-    'widget.status.idle': '待機中',
     'widget.status.thinking': '考え中',
-    'widget.status.done': '完了',
     'widget.greeting': 'こんにちは。このページについて何を知りたいですか？',
     'widget.placeholder': 'このページについて質問…',
     'widget.translate': '日本語に翻訳：{text}',
@@ -201,7 +190,6 @@ export const dict: Record<Lang, Record<string, string>> = {
     'widget.error.generic': 'リクエスト失敗：{message}',
     'widget.error.disconnected': '拡張機能との接続が切断されました。もう一度お試しください。',
     'widget.tab.chat': 'チャット',
-    'settings.title': '設定',
     'settings.language': '表示言語',
     'settings.theme': 'テーマ切替',
     'settings.pet': 'ペットを表示',
@@ -245,13 +233,7 @@ export const dict: Record<Lang, Record<string, string>> = {
 };
 
 export function useI18n() {
-  const [lang, setLangState] = useState<Lang>('zh-CN');
-
-  // watch keeps every component and every open page in sync
-  useEffect(() => {
-    langItem.getValue().then(setLangState);
-    return langItem.watch(setLangState);
-  }, []);
+  const lang = useStorageValue(langItem, 'zh-CN');
 
   const t = (key: string, vars?: Record<string, string | number>) => {
     let s = dict[lang][key] ?? key;
