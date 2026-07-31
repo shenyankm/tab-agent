@@ -152,6 +152,7 @@ async function handleChat(
       note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
     });
   }
+  const notes = mounts.map((m) => m.note);
 
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
@@ -171,14 +172,14 @@ async function handleChat(
       // pre-await rejections (dead-session 404, failure-path abort) must not fire
       // unhandledrejection; `await streaming` below still surfaces the error
       streaming.catch(() => {});
-      let res = await postUserMessage(pat, sid, text, page, mounts.map((m) => m.note));
+      let res = await postUserMessage(pat, sid, text, page, notes);
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then retry the post
         await api(pat, `/sessions/${sid}/cancel`, { method: 'POST' });
         // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
         for (let i = 0; i < 5 && res.status === 409; i++) {
           await new Promise((r) => setTimeout(r, 1000));
-          res = await postUserMessage(pat, sid, text, page, mounts.map((m) => m.note));
+          res = await postUserMessage(pat, sid, text, page, notes);
         }
       }
       if (res.status === 404) return false;
