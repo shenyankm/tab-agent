@@ -40,10 +40,11 @@ async function createSession(pat: string, agentId: string, envId: string, vaultI
 
 type PageContext = { url: string; title: string; text: string };
 type FileIn = { name: string; text: string };
+type Mount = { fileId: string; path: string; note: string };
 
-async function uploadFile(pat: string, file: FileIn) {
+async function uploadFile(pat: string, name: string, blob: Blob) {
   const form = new FormData();
-  form.append('file', new Blob([file.text]), file.name);
+  form.append('file', blob, name);
   const res = await api(pat, '/files', { method: 'POST', body: form });
   if (!res.ok) throw new Error(`upload file: HTTP ${res.status}`);
   return (await res.json()).id as string;
@@ -54,15 +55,14 @@ function postUserMessage(
   sessionId: string,
   text: string,
   page?: PageContext,
-  mountPath?: string,
+  notes: string[] = [],
 ) {
   // context is inlined into the user message: agents with browser tools ignore
   // side-channel context and open their own (blank) cloud browser instead
   let body = page
     ? `${text}\n\n---\n[Page context] The page below is already open in the user's LOCAL browser. Answer from this content. Do NOT use your own browser tools — your cloud browser cannot see the user's page.\nURL: ${page.url}\nTitle: ${page.title}\n\n${page.text}`
     : text;
-  if (mountPath)
-    body += `\n\n[Attached file] The user attached a file, mounted at ${mountPath} in your workspace. Read it from there when relevant.`;
+  for (const note of notes) body += `\n\n${note}`;
   return api(pat, `/sessions/${sessionId}/events`, {
     method: 'POST',
     body: JSON.stringify({
@@ -120,6 +120,7 @@ async function handleChat(
   text: string,
   page: PageContext | undefined,
   file: FileIn | undefined,
+  screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
 ) {
@@ -136,9 +137,26 @@ async function handleChat(
 
   let sessionId = await sessionIdItem.getValue();
 
-  // file is uploaded once; mounting is per-session, so it happens inside tryTurn
-  const fileId = file ? await uploadFile(pat, file) : null;
-  const mountPath = file ? `/data/input/${file.name.replace(/[/\\]/g, '_')}` : undefined;
+  // uploads happen once; mounting is per-session, so it happens inside tryTurn
+  const mounts: Mount[] = [];
+  if (file) {
+    const path = `/data/input/${file.name.replace(/[/\\]/g, '_')}`;
+    mounts.push({
+      fileId: await uploadFile(pat, file.name, new Blob([file.text])),
+      path,
+      note: `[Attached file] The user attached a file, mounted at ${path} in your workspace. Read it from there when relevant.`,
+    });
+  }
+  if (screenshot) {
+    // captured here, not in the content script: tabs.captureVisibleTab only exists
+    // in extension contexts and needs the <all_urls> host permission
+    const dataUrl = await browser.tabs.captureVisibleTab(undefined, { format: 'jpeg', quality: 80 });
+    mounts.push({
+      fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob()),
+      path: '/data/input/screenshot.jpg',
+      note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
+    });
+  }
 
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
@@ -146,24 +164,24 @@ async function handleChat(
     const turn = new AbortController();
     const turnSignal = AbortSignal.any([signal, turn.signal]); // Chrome 116+
     try {
-      if (fileId) {
+      for (const m of mounts) {
         const mounted = await api(pat, `/sessions/${sid}/resources`, {
           method: 'POST',
-          body: JSON.stringify({ type: 'file', file_id: fileId, mount_path: mountPath }),
+          body: JSON.stringify({ type: 'file', file_id: m.fileId, mount_path: m.path }),
         });
         if (mounted.status === 404) return false; // dead session: recreate and re-mount
         if (!mounted.ok) throw new Error(`mount file: HTTP ${mounted.status}`);
       }
       const streaming = streamReply(pat, sid, turnSignal, send, () => posted);
       streaming.catch(() => {}); // dead-session 404s and failure-path aborts self-terminate
-      let res = await postUserMessage(pat, sid, text, page, mountPath);
+      let res = await postUserMessage(pat, sid, text, page, mounts.map((m) => m.note));
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then retry the post
         await api(pat, `/sessions/${sid}/cancel`, { method: 'POST' });
         // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
         for (let i = 0; i < 5 && res.status === 409; i++) {
           await new Promise((r) => setTimeout(r, 1000));
-          res = await postUserMessage(pat, sid, text, page, mountPath);
+          res = await postUserMessage(pat, sid, text, page, mounts.map((m) => m.note));
         }
       }
       if (res.status === 404) return false;
@@ -188,7 +206,7 @@ export default defineBackground(() => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
     port.onDisconnect.addListener(() => abort.abort());
-    port.onMessage.addListener((msg: { text: string; page?: PageContext; file?: FileIn }) => {
+    port.onMessage.addListener((msg: { text: string; page?: PageContext; file?: FileIn; screenshot?: boolean }) => {
       const send = (out: ChatOut) => {
         try {
           port.postMessage(out);
@@ -196,7 +214,7 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      handleChat(msg.text, msg.page, msg.file, abort.signal, send).catch((err) => {
+      handleChat(msg.text, msg.page, msg.file, !!msg.screenshot, abort.signal, send).catch((err) => {
         if (!abort.signal.aborted)
           send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
       });
