@@ -26,8 +26,9 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 |---|---|
 | 提问 | 文本输入，Enter/按钮发送；思考中重新提交 = 取消旧回合并开新回合 |
 | 流式回答 | Agent 回复逐字追加，Markdown 渲染（含 GFM 表格等） |
-| 页面上下文 | 自动携带当前页 URL、标题、正文（innerText 截断 20k 字符），内联进用户消息 |
-| 文件附件 | 单个文本文件 ≤ 1MB，上传后挂载到 Agent 工作区 `/data/input/` |
+| 页面上下文 | 「携带页面」三档：无 / 正文（Readability 提取→Markdown，截断 20k 字符，内联进用户消息）/ 截图（background 截可见区域，上传挂载到 `/data/input/screenshot.jpg`） |
+| 划词翻译 | 选中页面文字后点宠物，输入框预填「翻译成界面语言：…」（选区截断 2k 字符） |
+| 环境健康度 | 面板每次打开探活一次（凭证齐全 + `GET /agents/{id}` 可达），徽标显示可用/不可用 |
 | 错误提示 | 区分「未配置凭证」「鉴权失败」「通用错误」三类文案 |
 | 无障碍 | dialog role、aria-live 消息区、Esc 关闭、焦点管理 |
 
@@ -36,8 +37,9 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 | 需求 | 说明 |
 |---|---|
 | 凭证 | PAT / Agent ID / Environment ID / Vault ID（可选），密码型输入框、禁止复制剪切、失焦保存 |
-| 外观 | 主题 system / dark / light；多语言切换 |
-| 页签 | Settings / Guide / Privacy，页签状态持久化在 URL hash |
+| 外观 | 主题 system / dark / light；多语言（en / 简 / 繁 / 日） |
+| 携带页面 | Popup 下拉选择 无 / 正文 / 截图；选截图时在点击手势内申请 `<all_urls>` 可选权限，拒绝则保持原选项 |
+| 页签 | Settings / Privacy，页签状态持久化在 URL hash |
 | 隐私声明 | 列出本地存储项、网络访问范围、权限用途、不共享承诺 |
 
 ### 2.4 会话管理
@@ -49,16 +51,15 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 ## 3. 非功能需求
 
 - **隐私**：所有数据仅存 `storage.local`；网络请求仅发往 `api.qoder.com`；凭证不落任何第三方。
-- **权限最小化**：仅 `storage` 权限 + `api.qoder.com` host 权限。
+- **权限最小化**：仅 `storage` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请。
 - **性能**：内容脚本注入所有页面，UI 保持轻量；流式渲染不阻塞页面。
 - **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用。
 
 ## 4. 边界与不做的事（Out of Scope）
 
 - 不做多会话/历史记录 UI（每个扩展实例复用一个云端 session）。
-- 不做二进制文件附件（Files API 仅文本，见 content 脚本 1MB 上限）。
+- 不做文件附件（页面正文/截图携带已覆盖主场景）。
 - 不做自建后端 —— 直连 Qoder 云端网关。
-- 不做页面正文智能提取（当前为 innerText 截断，噪声影响回答质量时再引入 Readability）。
 
 ## 5. 成功指标
 

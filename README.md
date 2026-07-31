@@ -59,7 +59,7 @@ Fill them in:
 |---|---|
 | "Not configured" error | PAT / Agent ID / Environment ID incomplete — fill all three in Settings |
 | "Auth failed" error | PAT expired or wrong — regenerate one |
-| Attachment rejected | Text files only, max 1 MB |
+| Screenshot context not working | Approve the site-access permission prompt when selecting "Screenshot" in the popup |
 | Want a fresh session | Clear `local:sessionId.v3` via the extension's Service Worker console, or reinstall |
 
 ## Packaging

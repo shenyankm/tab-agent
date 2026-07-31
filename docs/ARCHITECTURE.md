@@ -17,7 +17,7 @@
 entrypoints/
   background.ts    # Service worker：与 Qoder 网关的全部网络交互
   content.tsx      # 内容脚本：悬浮宠物 + 聊天面板（Shadow DOM）
-  popup/           # 浏览器动作弹窗：宠物开关 + 打开设置
+  popup/           # 浏览器动作弹窗：宠物开关 + 携带页面 + 打开设置
   options/         # 设置页（独立标签页）：凭证 / 主题 / 语言 / 隐私
 lib/
   settings.ts      # 全部持久化项（storage.defineItem）+ 主题工具
@@ -33,13 +33,13 @@ tests/             # vitest 单元测试（pnpm test）
 ```
 ┌─ 任意网页 ────────────────────────┐
 │  content.tsx（Shadow DOM UI）       │
-│   悬浮宠物 / 聊天面板 / 拖拽 / 附件  │
+│   悬浮宠物 / 聊天面板 / 拖拽 / 划词  │
 └──────────┬────────────────────────┘
            │ browser.runtime.connect({name:'chat'})
-           │ Port 消息：{text, page?, file?} ⇄ {delta|done|error}
+           │ Port 消息：{text, page?, screenshot?} ⇄ {delta|done|error}
 ┌──────────▼────────────────────────┐
 │  background.ts（Service Worker）    │
-│   会话管理 / 文件上传挂载 / SSE 流   │
+│   会话管理 / 截图上传挂载 / SSE 流   │
 └──────────┬────────────────────────┘
            │ fetch，Bearer PAT
 ┌──────────▼────────────────────────┐
@@ -103,7 +103,7 @@ user.message → session.status_running → agent.thinking
 
 **Environment**（Cloud）
 
-- 预装 pip 包：python-docx、pymupdf、openpyxl、python-pptx（均 latest）—— 服务于附件/文档处理类任务
+- 预装 pip 包：python-docx、pymupdf、openpyxl、python-pptx（均 latest）—— 服务于文档处理类任务
 
 **Vault**
 
@@ -113,9 +113,9 @@ user.message → session.status_running → agent.thinking
 
 `background.ts` 中一个回合的顺序，设计目标是「不丢事件、可自愈」：
 
-1. 有附件先 `POST /files` 上传（每次对话只传一次），再 `POST /sessions/{id}/resources` 挂载到 `/data/input/`。
+1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas[]=agent.message`），后发消息 —— 保证不错过任何 delta。
-3. `POST /sessions/{id}/events` 发送用户消息；页面上下文与附件说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白云浏览器）。
+3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取→Turndown 转 Markdown，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白云浏览器）。
 4. 流内用 `isPosted()` 闸门过滤：POST 返回前重放的旧回合 delta / idle 事件一律丢弃。
 5. `session.status_idle` → 发 `done`，回合结束。
 
@@ -135,6 +135,8 @@ user.message → session.status_running → agent.thinking
 | Key | 用途 |
 |---|---|
 | `theme` / `petEnabled` / `petPos` | 外观、宠物开关、宠物位置 |
+| `pageCarry` | 携带页面：none / article / screenshot |
+| `lang`（定义在 `lib/i18n.tsx`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `sessionId.v3` | 云端会话缓存；**语义变化时 bump key 版本号**强制新会话（v2→v3 为挂载 vault_ids） |
 
@@ -146,9 +148,8 @@ user.message → session.status_running → agent.thinking
 
 ## 8. 权限与安全
 
-- manifest 权限：`storage` + host `https://api.qoder.com/*`，无其他。
-- 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现。
-- 信任边界校验：附件 1MB 上限（Port 消息体量）、文件名清洗（`/`、`\` → `_`）后再作 mount path。
+- manifest 权限：`storage` + host `https://api.qoder.com/*`；截图所需 `<all_urls>` 为 `optional_host_permissions`，用户在 popup 选「截图」的点击手势内才申请。
+- 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。
 
 ## 9. 构建与校验
 
