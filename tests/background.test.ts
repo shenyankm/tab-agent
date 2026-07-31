@@ -24,6 +24,11 @@ vi.mock('@/lib/settings', () => ({
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
 }));
 
+vi.mock('@/lib/i18n', () => ({
+  dict: { 'zh-CN': { 'clips.menu': '保存选中内容为摘录' } },
+  langItem: { getValue: () => Promise.resolve('zh-CN'), watch: () => () => {} },
+}));
+
 vi.mock('wxt/utils/define-background', () => ({
   defineBackground: (cb: () => void) => cb(),
 }));
@@ -37,6 +42,12 @@ vi.mock('wxt/browser', () => ({
       onMessage: {
         addListener: (fn: (...args: any[]) => any) => { messageListenerRef.current = fn; },
       },
+      onInstalled: { addListener: vi.fn() },
+    },
+    contextMenus: {
+      create: vi.fn(),
+      update: vi.fn(),
+      onClicked: { addListener: vi.fn() },
     },
   },
 }));

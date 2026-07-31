@@ -1,4 +1,5 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
+import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
 
 type ChatOut =
@@ -167,7 +168,9 @@ async function handleChat(
         if (!mounted.ok) throw new Error(`mount file: HTTP ${mounted.status}`);
       }
       const streaming = streamReply(pat, sid, turnSignal, send, () => posted);
-      streaming.catch(() => {}); // dead-session 404s and failure-path aborts self-terminate
+      // pre-await rejections (dead-session 404, failure-path abort) must not fire
+      // unhandledrejection; `await streaming` below still surfaces the error
+      streaming.catch(() => {});
       let res = await postUserMessage(pat, sid, text, page, mounts.map((m) => m.note));
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then retry the post
@@ -215,6 +218,25 @@ export default defineBackground(() => {
     })();
   });
 
+  // "save clip" context menu; title follows the UI language
+  browser.runtime.onInstalled.addListener(async () => {
+    browser.contextMenus.create({
+      id: 'save-clip',
+      title: dict[await langItem.getValue()]['clips.menu'],
+      contexts: ['selection'],
+    });
+  });
+  langItem.watch((lang) => {
+    browser.contextMenus.update('save-clip', { title: dict[lang]['clips.menu'] });
+  });
+  // the content script owns the save: it has the live Selection for fragment generation
+  browser.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === 'save-clip' && tab?.id)
+      browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
+        /* no content script on this page (chrome://, store) */
+      });
+  });
+
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
@@ -232,6 +254,7 @@ export default defineBackground(() => {
       const keepalive = setInterval(() => browser.runtime.getPlatformInfo(), 20_000);
       handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send)
         .catch((err) => {
+          console.error('[pixel-agent]', err); // port may be gone; keep a trace in the SW console
           if (!abort.signal.aborted)
             send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
         })
