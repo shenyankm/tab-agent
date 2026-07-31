@@ -1,4 +1,5 @@
 export type Theme = 'system' | 'dark' | 'light';
+export type PageCarry = 'none' | 'article' | 'screenshot';
 
 // matches host_permissions in wxt.config.ts
 export const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
@@ -8,6 +9,7 @@ export const petEnabledItem = storage.defineItem<boolean>('local:petEnabled', { 
 export const petPosItem = storage.defineItem<{ right: number; bottom: number }>('local:petPos', {
   fallback: { right: 20, bottom: 20 },
 });
+export const pageCarryItem = storage.defineItem<PageCarry>('local:pageCarry', { fallback: 'article' });
 export const patItem = storage.defineItem<string>('local:pat', { fallback: '' });
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });

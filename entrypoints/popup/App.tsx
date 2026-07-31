@@ -1,18 +1,33 @@
 import { useEffect, useState } from 'react';
-import { Settings } from 'lucide-react';
+import { ChevronDown, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
-import { petEnabledItem } from '@/lib/settings';
+import { petEnabledItem, pageCarryItem, type PageCarry } from '@/lib/settings';
+
+const carries: PageCarry[] = ['none', 'article', 'screenshot'];
 
 function App() {
   const { t } = useI18n();
   const [petEnabled, setPetEnabled] = useState(true);
+  const [carry, setCarry] = useState<PageCarry>('article');
 
   // watch keeps the popup in sync with the options page
   useEffect(() => {
     petEnabledItem.getValue().then(setPetEnabled);
     return petEnabledItem.watch(setPetEnabled);
+  }, []);
+
+  useEffect(() => {
+    pageCarryItem.getValue().then(setCarry);
+    return pageCarryItem.watch(setCarry);
   }, []);
 
   return (
@@ -32,6 +47,25 @@ function App() {
       <div className="flex w-full items-center justify-between gap-4">
         <span className="shrink-0 text-sm font-medium">{t('settings.pet')}</span>
         <Switch checked={petEnabled} onCheckedChange={(v) => petEnabledItem.setValue(v)} />
+      </div>
+
+      <div className="flex w-full items-center justify-between gap-4">
+        <span className="shrink-0 text-sm font-medium">{t('settings.pageCarry')}</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              {t(`carry.${carry}`)}
+              <ChevronDown className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuRadioGroup value={carry} onValueChange={(v) => pageCarryItem.setValue(v as PageCarry)}>
+              {carries.map((c) => (
+                <DropdownMenuRadioItem key={c} value={c}>{t(`carry.${c}`)}</DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
     </div>
