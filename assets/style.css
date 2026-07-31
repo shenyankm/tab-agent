@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "@fontsource/archivo-black";
-@import "@fontsource-variable/space-grotesk";
+/* fonts are imported by popup/options main.tsx only — content.css inherits this file,
+   and @font-face in per-page shadow CSS just fires failing woff requests on every page */
 
 /* RetroUI components style Radix state via data-checked/open/... variants;
    these mappings normally ship with the RetroUI theme CSS. */
