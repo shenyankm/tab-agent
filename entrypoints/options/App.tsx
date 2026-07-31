@@ -31,6 +31,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
+import { useStorageValue } from '@/lib/utils';
 import { clipsItem, removeClip, clipNavUrl, type Clip } from '@/lib/clips';
 import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, type Theme } from '@/lib/settings';
 
@@ -71,15 +72,10 @@ const PAGE_SIZE = 10;
 
 function ClipsPage() {
   const { t } = useI18n();
-  const [clips, setClips] = useState<Clip[]>([]);
+  const clips = useStorageValue(clipsItem, []);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'time' | 'site'>('time');
   const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    clipsItem.getValue().then(setClips);
-    return clipsItem.watch(setClips);
-  }, []);
 
   const q = query.trim().toLowerCase();
   const shown = q
