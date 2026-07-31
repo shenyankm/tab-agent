@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -12,11 +12,12 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
+import { clipsItem, removeClip, type Clip } from '@/lib/clips';
 import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, type Theme } from '@/lib/settings';
 
-type Tab = 'settings' | 'guide' | 'privacy';
+type Tab = 'settings' | 'clips' | 'privacy';
 
-const tabs: Tab[] = ['settings', 'guide', 'privacy'];
+const tabs: Tab[] = ['settings', 'clips', 'privacy'];
 
 function App() {
   // tab persisted in URL hash so refresh keeps the current page
@@ -29,7 +30,6 @@ function App() {
     location.hash = t;
   };
   const { t } = useI18n();
-  const [linkPre, linkPost] = t('footer.builtWith').split('{link}');
 
   return (
     <div className="mx-auto max-w-lg p-8">
@@ -41,15 +41,75 @@ function App() {
         </TabsList>
 
         <TabsContent value="settings" className="w-full"><SettingsPage /></TabsContent>
-        <TabsContent value="guide" className="w-full">
-          <p className="text-sm leading-6">{t('guide.intro')}</p>
-          <p className="mt-8 text-sm text-muted-foreground">
-            {linkPre}<a href="https://qoder.com/" target="_blank" rel="noopener" className="underline hover:text-foreground">Qoder</a>{linkPost}
-          </p>
-        </TabsContent>
+        <TabsContent value="clips" className="w-full"><ClipsPage /></TabsContent>
         <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function ClipsPage() {
+  const { t } = useI18n();
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    clipsItem.getValue().then(setClips);
+    return clipsItem.watch(setClips);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? clips.filter((c) => [c.text, c.title, c.pageUrl].some((v) => v.toLowerCase().includes(q)))
+    : clips;
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('clips.search')}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={clips.length === 0}
+          onClick={() => clipsItem.setValue([])}
+        >
+          {t('clips.clear')}
+        </Button>
+      </div>
+
+      {shown.length === 0 && (
+        <p className="mt-6 text-sm text-muted-foreground">{t('clips.empty')}</p>
+      )}
+      <div className="mt-4 flex flex-col">
+        {shown.map((clip) => (
+          <div key={clip.id} className="flex items-center gap-2 border-b border-border py-3">
+            <button
+              type="button"
+              className="min-w-0 flex-1 cursor-pointer text-left"
+              onClick={() => browser.tabs.create({ url: clip.url })}
+              title={clip.text}
+            >
+              <span className="line-clamp-2 text-sm">{clip.text}</span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {clip.title} · {clip.pageUrl} · {new Date(clip.createdAt).toLocaleString()}
+              </span>
+            </button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => removeClip(clip.id)}
+              aria-label={t('clips.delete')}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
