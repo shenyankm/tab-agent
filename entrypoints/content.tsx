@@ -15,8 +15,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
 import { useI18n } from '@/lib/i18n';
-import { addClip, buildClipUrl, clipsItem, highlightClip, removeMarks, clipNavUrl, type Clip } from '@/lib/clips';
-import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark, type Theme, type PageCarry } from '@/lib/settings';
+import { useStorageValue } from '@/lib/utils';
+import { addClip, buildClipUrl, clipsItem, highlightClip, removeMarks, clipNavUrl, stripHash, type Clip } from '@/lib/clips';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -99,8 +100,8 @@ function showClip(clip: Clip, scroll = true): boolean {
 // clips saved on this page (hash-insensitive match); clicking jumps in-page to the
 // re-marked text — new-tab navigation only as fallback when the text is gone
 function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
-  const page = location.href.split('#')[0];
-  const pageClips = clips.filter((c) => c.pageUrl.split('#')[0] === page);
+  const page = stripHash(location.href);
+  const pageClips = clips.filter((c) => stripHash(c.pageUrl) === page);
 
   if (pageClips.length === 0)
     return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
@@ -124,14 +125,14 @@ function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
 export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
-  const [theme, setTheme] = useState<Theme>('system');
-  const [enabled, setEnabled] = useState(true);
+  const theme = useStorageValue(themeItem, 'system');
+  const enabled = useStorageValue(petEnabledItem, true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
-  const [carry, setCarry] = useState<PageCarry>('article');
+  const carry = useStorageValue(pageCarryItem, 'article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
-  const [clips, setClips] = useState<Clip[]>([]);
+  const clips = useStorageValue(clipsItem, []);
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -144,16 +145,6 @@ export function FloatingAgent() {
   const { t } = useI18n();
 
   useEffect(() => {
-    themeItem.getValue().then(setTheme);
-    return themeItem.watch(setTheme);
-  }, []);
-
-  useEffect(() => {
-    petEnabledItem.getValue().then(setEnabled);
-    return petEnabledItem.watch(setEnabled);
-  }, []);
-
-  useEffect(() => {
     petPosItem.getValue().then((p) => setPos(clampPos(p)));
   }, []);
 
@@ -163,11 +154,6 @@ export function FloatingAgent() {
     const onResize = () => setPos(clampPos);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  useEffect(() => {
-    pageCarryItem.getValue().then(setCarry);
-    return pageCarryItem.watch(setCarry);
   }, []);
 
   useEffect(() => {
@@ -185,11 +171,6 @@ export function FloatingAgent() {
   }, [messages]);
 
   useEffect(() => () => portRef.current?.disconnect(), []);
-
-  useEffect(() => {
-    clipsItem.getValue().then(setClips);
-    return clipsItem.watch(setClips);
-  }, []);
 
   useEffect(() => {
     if (state !== 'thinking') return;
@@ -448,10 +429,10 @@ export default defineContentScript({
 
     // re-apply saved highlights: text fragments only fire on navigation, not on reload
     // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
-    const page = location.href.split('#')[0];
+    const page = stripHash(location.href);
     const applyAll = async () => {
       for (const clip of await clipsItem.getValue())
-        if (clip.pageUrl.split('#')[0] === page) showClip(clip, false);
+        if (stripHash(clip.pageUrl) === page) showClip(clip, false);
     };
     clipHighlightItem.getValue().then((on) => { if (on) applyAll(); });
 
