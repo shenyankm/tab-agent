@@ -30,6 +30,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
+    "text-fragments-polyfill": "^6.7.0",
     "turndown": "^7.2.4"
   },
   "devDependencies": {

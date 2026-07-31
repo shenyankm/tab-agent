@@ -44,6 +44,9 @@ importers:
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
+      text-fragments-polyfill:
+        specifier: ^6.7.0
+        version: 6.7.0
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -3335,6 +3338,9 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
+
+  text-fragments-polyfill@6.7.0:
+    resolution: {integrity: sha512-pwzxGO4p9y2FY5kPiS7sk/VsB10LKP0xprcBag1YOIMzaYw284AjE+/F0vEJEuoDjAwHyqwGpU01OubYsqEibQ==}
 
   thread-stream@3.2.0:
     resolution: {integrity: sha512-zLBvqpwr4Esa0kRjcrzGU6zL25lePWaCLMx0RQFrmteozIfeNdaMLpG5U7PeHzvlFkAWaRKA9/KVW4F60iB+qw==}
@@ -7205,6 +7211,8 @@ snapshots:
   tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
+
+  text-fragments-polyfill@6.7.0: {}
 
   thread-stream@3.2.0:
     dependencies:
