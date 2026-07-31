@@ -39,9 +39,6 @@ vi.mock('@/lib/i18n', () => ({
         'widget.greeting': 'Hi! What would you like to know about this page?',
         'widget.placeholder': 'Ask about this page…',
         'widget.send': 'Send',
-        'widget.attach': 'Attach file',
-        'widget.removeFile': 'Remove attached file',
-        'widget.fileTooLarge': 'File is too large (max 1 MB). Text files only.',
         'widget.status.thinking': 'Thinking',
         'widget.error.unconfigured': 'Not configured.',
         'widget.error.auth': 'API token invalid.',
@@ -169,22 +166,5 @@ describe('FloatingAgent', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Not configured.')).toBeInTheDocument());
-  });
-
-  it('shows file too large warning', async () => {
-    render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
-
-    const fileInput = document.querySelector('input[type="file"]')!;
-    const bigFile = new File(['x'.repeat(1_000_001)], 'big.txt', { type: 'text/plain' });
-    Object.defineProperty(bigFile, 'size', { value: 1_000_001 });
-
-    await act(async () => {
-      fireEvent.change(fileInput, { target: { files: [bigFile] } });
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText('File is too large (max 1 MB). Text files only.')).toBeInTheDocument(),
-    );
   });
 });

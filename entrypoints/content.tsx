@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Paperclip, Send, X } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
@@ -58,10 +58,6 @@ const clampPos = (p: { right: number; bottom: number }) => ({
 });
 
 type ChatMessage = { role: 'user' | 'agent'; text: string };
-type Attachment = { name: string; text: string };
-
-// ponytail: text files only per the Files API; 1 MB cap keeps the port message sane
-const MAX_FILE_BYTES = 1_000_000;
 
 // Readability mutates its input, so it gets a clone; null/throw (non-article pages,
 // framesets) falls back to raw innerText
@@ -80,12 +76,10 @@ export function FloatingAgent() {
   const [enabled, setEnabled] = useState(true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
-  const [file, setFile] = useState<Attachment | null>(null);
   const [carry, setCarry] = useState<PageCarry>('article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
@@ -134,15 +128,6 @@ export function FloatingAgent() {
       i === m.length - 1 ? { ...msg, text: replace ? text : msg.text + text } : msg
     )));
 
-  const pickFile = async (picked: File | undefined) => {
-    if (!picked) return;
-    if (picked.size > MAX_FILE_BYTES) {
-      setMessages((m) => [...m, { role: 'agent', text: t('widget.fileTooLarge') }]);
-      return;
-    }
-    setFile({ name: picked.name, text: await picked.text() });
-  };
-
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const message = query.trim();
@@ -178,7 +163,6 @@ export function FloatingAgent() {
     });
     port.postMessage({
       text: message,
-      file: file ?? undefined,
       // 'screenshot' is captured by the background (content scripts can't)
       screenshot: carry === 'screenshot' || undefined,
       // page context so the cloud agent can actually see the current page
@@ -189,7 +173,6 @@ export function FloatingAgent() {
         text: carry === 'article' ? pageMarkdown().slice(0, 20000) : '',
       },
     });
-    setFile(null);
   };
 
   const closePanel = () => {
@@ -274,31 +257,7 @@ export function FloatingAgent() {
           </CardContent>
 
           <CardFooter className="flex-col gap-2 p-3">
-            {file && (
-              <div className="flex w-full items-center gap-1.5 text-xs">
-                <Paperclip className="size-3.5 shrink-0" />
-                <span className="min-w-0 truncate">{file.name}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setFile(null)}
-                  aria-label={t('widget.removeFile')}
-                >
-                  <X />
-                </Button>
-              </div>
-            )}
             <form className="flex w-full gap-2" onSubmit={submit}>
-              <input
-                ref={fileRef}
-                type="file"
-                hidden
-                onChange={(event) => {
-                  pickFile(event.target.files?.[0]);
-                  event.target.value = ''; // allow re-picking the same file
-                }}
-              />
               <label className="sr-only" htmlFor="pixel-agent-query">
                 {t('widget.placeholder')}
               </label>
@@ -310,15 +269,6 @@ export function FloatingAgent() {
                 placeholder={t('widget.placeholder')}
                 autoComplete="off"
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => fileRef.current?.click()}
-                aria-label={t('widget.attach')}
-              >
-                <Paperclip />
-              </Button>
               <Button
                 type="submit"
                 size="icon"
