@@ -6,6 +6,7 @@ export const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
 
 export const themeItem = storage.defineItem<Theme>('local:theme', { fallback: 'system' });
 export const petEnabledItem = storage.defineItem<boolean>('local:petEnabled', { fallback: true });
+export const clipHighlightItem = storage.defineItem<boolean>('local:clipHighlight', { fallback: true });
 export const petPosItem = storage.defineItem<{ right: number; bottom: number }>('local:petPos', {
   fallback: { right: 20, bottom: 20 },
 });
@@ -20,7 +21,7 @@ export const sessionIdItem = storage.defineItem<string>('local:sessionId.v3', { 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
 
-export function applyTheme(theme: Theme) {
+function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle('dark', isDark(theme));
 }
 
