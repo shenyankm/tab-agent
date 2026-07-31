@@ -1,16 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
-import { naiveFragment, buildClipUrl, highlightClip, addClip, removeClip, clipsItem } from '@/lib/clips';
-
-describe('naiveFragment', () => {
-  it('percent-encodes the fragment-directive reserved chars - , &', () => {
-    expect(naiveFragment('a-b, c & d')).toBe('#:~:text=a%2Db%2C%20c%20%26%20d');
-  });
-
-  it('trims surrounding whitespace', () => {
-    expect(naiveFragment('  hello  ')).toBe('#:~:text=hello');
-  });
-});
+import { buildClipUrl, highlightClip, addClip, removeClip, clipsItem } from '@/lib/clips';
 
 describe('buildClipUrl', () => {
   it('replaces an existing hash with a text fragment', () => {

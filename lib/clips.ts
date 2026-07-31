@@ -38,9 +38,6 @@ export async function removeClip(id: string) {
 // the fragment directive reserves "-" "," "&"; encodeURIComponent leaves "-" alone
 const enc = (s: string) => encodeURIComponent(s).replace(/-/g, '%2D');
 
-/** Naive single-term fragment; fallback when generateFragment can't disambiguate. */
-export const naiveFragment = (text: string) => `#:~:text=${enc(text.trim())}`;
-
 const fragmentDirective = (f: TextFragment) =>
   '#:~:text=' +
   (f.prefix ? `${enc(f.prefix)}-,` : '') +
@@ -58,8 +55,9 @@ export function buildClipUrl(pageUrl: string, selection: Selection): string {
   } catch {
     /* fall through to naive */
   }
+  // naive single-term fragment: fallback when generateFragment can't disambiguate
   const text = selection.toString().trim();
-  return text ? base + naiveFragment(text) : base; // bare URL: opens page top, no highlight
+  return text ? `${base}#:~:text=${enc(text)}` : base; // bare URL: opens page top, no highlight
 }
 
 // generateFragment expands the selection to word bounds per spec (Intl.Segmenter:
