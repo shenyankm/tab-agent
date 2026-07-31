@@ -5,7 +5,6 @@ import remarkGfm from 'remark-gfm';
 import { Send, Trash2, X } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -150,7 +149,6 @@ export function FloatingAgent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
   const [clips, setClips] = useState<Clip[]>([]);
-  const [env, setEnv] = useState<'checking' | 'ok' | 'bad'>('checking');
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,15 +202,6 @@ export function FloatingAgent() {
   }, [messages]);
 
   useEffect(() => () => portRef.current?.disconnect(), []);
-
-  // env health badge: probe once per panel open
-  useEffect(() => {
-    if (!open) return;
-    setEnv('checking');
-    browser.runtime.sendMessage({ type: 'envCheck' })
-      .then((r: { ok?: boolean }) => setEnv(r?.ok ? 'ok' : 'bad'))
-      .catch(() => setEnv('bad'));
-  }, [open]);
 
   useEffect(() => {
     clipsItem.getValue().then(setClips);
@@ -369,15 +358,6 @@ export function FloatingAgent() {
                 {t('nav.clips')}
               </MenubarTrigger>
             </Menubar>
-            <Badge
-              className={env === 'ok'
-                ? 'bg-green-500 text-white'
-                : env === 'bad'
-                  ? 'bg-red-500 text-white'
-                  : 'bg-muted text-muted-foreground'}
-            >
-              {t(`widget.env.${env}`)}
-            </Badge>
             <Button
               type="button"
               variant="ghost"

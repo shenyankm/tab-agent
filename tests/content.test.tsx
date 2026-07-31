@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-libra
 const {
   mockThemeGet, mockThemeWatch, mockEnabledGet, mockEnabledWatch,
   mockPosGet, mockPosSet, mockCarryGet, mockClipsGet, mockRemoveClip, mockHighlightClip,
-  mockHighlightOn, mockRemoveMarks, mockSendMessage, portRef,
+  mockHighlightOn, mockRemoveMarks, portRef,
 } = vi.hoisted(() => ({
   mockThemeGet: vi.fn().mockResolvedValue('light'),
   mockThemeWatch: vi.fn().mockReturnValue(() => {}),
@@ -19,7 +19,6 @@ const {
   mockHighlightClip: vi.fn(),
   mockHighlightOn: vi.fn().mockResolvedValue(true),
   mockRemoveMarks: vi.fn(),
-  mockSendMessage: vi.fn().mockResolvedValue({ ok: true }),
   portRef: {
     listener: null as ((msg: unknown) => void) | null,
     disconnectListener: null as (() => void) | null,
@@ -62,9 +61,6 @@ vi.mock('@/lib/i18n', () => ({
         'widget.error.auth': 'API token invalid.',
         'widget.error.generic': 'Request failed: {message}',
         'widget.error.disconnected': 'Connection lost.',
-        'widget.env.checking': 'Checking',
-        'widget.env.ok': 'Available',
-        'widget.env.bad': 'Unavailable',
         'widget.translate': 'Translate into English: {text}',
         'widget.tab.chat': 'Chat',
         'nav.clips': 'Clips',
@@ -92,7 +88,6 @@ vi.mock('wxt/browser', () => ({
         postMessage: portRef.postMessage,
         disconnect: portRef.disconnect,
       }),
-      sendMessage: (msg: unknown) => mockSendMessage(msg),
       getURL: (path: string) => `chrome-extension://test${path}`,
     },
   },
@@ -121,7 +116,6 @@ describe('FloatingAgent', () => {
     mockCarryGet.mockResolvedValue('article');
     mockClipsGet.mockResolvedValue([]);
     mockHighlightOn.mockResolvedValue(true);
-    mockSendMessage.mockResolvedValue({ ok: true });
     mockHighlightClip.mockImplementation(() => [document.createElement('mark')]);
   });
 
@@ -213,19 +207,6 @@ describe('FloatingAgent', () => {
     expect(mockRemoveClip).toHaveBeenCalledWith('1');
     // the cached on-page highlight goes with it
     expect(mockRemoveMarks).toHaveBeenCalled();
-  });
-
-  it('shows env badge from the background probe', async () => {
-    render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
-    expect(await screen.findByText('Available')).toBeInTheDocument();
-    expect(mockSendMessage).toHaveBeenCalledWith({ type: 'envCheck' });
-
-    cleanup();
-    mockSendMessage.mockResolvedValue({ ok: false });
-    render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
-    expect(await screen.findByText('Unavailable')).toBeInTheDocument();
   });
 
   it('pre-fills a translate prompt from the page selection, capped at 2k chars', async () => {
