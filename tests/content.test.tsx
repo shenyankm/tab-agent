@@ -167,4 +167,32 @@ describe('FloatingAgent', () => {
 
     await waitFor(() => expect(screen.getByText('Not configured.')).toBeInTheDocument());
   });
+
+  // regression: a dropped pointerup (pointercancel) used to leave the drag ref set, so the
+  // pet chased the cursor on plain hover and every later click was swallowed as "a drag"
+  it('recovers from pointercancel: no hover drag, click still opens', async () => {
+    render(<FloatingAgent />);
+    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const shell = launcher.parentElement!;
+
+    fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerCancel(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
+
+    // plain hover far away must not move the pet
+    const before = shell.getAttribute('style');
+    fireEvent.pointerMove(launcher, { clientX: 400, clientY: 400, pointerId: 1 });
+    expect(shell.getAttribute('style')).toBe(before);
+
+    // ...but a held-button drag still does
+    fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 2 });
+    fireEvent.pointerMove(launcher, { clientX: 70, clientY: 70, pointerId: 2, buttons: 1 });
+    expect(shell.getAttribute('style')).not.toBe(before);
+    fireEvent.pointerUp(launcher, { clientX: 70, clientY: 70, pointerId: 2 });
+
+    fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 3 });
+    fireEvent.pointerUp(launcher, { clientX: 100, clientY: 100, pointerId: 3 });
+    fireEvent.click(launcher);
+
+    expect(await screen.findByText('Hi! What would you like to know about this page?')).toBeInTheDocument();
+  });
 });

@@ -51,10 +51,11 @@ function Mascot({ state, size }: { state: AgentState; size: number }) {
   );
 }
 
-// keep the pet fully on screen regardless of viewport size
+// keep the pet fully on screen regardless of viewport size; clamp order matters:
+// a viewport narrower than the pet must pin it to 0, not push it off-screen
 const clampPos = (p: { right: number; bottom: number }) => ({
-  right: Math.min(Math.max(p.right, 0), window.innerWidth - 84),
-  bottom: Math.min(Math.max(p.bottom, 0), window.innerHeight - 78),
+  right: Math.max(0, Math.min(p.right, window.innerWidth - 84)),
+  bottom: Math.max(0, Math.min(p.bottom, window.innerHeight - 78)),
 });
 
 type ChatMessage = { role: 'user' | 'agent'; text: string };
@@ -99,6 +100,14 @@ export function FloatingAgent() {
 
   useEffect(() => {
     petPosItem.getValue().then((p) => setPos(clampPos(p)));
+  }, []);
+
+  // devtools, split screen and window resizes shrink the viewport; without this the
+  // pet stays parked outside it and looks like it vanished
+  useEffect(() => {
+    const onResize = () => setPos(clampPos);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   useEffect(() => {
@@ -186,12 +195,18 @@ export function FloatingAgent() {
     // ponytail: 2k cap keeps the single-line input sane; raise if long-form translation matters
     selRef.current = window.getSelection()?.toString().trim().slice(0, 2000) ?? '';
     dragRef.current = { x: event.clientX, y: event.clientY, ...pos, moved: false };
+    movedRef.current = false; // a dropped pointerup must not swallow this click too
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     const d = dragRef.current;
-    if (!d) return;
+    // buttons === 0 is a plain hover: whichever release event went missing (cancel,
+    // failed pointer capture, blur), a hover can never be a drag
+    if (!d || !event.buttons) {
+      dragRef.current = null;
+      return;
+    }
     const dx = event.clientX - d.x;
     const dy = event.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 4) return; // below threshold: still a click
@@ -199,6 +214,8 @@ export function FloatingAgent() {
     setPos(clampPos({ right: d.right - dx, bottom: d.bottom - dy }));
   };
 
+  // also handles pointercancel (window blur while held, native drag, Esc): leaving
+  // dragRef set makes the pet chase the cursor on plain hover and eats every later click
   const onPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     const d = dragRef.current;
     dragRef.current = null;
@@ -290,6 +307,7 @@ export function FloatingAgent() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onClick={() => {
           if (movedRef.current) return; // drag, not a click
           setOpen((value) => !value);

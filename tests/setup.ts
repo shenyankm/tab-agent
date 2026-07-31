@@ -21,3 +21,7 @@ Object.defineProperty(document.body, 'innerText', {
   configurable: true,
   get: () => '',
 });
+
+// jsdom lacks the pointer capture API
+Element.prototype.setPointerCapture = vi.fn();
+Element.prototype.releasePointerCapture = vi.fn();
