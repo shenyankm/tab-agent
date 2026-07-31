@@ -41,6 +41,15 @@ describe('highlightClip', () => {
     expect(document.querySelector('mark')?.textContent).toBe('bravo');
   });
 
+  // regression: generateFragment word-expands the selection (CJK 「下表」), so the
+  // URL fragment can be wider than the stored text — marks must shrink back to it
+  it('marks only the stored text when the fragment is word-expanded', () => {
+    document.body.innerHTML = '<p>alpha bravado charlie</p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=bravado', pageUrl: 'https://e.com/p', title: '', text: 'ravad', createdAt: 0 };
+    const marks = highlightClip(clip);
+    expect(marks.map((m) => m.textContent).join('')).toBe('ravad');
+  });
+
   it('returns null when the text is gone', () => {
     document.body.innerHTML = '<p>nothing to see</p>';
     const clip = { id: 'x', url: 'https://e.com/p#:~:text=vanished', pageUrl: 'https://e.com/p', title: '', text: 'vanished', createdAt: 0 };
