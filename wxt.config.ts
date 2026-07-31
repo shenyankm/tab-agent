@@ -6,7 +6,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Pixel Agent',
-    permissions: ['storage'],
+    permissions: ['storage', 'contextMenus'],
     host_permissions: ['https://api.qoder.com/*'],
     // tabs.captureVisibleTab (screenshot page context) needs <all_urls>; requested
     // at runtime in the popup when the user picks "screenshot" (least privilege)
