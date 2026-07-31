@@ -114,7 +114,7 @@ function ClipsPage() {
             <Trash2 />
           </Button>
         </AlertDialogTrigger>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('clips.confirmDelete')}</AlertDialogTitle>
             <AlertDialogDescription className="line-clamp-2">{clip.text}</AlertDialogDescription>
