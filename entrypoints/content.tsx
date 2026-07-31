@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Send, X } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -58,7 +59,7 @@ const clampPos = (p: { right: number; bottom: number }) => ({
   bottom: Math.max(0, Math.min(p.bottom, window.innerHeight - 78)),
 });
 
-type ChatMessage = { role: 'user' | 'agent'; text: string };
+type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
 
 // ponytail: everything ships eagerly — WXT bundles content scripts as one IIFE and
 // inlines dynamic imports (verified: lazy-loading grew the bundle); revisit if WXT
@@ -83,6 +84,9 @@ export function FloatingAgent() {
   const [query, setQuery] = useState('');
   const [carry, setCarry] = useState<PageCarry>('article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [env, setEnv] = useState<'checking' | 'ok' | 'bad'>('checking');
+  const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
+  const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -135,11 +139,30 @@ export function FloatingAgent() {
 
   useEffect(() => () => portRef.current?.disconnect(), []);
 
+  // env health badge: probe once per panel open
+  useEffect(() => {
+    if (!open) return;
+    setEnv('checking');
+    browser.runtime.sendMessage({ type: 'envCheck' })
+      .then((r: { ok?: boolean }) => setEnv(r?.ok ? 'ok' : 'bad'))
+      .catch(() => setEnv('bad'));
+  }, [open]);
+
+  useEffect(() => {
+    if (state !== 'thinking') return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [state]);
+
   // append streamed text to the trailing agent message
   const patchLast = (text: string, replace = false) =>
     setMessages((m) => m.map((msg, i) => (
       i === m.length - 1 ? { ...msg, text: replace ? text : msg.text + text } : msg
     )));
+
+  // stamp the trailing agent message with its receive time
+  const stampLast = () =>
+    setMessages((m) => m.map((msg, i) => (i === m.length - 1 ? { ...msg, at: Date.now() } : msg)));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -151,28 +174,43 @@ export function FloatingAgent() {
     // drop the aborted turn's empty agent bubble so it doesn't sit on "Thinking…" forever
     setMessages((m) => [
       ...(m.at(-1)?.role === 'agent' && !m.at(-1)!.text ? m.slice(0, -1) : m),
-      { role: 'user', text: message },
+      { role: 'user', text: message, at: Date.now() },
       { role: 'agent', text: '' },
     ]);
     setState('thinking');
+    startRef.current = Date.now();
+    setNow(Date.now());
 
     const port = browser.runtime.connect({ name: 'chat' });
     portRef.current = port;
+    let settled = false; // done/error already rendered — a later disconnect is normal teardown
     port.onMessage.addListener((msg: { type: string; text?: string; code?: string; message?: string }) => {
       if (msg.type === 'delta') {
         patchLast(msg.text ?? '');
       } else if (msg.type === 'done') {
+        settled = true;
+        stampLast();
         setState('done');
         port.disconnect();
       } else if (msg.type === 'error') {
+        settled = true;
         patchLast(msg.code === 'auth'
           ? t('widget.error.auth')
           : msg.code === 'unconfigured'
             ? t('widget.error.unconfigured')
             : t('widget.error.generic', { message: msg.message ?? '' }), true);
+        stampLast();
         setState('done');
         port.disconnect();
       }
+    });
+    // background worker died mid-turn (MV3 idle kill, update, crash): surface it
+    // instead of hanging on "Thinking…" — only the remote end firing lands here
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      patchLast(t('widget.error.disconnected'), true);
+      stampLast();
+      setState('done');
     });
     port.postMessage({
       text: message,
@@ -251,7 +289,16 @@ export function FloatingAgent() {
           role="dialog"
           aria-label="Pixel Agent"
         >
-          <CardHeader className="flex flex-row items-center justify-end border-b-2 bg-primary p-3 text-primary-foreground">
+          <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
+            <Badge
+              className={env === 'ok'
+                ? 'bg-green-500 text-white'
+                : env === 'bad'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-muted text-muted-foreground'}
+            >
+              {t(`widget.env.${env}`)}
+            </Badge>
             <Button
               type="button"
               variant="ghost"
@@ -266,12 +313,18 @@ export function FloatingAgent() {
           <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
             {messages.map((msg, i) => (
               msg.role === 'user' ? (
-                <div key={i} className="pixel-agent-bubble-user">{msg.text}</div>
+                <div key={i} className="flex flex-col items-end">
+                  <div className="pixel-agent-bubble-user">{msg.text}</div>
+                  {msg.at && <span className="mt-1 text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
+                </div>
               ) : (
-                <div key={i} className="pixel-agent-md">
-                  {msg.text
-                    ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-                    : `${t('widget.status.thinking')}…`}
+                <div key={i}>
+                  <div className="pixel-agent-md">
+                    {msg.text
+                      ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      : `${t('widget.status.thinking')}… ${Math.max(0, Math.floor(((now || Date.now()) - startRef.current) / 1000))}s`}
+                  </div>
+                  {msg.at && <span className="mt-1 block text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
                 </div>
               )
             ))}

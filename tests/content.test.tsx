@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-libra
 // --- hoisted mocks ---
 const {
   mockThemeGet, mockThemeWatch, mockEnabledGet, mockEnabledWatch,
-  mockPosGet, mockPosSet, mockCarryGet, portRef,
+  mockPosGet, mockPosSet, mockCarryGet, mockSendMessage, portRef,
 } = vi.hoisted(() => ({
   mockThemeGet: vi.fn().mockResolvedValue('light'),
   mockThemeWatch: vi.fn().mockReturnValue(() => {}),
@@ -13,8 +13,10 @@ const {
   mockPosGet: vi.fn().mockResolvedValue({ right: 20, bottom: 20 }),
   mockPosSet: vi.fn(),
   mockCarryGet: vi.fn().mockResolvedValue('article'),
+  mockSendMessage: vi.fn().mockResolvedValue({ ok: true }),
   portRef: {
     listener: null as ((msg: unknown) => void) | null,
+    disconnectListener: null as (() => void) | null,
     postMessage: vi.fn(),
     disconnect: vi.fn(),
   },
@@ -43,6 +45,10 @@ vi.mock('@/lib/i18n', () => ({
         'widget.error.unconfigured': 'Not configured.',
         'widget.error.auth': 'API token invalid.',
         'widget.error.generic': 'Request failed: {message}',
+        'widget.error.disconnected': 'Connection lost.',
+        'widget.env.checking': 'Checking',
+        'widget.env.ok': 'Available',
+        'widget.env.bad': 'Unavailable',
       };
       let s = dict[key] ?? key;
       if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
@@ -59,9 +65,13 @@ vi.mock('wxt/browser', () => ({
         onMessage: {
           addListener: (fn: (msg: unknown) => void) => { portRef.listener = fn; },
         },
+        onDisconnect: {
+          addListener: (fn: () => void) => { portRef.disconnectListener = fn; },
+        },
         postMessage: portRef.postMessage,
         disconnect: portRef.disconnect,
       }),
+      sendMessage: (msg: unknown) => mockSendMessage(msg),
       getURL: (path: string) => `chrome-extension://test${path}`,
     },
   },
@@ -83,6 +93,8 @@ describe('FloatingAgent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     portRef.listener = null;
+    portRef.disconnectListener = null;
+    mockSendMessage.mockResolvedValue({ ok: true });
     mockEnabledGet.mockResolvedValue(true);
     mockThemeGet.mockResolvedValue('light');
     mockPosGet.mockResolvedValue({ right: 20, bottom: 20 });
@@ -151,6 +163,21 @@ describe('FloatingAgent', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
+    // send + receive timestamps rendered under both bubbles
+    expect(screen.getAllByText(/\d{1,2}:\d{2}:\d{2}/)).toHaveLength(2);
+  });
+
+  it('shows env badge from the background probe', async () => {
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    expect(await screen.findByText('Available')).toBeInTheDocument();
+    expect(mockSendMessage).toHaveBeenCalledWith({ type: 'envCheck' });
+
+    cleanup();
+    mockSendMessage.mockResolvedValue({ ok: false });
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    expect(await screen.findByText('Unavailable')).toBeInTheDocument();
   });
 
   it('shows unconfigured error message', async () => {
@@ -166,6 +193,30 @@ describe('FloatingAgent', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Not configured.')).toBeInTheDocument());
+  });
+
+  // regression: MV3 killed the background worker mid-turn (long screenshot turns) and
+  // the widget hung on "Thinking…" forever because port death was never handled
+  it('shows disconnected error when port dies mid-turn, not after done', async () => {
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+
+    const input = await screen.findByPlaceholderText('Ask about this page…');
+    fireEvent.change(input, { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    act(() => portRef.disconnectListener?.());
+    await waitFor(() => expect(screen.getByText('Connection lost.')).toBeInTheDocument());
+
+    // settled turn: a later disconnect must not overwrite the answer
+    fireEvent.change(input, { target: { value: 'hi again' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    act(() => {
+      portRef.listener?.({ type: 'delta', text: 'Answer' });
+      portRef.listener?.({ type: 'done' });
+      portRef.disconnectListener?.();
+    });
+    await waitFor(() => expect(screen.getByText('Answer')).toBeInTheDocument());
   });
 
   // regression: a dropped pointerup (pointercancel) used to leave the drag ref set, so the
