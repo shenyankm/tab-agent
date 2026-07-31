@@ -143,10 +143,8 @@ describe('background handleChat', () => {
     await until(() => messages.some((m: any) => m.type === 'done'));
 
     const deltas = messages.filter((m: any) => m.type === 'delta');
-    expect(deltas).toEqual([
-      { type: 'delta', text: 'Hi ' },
-      { type: 'delta', text: 'there' },
-    ]);
+    // frames arriving in one network read are coalesced into a single delta
+    expect(deltas).toEqual([{ type: 'delta', text: 'Hi there' }]);
     expect(messages.at(-1)).toEqual({ type: 'done' });
   });
 

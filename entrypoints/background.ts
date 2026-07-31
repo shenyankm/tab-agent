@@ -94,6 +94,8 @@ async function streamReply(
     const frames = parseSSE(buffer + decoder.decode(value, { stream: true }));
     buffer = frames.rest;
 
+    // one read() often carries several frames; coalesce so the UI re-renders once per read
+    let text = '';
     for (const data of frames.data) {
       let payload;
       try {
@@ -104,14 +106,16 @@ async function streamReply(
       // isPosted also gates deltas: a fresh stream replays the old turn's in-flight deltas
       // ponytail: only agent.message emits deltas today; if that changes, filter via event_start's event.id→type map
       if (payload.type === 'event_delta' && isPosted() && payload.delta?.content?.text) {
-        send({ type: 'delta', text: payload.delta.content.text });
+        text += payload.delta.content.text;
       } else if (payload.type === 'session.status_idle' && isPosted()) {
         // ponytail: isPosted filters idle events replayed before our POST returns; if long
         // histories ever race past it, key off our user.message event id instead
+        if (text) send({ type: 'delta', text });
         send({ type: 'done' });
         return;
       }
     }
+    if (text) send({ type: 'delta', text });
   }
 }
 
