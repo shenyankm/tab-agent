@@ -31,8 +31,8 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { useI18n, langLabels, type Lang } from '@/lib/i18n';
-import { clipsItem, removeClip, type Clip } from '@/lib/clips';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, type Theme } from '@/lib/settings';
+import { clipsItem, removeClip, clipNavUrl, type Clip } from '@/lib/clips';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, deepseekKeyItem, transTargetItem, type Theme } from '@/lib/settings';
 
 type Tab = 'settings' | 'clips' | 'privacy';
 
@@ -102,7 +102,7 @@ function ClipsPage() {
       <button
         type="button"
         className="min-w-0 flex-1 cursor-pointer text-left"
-        onClick={() => browser.tabs.create({ url: clip.url })}
+        onClick={() => browser.tabs.create({ url: clipNavUrl(clip) })}
         title={clip.text}
       >
         <span className="line-clamp-2 text-sm">{clip.text}</span>
@@ -243,21 +243,24 @@ function PrivacyPage() {
   );
 }
 
-// Qoder Cloud Agents connection fields: i18n key, storage item, placeholder
+// Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
   ['pat', patItem, 'pt-...'],
   ['agentId', agentIdItem, 'agent_...'],
   ['envId', envIdItem, 'env_...'],
   ['vaultId', vaultIdItem, 'vault_...'],
+  ['deepseekKey', deepseekKeyItem, 'sk-...'],
 ] as const;
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [conn, setConn] = useState<Record<string, string>>({});
+  const [transTarget, setTransTarget] = useState('');
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
     themeItem.getValue().then(setTheme);
+    transTargetItem.getValue().then(setTransTarget);
     connFields.forEach(([key, item]) => {
       item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
     });
@@ -304,6 +307,28 @@ function SettingsPage() {
                 <DropdownMenuRadioItem value="system">{t('theme.system')}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="dark">{t('theme.dark')}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="light">{t('theme.light')}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="shrink-0 text-sm font-medium">{t('settings.transTarget')}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                {transTarget ? langLabels[transTarget as Lang] : t('transTarget.follow')}
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuRadioGroup
+                value={transTarget}
+                onValueChange={(v) => { setTransTarget(v); transTargetItem.setValue(v); }}
+              >
+                <DropdownMenuRadioItem value="">{t('transTarget.follow')}</DropdownMenuRadioItem>
+                {Object.entries(langLabels).map(([value, label]) => (
+                  <DropdownMenuRadioItem key={value} value={value}>{label}</DropdownMenuRadioItem>
+                ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
