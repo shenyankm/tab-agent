@@ -14,7 +14,26 @@ vi.mock('wxt/utils/storage', () => ({
   },
 }));
 
-import { useI18n } from '@/lib/i18n';
+import { useI18n, dict } from '@/lib/i18n';
+
+describe('dict parity', () => {
+  const base = Object.keys(dict.en).sort();
+
+  it('every language has exactly the same keys as en', () => {
+    for (const lang of ['zh-CN', 'zh-TW', 'ja'] as const) {
+      expect(Object.keys(dict[lang]).sort()).toEqual(base);
+    }
+  });
+
+  it('placeholders survive translation', () => {
+    for (const key of base) {
+      const holders = (dict.en[key].match(/\{\w+\}/g) ?? []).sort();
+      for (const lang of ['zh-CN', 'zh-TW', 'ja'] as const) {
+        expect((dict[lang][key].match(/\{\w+\}/g) ?? []).sort(), `${lang} ${key}`).toEqual(holders);
+      }
+    }
+  });
+});
 
 describe('useI18n t()', () => {
   beforeEach(() => {
