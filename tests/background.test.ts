@@ -21,6 +21,7 @@ vi.mock('@/lib/settings', () => ({
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
+  deepseekKeyItem: { getValue: () => Promise.resolve('') },
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -39,6 +40,7 @@ vi.mock('wxt/browser', () => ({
         addListener: (fn: (...args: any[]) => void) => { connectListenerRef.current = fn; },
       },
       onInstalled: { addListener: vi.fn() },
+      onMessage: { addListener: vi.fn() },
     },
     contextMenus: {
       create: vi.fn(),
