@@ -9,7 +9,7 @@ function Menubar({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="menubar"
       className={cn(
-        "flex h-8 items-center gap-0.5 rounded border-2 bg-background p-[3px] shadow-md",
+        "flex h-8 items-center gap-0.5 rounded border-2 bg-background p-[3px] text-foreground shadow-md",
         className
       )}
       {...props}
