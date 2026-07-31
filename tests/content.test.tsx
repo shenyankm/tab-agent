@@ -33,6 +33,8 @@ vi.mock('@/lib/settings', () => ({
   petPosItem: { getValue: () => mockPosGet(), setValue: (v: unknown) => mockPosSet(v) },
   pageCarryItem: { getValue: () => mockCarryGet(), watch: () => () => {} },
   clipHighlightItem: { getValue: () => mockHighlightOn(), watch: () => () => {} },
+  transEnabledItem: { getValue: () => Promise.resolve(false), setValue: vi.fn(), watch: () => () => {} },
+  transTargetItem: { getValue: () => Promise.resolve('') },
   isDark: () => false,
 }));
 
@@ -46,6 +48,7 @@ vi.mock('@/lib/clips', () => ({
 }));
 
 vi.mock('@/lib/i18n', () => ({
+  langItem: { getValue: () => Promise.resolve('en') },
   useI18n: () => ({
     lang: 'en',
     setLang: vi.fn(),
@@ -203,10 +206,8 @@ describe('FloatingAgent', () => {
     fireEvent.click(screen.getByText('clip on this page'));
     expect(mockHighlightClip).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete clip' }));
-    expect(mockRemoveClip).toHaveBeenCalledWith('1');
-    // the cached on-page highlight goes with it
-    expect(mockRemoveMarks).toHaveBeenCalled();
+    // management lives in the options page: no delete button in the widget
+    expect(screen.queryByRole('button', { name: 'Delete clip' })).not.toBeInTheDocument();
   });
 
   it('pre-fills a translate prompt from the page selection, capped at 2k chars', async () => {
