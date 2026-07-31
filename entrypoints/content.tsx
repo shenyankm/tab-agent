@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Paperclip, Send, X } from 'lucide-react';
+import { Readability } from '@mozilla/readability';
+import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -12,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
-import { themeItem, petEnabledItem, petPosItem, isDark, type Theme } from '@/lib/settings';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem, isDark, type Theme, type PageCarry } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -61,6 +63,16 @@ type Attachment = { name: string; text: string };
 // ponytail: text files only per the Files API; 1 MB cap keeps the port message sane
 const MAX_FILE_BYTES = 1_000_000;
 
+// Readability mutates its input, so it gets a clone; null/throw (non-article pages,
+// framesets) falls back to raw innerText
+function pageMarkdown() {
+  try {
+    const article = new Readability(document.cloneNode(true) as Document).parse();
+    if (article?.content) return new TurndownService().turndown(article.content);
+  } catch { /* fall through */ }
+  return document.body.innerText;
+}
+
 export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
@@ -69,6 +81,7 @@ export function FloatingAgent() {
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
   const [query, setQuery] = useState('');
   const [file, setFile] = useState<Attachment | null>(null);
+  const [carry, setCarry] = useState<PageCarry>('article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +90,7 @@ export function FloatingAgent() {
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
   const movedRef = useRef(false);
+  const selRef = useRef(''); // page selection captured at pointerdown (click collapses it)
   const { t } = useI18n();
 
   useEffect(() => {
@@ -94,9 +108,16 @@ export function FloatingAgent() {
   }, []);
 
   useEffect(() => {
+    pageCarryItem.getValue().then(setCarry);
+    return pageCarryItem.watch(setCarry);
+  }, []);
+
+  useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
     // greet on first open
     if (open) setMessages((m) => (m.length ? m : [{ role: 'agent', text: t('widget.greeting') }]));
+    // 划词翻译: selected text pre-fills a translate prompt; target language rides the UI locale
+    if (open && selRef.current) setQuery(t('widget.translate', { text: selRef.current }));
   }, [open]);
 
   // keep the newest message in view
@@ -158,12 +179,14 @@ export function FloatingAgent() {
     port.postMessage({
       text: message,
       file: file ?? undefined,
+      // 'screenshot' is captured by the background (content scripts can't)
+      screenshot: carry === 'screenshot' || undefined,
       // page context so the cloud agent can actually see the current page
-      // ponytail: raw innerText capped at 20k chars; swap in Readability if noise hurts answers
       page: {
         url: location.href,
         title: document.title,
-        text: document.body.innerText.slice(0, 20000),
+        // ponytail: 20k char cap; per-section chunking if long articles get truncated
+        text: carry === 'article' ? pageMarkdown().slice(0, 20000) : '',
       },
     });
     setFile(null);
@@ -177,6 +200,8 @@ export function FloatingAgent() {
   if (!enabled) return null;
 
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    // ponytail: 2k cap keeps the single-line input sane; raise if long-form translation matters
+    selRef.current = window.getSelection()?.toString().trim().slice(0, 2000) ?? '';
     dragRef.current = { x: event.clientX, y: event.clientY, ...pos, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   };

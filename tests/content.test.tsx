@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-libra
 // --- hoisted mocks ---
 const {
   mockThemeGet, mockThemeWatch, mockEnabledGet, mockEnabledWatch,
-  mockPosGet, mockPosSet, portRef,
+  mockPosGet, mockPosSet, mockCarryGet, portRef,
 } = vi.hoisted(() => ({
   mockThemeGet: vi.fn().mockResolvedValue('light'),
   mockThemeWatch: vi.fn().mockReturnValue(() => {}),
@@ -12,6 +12,7 @@ const {
   mockEnabledWatch: vi.fn().mockReturnValue(() => {}),
   mockPosGet: vi.fn().mockResolvedValue({ right: 20, bottom: 20 }),
   mockPosSet: vi.fn(),
+  mockCarryGet: vi.fn().mockResolvedValue('article'),
   portRef: {
     listener: null as ((msg: unknown) => void) | null,
     postMessage: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@/lib/settings', () => ({
   themeItem: { getValue: () => mockThemeGet(), watch: () => mockThemeWatch() },
   petEnabledItem: { getValue: () => mockEnabledGet(), watch: () => mockEnabledWatch() },
   petPosItem: { getValue: () => mockPosGet(), setValue: (v: unknown) => mockPosSet(v) },
+  pageCarryItem: { getValue: () => mockCarryGet(), watch: () => () => {} },
   isDark: () => false,
 }));
 
@@ -87,6 +89,7 @@ describe('FloatingAgent', () => {
     mockEnabledGet.mockResolvedValue(true);
     mockThemeGet.mockResolvedValue('light');
     mockPosGet.mockResolvedValue({ right: 20, bottom: 20 });
+    mockCarryGet.mockResolvedValue('article');
   });
 
   it('renders nothing when pet is disabled', async () => {
@@ -115,6 +118,25 @@ describe('FloatingAgent', () => {
     expect(portRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'What is this?' }),
     );
+  });
+
+  it('sends screenshot flag and no page text in screenshot mode', async () => {
+    mockCarryGet.mockResolvedValue('screenshot');
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+
+    const input = await screen.findByPlaceholderText('Ask about this page…');
+    fireEvent.change(input, { target: { value: 'what do you see?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(portRef.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          screenshot: true,
+          page: expect.objectContaining({ text: '' }),
+        }),
+      );
+    });
   });
 
   it('appends streamed delta text to agent bubble', async () => {
