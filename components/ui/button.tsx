@@ -18,24 +18,17 @@ const buttonVariants = cva(
       variant: {
         default:
           "border-2 border-black bg-primary text-primary-foreground shadow-md transition duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-lg active:translate-x-1 active:translate-y-1 active:shadow-none",
-        secondary:
-          "border-2 border-black bg-secondary text-secondary-foreground shadow-md transition duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-secondary-hover hover:shadow-lg active:translate-x-1 active:translate-y-1 active:shadow-none",
         destructive:
           "border-2 border-black bg-destructive text-destructive-foreground shadow-md transition duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-destructive/90 hover:shadow-lg active:translate-x-1 active:translate-y-1 active:shadow-none",
         outline:
           "border-2 bg-transparent shadow-md transition duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-lg active:translate-x-1 active:translate-y-1 active:shadow-none",
         ghost: "bg-transparent hover:bg-accent",
-        link: "bg-transparent hover:underline",
       },
       size: {
         default: "px-4 py-1.5 text-base",
-        xs: "px-2 py-0.5 text-xs",
         sm: "px-3 py-1 text-sm",
-        lg: "px-6 py-2 text-base lg:px-8 lg:py-3 lg:text-lg",
         icon: "p-2",
-        "icon-xs": "p-1",
         "icon-sm": "p-1.5",
-        "icon-lg": "p-3",
       },
     },
     defaultVariants: {
