@@ -19,12 +19,12 @@ import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
 
-// ponytail: prototype reuses the supplied sheet; export these three frames if per-tab memory matters.
-const sheet = { width: 1536, height: 2288 };
+// 3-frame strip cropped from the full sheet (184×168 each) — keeps decoded RAM tiny per tab
+const sheet = { width: 552, height: 168 };
 const faces: Record<AgentState, { x: number; y: number }> = {
-  idle: { x: 772, y: 852 },
-  thinking: { x: 772, y: 1892 },
-  done: { x: 388, y: 852 },
+  idle: { x: 0, y: 0 },
+  thinking: { x: 184, y: 0 },
+  done: { x: 368, y: 0 },
 };
 
 function Mascot({ state, size }: { state: AgentState; size: number }) {
@@ -59,6 +59,10 @@ const clampPos = (p: { right: number; bottom: number }) => ({
 });
 
 type ChatMessage = { role: 'user' | 'agent'; text: string };
+
+// ponytail: everything ships eagerly — WXT bundles content scripts as one IIFE and
+// inlines dynamic imports (verified: lazy-loading grew the bundle); revisit if WXT
+// ever supports content-script code splitting
 
 // Readability mutates its input, so it gets a clone; null/throw (non-article pages,
 // framesets) falls back to raw innerText
