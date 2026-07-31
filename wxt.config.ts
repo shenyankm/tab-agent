@@ -7,9 +7,10 @@ export default defineConfig({
   manifest: {
     name: 'Pixel Agent',
     permissions: ['storage'],
-    // <all_urls> covers the qoder gateway and is required by tabs.captureVisibleTab
-    // (screenshot page context; in-page widget clicks never grant activeTab)
-    host_permissions: ['<all_urls>'],
+    host_permissions: ['https://api.qoder.com/*'],
+    // tabs.captureVisibleTab (screenshot page context) needs <all_urls>; requested
+    // at runtime in the popup when the user picks "screenshot" (least privilege)
+    optional_host_permissions: ['<all_urls>'],
     web_accessible_resources: [
       {
         matches: ['<all_urls>'],
