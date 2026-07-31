@@ -30,6 +30,12 @@ function App() {
     return pageCarryItem.watch(setCarry);
   }, []);
 
+  // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep old choice
+  const onCarryChange = async (v: string) => {
+    if (v === 'screenshot' && !(await browser.permissions.request({ origins: ['<all_urls>'] }))) return;
+    pageCarryItem.setValue(v as PageCarry);
+  };
+
   return (
     <div className="flex min-h-screen flex-col gap-6 p-4">
       <div className="flex items-center justify-between">
@@ -59,7 +65,7 @@ function App() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            <DropdownMenuRadioGroup value={carry} onValueChange={(v) => pageCarryItem.setValue(v as PageCarry)}>
+            <DropdownMenuRadioGroup value={carry} onValueChange={onCarryChange}>
               {carries.map((c) => (
                 <DropdownMenuRadioItem key={c} value={c}>{t(`carry.${c}`)}</DropdownMenuRadioItem>
               ))}
