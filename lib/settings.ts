@@ -21,12 +21,9 @@ export const sessionIdItem = storage.defineItem<string>('local:sessionId.v3', { 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
 
-function applyTheme(theme: Theme) {
-  document.documentElement.classList.toggle('dark', isDark(theme));
-}
-
 /** Apply the saved theme on startup and keep every open page in sync. */
 export function initTheme() {
-  themeItem.getValue().then(applyTheme);
-  themeItem.watch(applyTheme);
+  const apply = (theme: Theme) => document.documentElement.classList.toggle('dark', isDark(theme));
+  themeItem.getValue().then(apply);
+  themeItem.watch(apply);
 }
