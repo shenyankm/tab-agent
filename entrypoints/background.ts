@@ -140,7 +140,7 @@ async function handleChat(
   if (screenshot) {
     // captured here, not in the content script: tabs.captureVisibleTab only exists
     // in extension contexts and needs the <all_urls> host permission
-    const dataUrl = await browser.tabs.captureVisibleTab(undefined, { format: 'jpeg', quality: 80 });
+    const dataUrl = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
     mounts.push({
       fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob()),
       path: '/data/input/screenshot.jpg',
