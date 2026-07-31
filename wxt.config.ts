@@ -7,8 +7,9 @@ export default defineConfig({
   manifest: {
     name: 'Pixel Agent',
     permissions: ['storage'],
-    // ponytail: fixed to the Qoder gateway; widen if serverUrl points elsewhere
-    host_permissions: ['https://api.qoder.com/*'],
+    // <all_urls> covers the qoder gateway and is required by tabs.captureVisibleTab
+    // (screenshot page context; in-page widget clicks never grant activeTab)
+    host_permissions: ['<all_urls>'],
     web_accessible_resources: [
       {
         matches: ['<all_urls>'],
