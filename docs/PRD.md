@@ -28,7 +28,6 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 | 流式回答 | Agent 回复逐字追加，Markdown 渲染（含 GFM 表格等） |
 | 页面上下文 | 「携带页面」三档：无 / 正文（Readability 提取→Markdown，截断 20k 字符，内联进用户消息）/ 截图（background 截可见区域，上传挂载到 `/data/input/screenshot.jpg`） |
 | 划词翻译 | 选中页面文字后点宠物，输入框预填「翻译成界面语言：…」（选区截断 2k 字符） |
-| 环境健康度 | 面板每次打开探活一次（凭证齐全 + `GET /agents/{id}` 可达），徽标显示可用/不可用 |
 | 错误提示 | 区分「未配置凭证」「鉴权失败」「通用错误」三类文案 |
 | 无障碍 | dialog role、aria-live 消息区、Esc 关闭、焦点管理 |
 
