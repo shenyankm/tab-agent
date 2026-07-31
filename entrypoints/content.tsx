@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X } from 'lucide-react';
+import { Send, Trash2, X } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { Badge } from '@/components/ui/badge';
@@ -14,8 +14,10 @@ import {
   CardHeader,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
 import { useI18n } from '@/lib/i18n';
-import { themeItem, petEnabledItem, petPosItem, pageCarryItem, isDark, type Theme, type PageCarry } from '@/lib/settings';
+import { addClip, buildClipUrl, clipsItem, highlightClip, removeClip, removeMarks, type Clip } from '@/lib/clips';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark, type Theme, type PageCarry } from '@/lib/settings';
 import '@/assets/content.css';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -75,6 +77,68 @@ function pageMarkdown() {
   return document.body.innerText;
 }
 
+// clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting new ones
+const markByClip = new Map<string, Element[]>();
+
+function showClip(clip: Clip, scroll = true): boolean {
+  const marks = markByClip.get(clip.id) ?? highlightClip(clip);
+  if (!marks.length) return false;
+  markByClip.set(clip.id, marks);
+  if (scroll) {
+    marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // highlighting off = locate-only: flash the marks, then fade them out
+    clipHighlightItem.getValue().then((on) => {
+      if (on) return;
+      setTimeout(() => {
+        if (markByClip.delete(clip.id)) removeMarks(marks); // already-gone marks no-op
+      }, 3000);
+    });
+  }
+  return true;
+}
+
+// clips saved on this page (hash-insensitive match); clicking jumps in-page to the
+// re-marked text — new-tab navigation only as fallback when the text is gone
+function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
+  const page = location.href.split('#')[0];
+  const pageClips = clips.filter((c) => c.pageUrl.split('#')[0] === page);
+
+  if (pageClips.length === 0)
+    return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
+
+  return pageClips.map((clip) => (
+    <div key={clip.id} className="flex items-center gap-2">
+      <button
+        type="button"
+        className="min-w-0 flex-1 cursor-pointer text-left"
+        onClick={() => showClip(clip) || window.open(clip.url)}
+        title={clip.text}
+      >
+        <span className="line-clamp-2 text-sm">{clip.text}</span>
+        <span className="mt-1 block truncate text-[10px] text-muted-foreground">
+          {new Date(clip.createdAt).toLocaleString()}
+        </span>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => {
+          // drop the on-page highlight along with the clip, or it lingers until reload
+          const marks = markByClip.get(clip.id);
+          if (marks) {
+            removeMarks(marks);
+            markByClip.delete(clip.id);
+          }
+          removeClip(clip.id);
+        }}
+        aria-label={t('clips.delete')}
+      >
+        <Trash2 />
+      </Button>
+    </div>
+  ));
+}
+
 export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
@@ -84,6 +148,8 @@ export function FloatingAgent() {
   const [query, setQuery] = useState('');
   const [carry, setCarry] = useState<PageCarry>('article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [tab, setTab] = useState<'chat' | 'clips'>('chat');
+  const [clips, setClips] = useState<Clip[]>([]);
   const [env, setEnv] = useState<'checking' | 'ok' | 'bad'>('checking');
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
@@ -147,6 +213,11 @@ export function FloatingAgent() {
       .then((r: { ok?: boolean }) => setEnv(r?.ok ? 'ok' : 'bad'))
       .catch(() => setEnv('bad'));
   }, [open]);
+
+  useEffect(() => {
+    clipsItem.getValue().then(setClips);
+    return clipsItem.watch(setClips);
+  }, []);
 
   useEffect(() => {
     if (state !== 'thinking') return;
@@ -290,6 +361,14 @@ export function FloatingAgent() {
           aria-label="Pixel Agent"
         >
           <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
+            <Menubar>
+              <MenubarTrigger active={tab === 'chat'} onClick={() => setTab('chat')}>
+                {t('widget.tab.chat')}
+              </MenubarTrigger>
+              <MenubarTrigger active={tab === 'clips'} onClick={() => setTab('clips')}>
+                {t('nav.clips')}
+              </MenubarTrigger>
+            </Menubar>
             <Badge
               className={env === 'ok'
                 ? 'bg-green-500 text-white'
@@ -311,7 +390,9 @@ export function FloatingAgent() {
           </CardHeader>
 
           <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
-            {messages.map((msg, i) => (
+            {tab === 'clips' ? (
+              <ClipList clips={clips} t={t} />
+            ) : messages.map((msg, i) => (
               msg.role === 'user' ? (
                 <div key={i} className="flex flex-col items-end">
                   <div className="pixel-agent-bubble-user">{msg.text}</div>
@@ -330,6 +411,7 @@ export function FloatingAgent() {
             ))}
           </CardContent>
 
+          {tab === 'chat' && (
           <CardFooter className="flex-col gap-2 p-3">
             <form className="flex w-full gap-2" onSubmit={submit}>
               <label className="sr-only" htmlFor="pixel-agent-query">
@@ -353,6 +435,7 @@ export function FloatingAgent() {
               </Button>
             </form>
           </CardFooter>
+          )}
         </Card>
       )}
 
@@ -383,6 +466,38 @@ export default defineContentScript({
   matches: ['<all_urls>'],
   cssInjectionMode: 'ui',
   async main(ctx) {
+    // "save clip" from the background context menu: selection → text-fragment URL → storage
+    browser.runtime.onMessage.addListener((msg: { type?: string }) => {
+      if (msg?.type !== 'saveClip') return;
+      const sel = window.getSelection();
+      const text = sel?.toString().trim();
+      if (!sel || !text) return;
+      addClip({
+        url: buildClipUrl(location.href, sel),
+        pageUrl: location.href,
+        title: document.title,
+        text,
+      }).then(async (clip) => {
+        // mark right away as save feedback, unless highlighting is switched off
+        if (await clipHighlightItem.getValue()) showClip(clip, false);
+      });
+    });
+
+    // re-apply saved highlights: text fragments only fire on navigation, not on reload
+    // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
+    const page = location.href.split('#')[0];
+    const applyAll = async () => {
+      for (const clip of await clipsItem.getValue())
+        if (clip.pageUrl.split('#')[0] === page) showClip(clip, false);
+    };
+    clipHighlightItem.getValue().then((on) => { if (on) applyAll(); });
+    // the popup switch takes effect live on open tabs
+    clipHighlightItem.watch((on) => {
+      if (on) return void applyAll();
+      for (const marks of markByClip.values()) removeMarks(marks);
+      markByClip.clear();
+    });
+
     const ui = await createShadowRootUi(ctx, {
       name: 'pixel-agent-floating-ui',
       position: 'inline',

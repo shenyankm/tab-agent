@@ -4,7 +4,8 @@ import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-libra
 // --- hoisted mocks ---
 const {
   mockThemeGet, mockThemeWatch, mockEnabledGet, mockEnabledWatch,
-  mockPosGet, mockPosSet, mockCarryGet, mockSendMessage, portRef,
+  mockPosGet, mockPosSet, mockCarryGet, mockClipsGet, mockRemoveClip, mockHighlightClip,
+  mockHighlightOn, mockRemoveMarks, mockSendMessage, portRef,
 } = vi.hoisted(() => ({
   mockThemeGet: vi.fn().mockResolvedValue('light'),
   mockThemeWatch: vi.fn().mockReturnValue(() => {}),
@@ -13,6 +14,11 @@ const {
   mockPosGet: vi.fn().mockResolvedValue({ right: 20, bottom: 20 }),
   mockPosSet: vi.fn(),
   mockCarryGet: vi.fn().mockResolvedValue('article'),
+  mockClipsGet: vi.fn().mockResolvedValue([]),
+  mockRemoveClip: vi.fn(),
+  mockHighlightClip: vi.fn(),
+  mockHighlightOn: vi.fn().mockResolvedValue(true),
+  mockRemoveMarks: vi.fn(),
   mockSendMessage: vi.fn().mockResolvedValue({ ok: true }),
   portRef: {
     listener: null as ((msg: unknown) => void) | null,
@@ -27,7 +33,17 @@ vi.mock('@/lib/settings', () => ({
   petEnabledItem: { getValue: () => mockEnabledGet(), watch: () => mockEnabledWatch() },
   petPosItem: { getValue: () => mockPosGet(), setValue: (v: unknown) => mockPosSet(v) },
   pageCarryItem: { getValue: () => mockCarryGet(), watch: () => () => {} },
+  clipHighlightItem: { getValue: () => mockHighlightOn(), watch: () => () => {} },
   isDark: () => false,
+}));
+
+vi.mock('@/lib/clips', () => ({
+  clipsItem: { getValue: () => mockClipsGet(), watch: () => () => {} },
+  addClip: vi.fn(),
+  buildClipUrl: vi.fn(),
+  removeClip: (id: string) => mockRemoveClip(id),
+  highlightClip: (clip: unknown) => mockHighlightClip(clip),
+  removeMarks: (marks: unknown) => mockRemoveMarks(marks),
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -49,6 +65,11 @@ vi.mock('@/lib/i18n', () => ({
         'widget.env.checking': 'Checking',
         'widget.env.ok': 'Available',
         'widget.env.bad': 'Unavailable',
+        'widget.translate': 'Translate into English: {text}',
+        'widget.tab.chat': 'Chat',
+        'nav.clips': 'Clips',
+        'clips.empty': 'No clips yet.',
+        'clips.delete': 'Delete clip',
       };
       let s = dict[key] ?? key;
       if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
@@ -94,11 +115,14 @@ describe('FloatingAgent', () => {
     vi.clearAllMocks();
     portRef.listener = null;
     portRef.disconnectListener = null;
-    mockSendMessage.mockResolvedValue({ ok: true });
     mockEnabledGet.mockResolvedValue(true);
     mockThemeGet.mockResolvedValue('light');
     mockPosGet.mockResolvedValue({ right: 20, bottom: 20 });
     mockCarryGet.mockResolvedValue('article');
+    mockClipsGet.mockResolvedValue([]);
+    mockHighlightOn.mockResolvedValue(true);
+    mockSendMessage.mockResolvedValue({ ok: true });
+    mockHighlightClip.mockImplementation(() => [document.createElement('mark')]);
   });
 
   it('renders nothing when pet is disabled', async () => {
@@ -167,6 +191,30 @@ describe('FloatingAgent', () => {
     expect(screen.getAllByText(/\d{1,2}:\d{2}:\d{2}/)).toHaveLength(2);
   });
 
+  it('clips tab lists only clips saved on the current page', async () => {
+    mockClipsGet.mockResolvedValue([
+      { id: '1', url: 'http://localhost:3000/#:~:text=here', pageUrl: 'http://localhost:3000/', title: 't', text: 'clip on this page', createdAt: 1 },
+      { id: '2', url: 'https://other.com/#:~:text=x', pageUrl: 'https://other.com/', title: 'o', text: 'clip elsewhere', createdAt: 2 },
+    ]);
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clips' }));
+
+    expect(await screen.findByText('clip on this page')).toBeInTheDocument();
+    expect(screen.queryByText('clip elsewhere')).not.toBeInTheDocument();
+    // chat input is hidden on the clips tab
+    expect(screen.queryByPlaceholderText('Ask about this page…')).not.toBeInTheDocument();
+
+    // clicking an item re-highlights in-page (no new tab)
+    fireEvent.click(screen.getByText('clip on this page'));
+    expect(mockHighlightClip).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete clip' }));
+    expect(mockRemoveClip).toHaveBeenCalledWith('1');
+    // the cached on-page highlight goes with it
+    expect(mockRemoveMarks).toHaveBeenCalled();
+  });
+
   it('shows env badge from the background probe', async () => {
     render(<FloatingAgent />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
@@ -178,6 +226,45 @@ describe('FloatingAgent', () => {
     render(<FloatingAgent />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
     expect(await screen.findByText('Unavailable')).toBeInTheDocument();
+  });
+
+  it('pre-fills a translate prompt from the page selection, capped at 2k chars', async () => {
+    const node = document.body.appendChild(document.createTextNode('x'.repeat(3000)));
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    render(<FloatingAgent />);
+    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    // selection is captured at pointerdown (the click itself collapses it)
+    fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.click(launcher);
+
+    const input = await screen.findByPlaceholderText('Ask about this page…') as HTMLInputElement;
+    expect(input.value).toBe(`Translate into English: ${'x'.repeat(2000)}`);
+
+    sel.removeAllRanges();
+    node.remove();
+  });
+
+  it('fades the located marks out when highlighting is off', async () => {
+    mockHighlightOn.mockResolvedValue(false);
+    mockClipsGet.mockResolvedValue([
+      { id: '9', url: 'http://localhost:3000/#:~:text=here', pageUrl: 'http://localhost:3000/', title: 't', text: 'flash me', createdAt: 1 },
+    ]);
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clips' }));
+    await screen.findByText('flash me');
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('flash me'));
+    await vi.advanceTimersByTimeAsync(3100);
+    vi.useRealTimers();
+    expect(mockRemoveMarks).toHaveBeenCalled();
   });
 
   it('shows unconfigured error message', async () => {

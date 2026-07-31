@@ -25,3 +25,6 @@ Object.defineProperty(document.body, 'innerText', {
 // jsdom lacks the pointer capture API
 Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
+
+// jsdom lacks scrollIntoView
+Element.prototype.scrollIntoView = vi.fn();
