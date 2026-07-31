@@ -14,8 +14,6 @@ body {
 
 .pixel-agent-shell {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
   z-index: 2147483647;
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -258,13 +256,6 @@ body {
 @keyframes pixel-agent-done {
   50% {
     transform: scale(1.1) rotate(-2deg);
-  }
-}
-
-@media (max-width: 440px) {
-  .pixel-agent-shell {
-    right: 12px;
-    bottom: 12px;
   }
 }
 
