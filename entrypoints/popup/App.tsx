@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { ChevronDown, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -10,31 +9,17 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
+import { useStorageValue } from '@/lib/utils';
 import { petEnabledItem, pageCarryItem, clipHighlightItem, type PageCarry } from '@/lib/settings';
 
 const carries: PageCarry[] = ['none', 'article', 'screenshot'];
 
 function App() {
   const { t } = useI18n();
-  const [petEnabled, setPetEnabled] = useState(true);
-  const [carry, setCarry] = useState<PageCarry>('article');
-  const [highlight, setHighlight] = useState(true);
-
   // watch keeps the popup in sync with the options page
-  useEffect(() => {
-    petEnabledItem.getValue().then(setPetEnabled);
-    return petEnabledItem.watch(setPetEnabled);
-  }, []);
-
-  useEffect(() => {
-    pageCarryItem.getValue().then(setCarry);
-    return pageCarryItem.watch(setCarry);
-  }, []);
-
-  useEffect(() => {
-    clipHighlightItem.getValue().then(setHighlight);
-    return clipHighlightItem.watch(setHighlight);
-  }, []);
+  const petEnabled = useStorageValue(petEnabledItem, true);
+  const carry = useStorageValue(pageCarryItem, 'article');
+  const highlight = useStorageValue(clipHighlightItem, true);
 
   // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep old choice
   const onCarryChange = async (v: string) => {
