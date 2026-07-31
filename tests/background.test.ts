@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
-  connectListenerRef, messageListenerRef,
+  connectListenerRef,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
@@ -12,7 +12,6 @@ const {
   mockSessionGet: vi.fn().mockResolvedValue(''),
   mockSessionSet: vi.fn().mockResolvedValue(undefined),
   connectListenerRef: { current: null as ((...args: any[]) => void) | null },
-  messageListenerRef: { current: null as ((...args: any[]) => any) | null },
 }));
 
 vi.mock('@/lib/settings', () => ({
@@ -38,9 +37,6 @@ vi.mock('wxt/browser', () => ({
     runtime: {
       onConnect: {
         addListener: (fn: (...args: any[]) => void) => { connectListenerRef.current = fn; },
-      },
-      onMessage: {
-        addListener: (fn: (...args: any[]) => any) => { messageListenerRef.current = fn; },
       },
       onInstalled: { addListener: vi.fn() },
     },
@@ -161,16 +157,6 @@ describe('background handleChat', () => {
     // frames arriving in one network read are coalesced into a single delta
     expect(deltas).toEqual([{ type: 'delta', text: 'Hi there' }]);
     expect(messages.at(-1)).toEqual({ type: 'done' });
-  });
-
-  it('envCheck returns ok:false when unconfigured', async () => {
-    mockPat.mockResolvedValue('');
-    await expect(messageListenerRef.current?.({ type: 'envCheck' })).resolves.toEqual({ ok: false });
-  });
-
-  it('envCheck returns ok:true when agent endpoint responds 200', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true }));
-    await expect(messageListenerRef.current?.({ type: 'envCheck' })).resolves.toEqual({ ok: true });
   });
 
   it('recreates session when cached session returns 404', async () => {

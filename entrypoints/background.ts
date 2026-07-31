@@ -199,25 +199,6 @@ async function handleChat(
 }
 
 export default defineBackground(() => {
-  // env health probe for the widget badge: config present + GET /agents/{id} reachable
-  // ponytail: env ID is only truly validated at session creation; not probed separately
-  browser.runtime.onMessage.addListener((msg: { type?: string }) => {
-    if (msg?.type !== 'envCheck') return;
-    return (async () => {
-      const [pat, agentId, envId] = await Promise.all([
-        patItem.getValue(),
-        agentIdItem.getValue(),
-        envIdItem.getValue(),
-      ]);
-      if (!pat || !agentId || !envId) return { ok: false };
-      try {
-        return { ok: (await api(pat, `/agents/${agentId}`)).ok };
-      } catch {
-        return { ok: false };
-      }
-    })();
-  });
-
   // "save clip" context menu; title follows the UI language
   browser.runtime.onInstalled.addListener(async () => {
     browser.contextMenus.create({
