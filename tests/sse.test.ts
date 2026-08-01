@@ -43,4 +43,17 @@ describe('parseSSE', () => {
     const r = parseSSE('id: 42\nevent: ping\n\n');
     expect(r).toEqual({ data: [], rest: '' });
   });
+
+  it('normalizes CRLF line endings', () => {
+    const r = parseSSE('data: a\r\ndata: b\r\n\r\n');
+    expect(r).toEqual({ data: ['a\nb'], rest: '' });
+  });
+
+  it('normalizes CRLF frames split across reads', () => {
+    // streamReply concatenates chunk + buffer before parsing, so a lone \r ending
+    // one read and \n starting the next still normalize into one \r\n
+    const r1 = parseSSE('data: a\r');
+    const r2 = parseSSE(r1.rest + '\n\r\n');
+    expect(r2).toEqual({ data: ['a'], rest: '' });
+  });
 });

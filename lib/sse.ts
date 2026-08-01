@@ -2,6 +2,9 @@
 
 /** Cut complete SSE frames out of `buffer`; returns each frame's joined data payload and the unconsumed tail. */
 export function parseSSE(buffer: string): { data: string[]; rest: string } {
+  // CRLF servers delimit frames with \r\n\r\n; normalize so the \n\n split below
+  // sees them (streamReply concatenates chunk + buffer, so cross-read boundaries are safe)
+  buffer = buffer.replace(/\r\n/g, '\n');
   const data: string[] = [];
   let rest = buffer;
   let sep;
