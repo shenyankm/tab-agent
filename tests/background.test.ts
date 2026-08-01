@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
-  connectListenerRef,
+  connectListenerRef, messageListenerRef,
+  mockGetClips, mockAddClip, mockRemoveClip,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
@@ -12,6 +13,10 @@ const {
   mockSessionGet: vi.fn().mockResolvedValue(''),
   mockSessionSet: vi.fn().mockResolvedValue(undefined),
   connectListenerRef: { current: null as ((...args: any[]) => void) | null },
+  messageListenerRef: { current: null as ((...args: any[]) => unknown) | null },
+  mockGetClips: vi.fn().mockResolvedValue([]),
+  mockAddClip: vi.fn(),
+  mockRemoveClip: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/settings', () => ({
@@ -32,6 +37,12 @@ vi.mock('wxt/utils/define-background', () => ({
   defineBackground: (cb: () => void) => cb(),
 }));
 
+vi.mock('@/lib/clips', () => ({
+  getClipsDirect: () => mockGetClips(),
+  addClipDirect: (clip: unknown) => mockAddClip(clip),
+  removeClipDirect: (id: string) => mockRemoveClip(id),
+}));
+
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: {
@@ -39,12 +50,20 @@ vi.mock('wxt/browser', () => ({
         addListener: (fn: (...args: any[]) => void) => { connectListenerRef.current = fn; },
       },
       onInstalled: { addListener: vi.fn() },
-      onMessage: { addListener: vi.fn() },
+      onMessage: {
+        addListener: (fn: (...args: any[]) => unknown) => { messageListenerRef.current = fn; },
+      },
+      // fanOutClipsChanged broadcasts to extension pages; no listener in tests
+      sendMessage: vi.fn().mockRejectedValue(new Error('no listener')),
     },
     contextMenus: {
       create: vi.fn(),
       update: vi.fn(),
       onClicked: { addListener: vi.fn() },
+    },
+    tabs: {
+      query: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -189,5 +208,65 @@ describe('background handleChat', () => {
 
     expect(mockSessionSet).toHaveBeenCalledWith('new-sess');
     expect(messages.at(-1)).toEqual({ type: 'done' });
+  });
+});
+
+describe('background clips message handler', () => {
+  beforeEach(() => {
+    mockGetClips.mockResolvedValue([]);
+    mockAddClip.mockReset();
+    mockRemoveClip.mockResolvedValue(undefined);
+  });
+
+  // invoke the registered onMessage listener and capture the async sendResponse
+  function dispatch(msg: unknown, senderTabId?: number) {
+    const respond = vi.fn();
+    const ret = messageListenerRef.current?.(
+      msg,
+      { tab: senderTabId === undefined ? undefined : { id: senderTabId } },
+      respond,
+    );
+    return { respond, keptOpen: ret === true };
+  }
+
+  it('clipsGet responds with the clips and keeps the channel open', async () => {
+    const clips = [{ id: 'a', text: 'x' }];
+    mockGetClips.mockResolvedValue(clips);
+    const { respond, keptOpen } = dispatch({ type: 'clipsGet' });
+    expect(keptOpen).toBe(true);
+    await until(() => respond.mock.calls.length > 0);
+    expect(respond).toHaveBeenCalledWith({ ok: true, data: clips });
+  });
+
+  it('clipAdd writes via addClipDirect, fans out excluding the source tab, responds with the clip', async () => {
+    const full = { id: 'n', text: 's', createdAt: 1 };
+    mockAddClip.mockResolvedValue(full);
+    const { respond, keptOpen } = dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    expect(keptOpen).toBe(true);
+    await until(() => respond.mock.calls.length > 0);
+    expect(mockAddClip).toHaveBeenCalledWith({ text: 's' });
+    expect(respond).toHaveBeenCalledWith({ ok: true, data: full });
+  });
+
+  it('clipDel removes via removeClipDirect and responds', async () => {
+    const { respond, keptOpen } = dispatch({ type: 'clipDel', id: 'x' }, 3);
+    expect(keptOpen).toBe(true);
+    await until(() => respond.mock.calls.length > 0);
+    expect(mockRemoveClip).toHaveBeenCalledWith('x');
+    expect(respond).toHaveBeenCalledWith({ ok: true, data: undefined });
+  });
+
+  it('responds {ok:false} instead of hanging when the direct op rejects', async () => {
+    mockGetClips.mockRejectedValue(new Error('idb down'));
+    const { respond, keptOpen } = dispatch({ type: 'clipsGet' });
+    expect(keptOpen).toBe(true);
+    await until(() => respond.mock.calls.length > 0);
+    expect(respond).toHaveBeenCalledWith({ ok: false, error: 'idb down' });
+  });
+
+  it('ignores unrelated message types', () => {
+    const { respond, keptOpen } = dispatch({ type: 'somethingElse' });
+    expect(keptOpen).toBe(false);
+    expect(respond).not.toHaveBeenCalled();
   });
 });
