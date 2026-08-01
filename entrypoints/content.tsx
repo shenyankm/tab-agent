@@ -77,13 +77,19 @@ function pageMarkdown() {
   return document.body.innerText;
 }
 
-// clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting new ones
+// clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
+// new ones; isConnected drops SPA-navigation leftovers and re-highlights on demand
 const markByClip = new Map<string, Element[]>();
 
 function showClip(clip: Clip, scroll = true): boolean {
-  const marks = markByClip.get(clip.id) ?? highlightClip(clip);
-  if (!marks.length) return false;
-  markByClip.set(clip.id, marks);
+  let marks = markByClip.get(clip.id);
+  // SPA 导航后旧 mark 已失连：先清残留再重建，避免嵌套
+  if (!marks?.length || !marks.every((el) => el.isConnected)) {
+    if (marks?.length) removeMarks(marks);
+    marks = highlightClip(clip);
+    if (!marks.length) return false;
+    markByClip.set(clip.id, marks);
+  }
   if (scroll) {
     marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
     // highlighting off = locate-only: flash the marks, then fade them out
@@ -170,7 +176,10 @@ export function FloatingAgent() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  useEffect(() => () => portRef.current?.disconnect(), []);
+  useEffect(() => () => {
+    portRef.current?.disconnect();
+    cancelAnimationFrame(rafRef.current);
+  }, []);
 
   useEffect(() => {
     if (state !== 'thinking') return;
@@ -178,11 +187,31 @@ export function FloatingAgent() {
     return () => clearInterval(id);
   }, [state]);
 
-  // append streamed text to the trailing agent message
-  const patchLast = (text: string, replace = false) =>
+  // append streamed text to the trailing agent message; deltas coalesce into one
+  // setState per animation frame — re-parsing markdown on every delta was O(n²)
+  // on long replies and blocked the page's main thread
+  const pendingRef = useRef<{ text: string; replace: boolean } | null>(null);
+  const rafRef = useRef(0);
+  const applyPending = () => {
+    rafRef.current = 0;
+    const p = pendingRef.current!;
+    pendingRef.current = null;
     setMessages((m) => m.map((msg, i) => (
-      i === m.length - 1 ? { ...msg, text: replace ? text : msg.text + text } : msg
+      i === m.length - 1 ? { ...msg, text: p.replace ? p.text : msg.text + p.text } : msg
     )));
+  };
+  const flushPending = () => {
+    if (!rafRef.current) return;
+    cancelAnimationFrame(rafRef.current);
+    applyPending();
+  };
+  const patchLast = (text: string, replace = false) => {
+    pendingRef.current = replace
+      ? { text, replace: true }
+      : { text: (pendingRef.current?.text ?? '') + text, replace: false };
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(applyPending);
+  };
 
   // stamp the trailing agent message with its receive time
   const stampLast = () =>
@@ -194,6 +223,10 @@ export function FloatingAgent() {
     if (!message) return; // re-submit while thinking = cancel + new turn (background cancels via 409)
 
     portRef.current?.disconnect();
+    // 取消旧回合：丢弃未落盘的 delta，防止泄漏进新回合气泡
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    pendingRef.current = null;
     setQuery('');
     // drop the aborted turn's empty agent bubble so it doesn't sit on "Thinking…" forever
     setMessages((m) => [
@@ -213,6 +246,7 @@ export function FloatingAgent() {
         patchLast(msg.text ?? '');
       } else if (msg.type === 'done') {
         settled = true;
+        flushPending(); // land any un-flushed deltas before the stamp
         stampLast();
         setState('done');
         port.disconnect();
@@ -223,6 +257,7 @@ export function FloatingAgent() {
           : msg.code === 'unconfigured'
             ? t('widget.error.unconfigured')
             : t('widget.error.generic', { message: msg.message ?? '' }), true);
+        flushPending(); // the replace lands synchronously, before the stamp
         stampLast();
         setState('done');
         port.disconnect();
@@ -231,8 +266,10 @@ export function FloatingAgent() {
     // background worker died mid-turn (MV3 idle kill, update, crash): surface it
     // instead of hanging on "Thinking…" — only the remote end firing lands here
     port.onDisconnect.addListener(() => {
-      if (settled) return;
+      // re-submit 替换掉的旧 port：其断开是取消的一部分，不渲染错误
+      if (settled || portRef.current !== port) return;
       patchLast(t('widget.error.disconnected'), true);
+      flushPending();
       stampLast();
       setState('done');
     });
@@ -346,7 +383,11 @@ export function FloatingAgent() {
                 <div key={i}>
                   <div className="pixel-agent-md">
                     {msg.text
-                      ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      // streaming bubble renders plain text — one markdown parse per
+                      // turn, on done (parsing every delta was O(n²) on long replies)
+                      ? state === 'thinking' && !msg.at
+                        ? <span className="whitespace-pre-wrap">{msg.text}</span>
+                        : <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                       : `${t('widget.status.thinking')}… ${Math.max(0, Math.floor(((now || Date.now()) - startRef.current) / 1000))}s`}
                   </div>
                   {msg.at && <span className="mt-1 block text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
@@ -430,9 +471,16 @@ export default defineContentScript({
     // re-apply saved highlights: text fragments only fire on navigation, not on reload
     // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
     const page = stripHash(location.href);
+    // 开关每切换一次，在途的 idle 重放回调作废（否则关闭后残留回调会重新加 mark）
+    let clipGen = 0;
     const applyAll = async () => {
+      const gen = clipGen;
       for (const clip of await clipsItem.getValue())
-        if (stripHash(clip.pageUrl) === page) showClip(clip, false);
+        if (stripHash(clip.pageUrl) === page)
+          // idle-sliced: many clips on a big page must not stall first paint with one scan
+          requestIdleCallback(() => {
+            if (gen === clipGen) showClip(clip, false);
+          }, { timeout: 2000 });
     };
     clipHighlightItem.getValue().then((on) => { if (on) applyAll(); });
 
@@ -448,12 +496,13 @@ export default defineContentScript({
     }
     // the popup switch takes effect live on open tabs
     clipHighlightItem.watch((on) => {
+      clipGen++;
       if (on) return void applyAll();
       for (const marks of markByClip.values()) removeMarks(marks);
       markByClip.clear();
     });
 
-    const ui = await createShadowRootUi(ctx, {
+    const mountUI = () => createShadowRootUi(ctx, {
       name: 'pixel-agent-floating-ui',
       position: 'inline',
       isolateEvents: true,
@@ -467,6 +516,32 @@ export default defineContentScript({
       },
     });
 
-    ui.mount();
+    // pet toggle takes effect live: disabled = no React mount at all (spares the
+    // runtime + heap on every page); every mount/remove runs on one chain so rapid
+    // toggles can't race. 取舍：关闭即卸载——进行中的回答中断、重开后聊天记录重置
+    // （性能优先，与“关闭宠物”的用户意图一致）
+    let ui: Awaited<ReturnType<typeof mountUI>> | null = null;
+    let mountChain: Promise<void> = Promise.resolve();
+    petEnabledItem.watch((on) => {
+      mountChain = mountChain.then(async () => {
+        if (on && !ui) {
+          ui = await mountUI();
+          ui.mount();
+        } else if (!on && ui) {
+          ui.remove();
+          ui = null;
+        }
+      });
+    });
+    // 初始挂载走同一条链：与切换互斥，避免双挂载或禁用状态下挂载
+    if (await petEnabledItem.getValue()) {
+      mountChain = mountChain.then(async () => {
+        if (!ui) {
+          ui = await mountUI();
+          ui.mount();
+        }
+      });
+    }
+    await mountChain;
   },
 });
