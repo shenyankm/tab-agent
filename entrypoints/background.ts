@@ -200,15 +200,14 @@ async function handleChat(
   }
 }
 
-// fan clipsChanged out to content scripts in every tab except the one that
-// triggered the write (its own watcher already refreshed via the request-response),
-// and to extension pages (options) which tabs.sendMessage can't reach.
-function fanOutClipsChanged(excludeTabId?: number) {
+// fan clipsChanged out to content scripts in every tab and to extension pages
+// (options) which tabs.sendMessage can't reach.
+function fanOutClipsChanged() {
   browser.tabs
     .query({})
     .then((tabs) => {
       for (const tab of tabs)
-        if (tab.id && tab.id !== excludeTabId)
+        if (tab.id)
           browser.tabs.sendMessage(tab.id, { type: 'clipsChanged' }).catch(() => {
             /* no content script on this tab */
           });
@@ -261,14 +260,14 @@ export default defineBackground(() => {
     }
     if (msg?.type === 'clipAdd') {
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
-        fanOutClipsChanged(sender.tab?.id);
+        fanOutClipsChanged();
         ok(clip);
       }, fail);
       return true;
     }
     if (msg?.type === 'clipDel') {
       removeClipDirect(msg.id as string).then(() => {
-        fanOutClipsChanged(sender.tab?.id);
+        fanOutClipsChanged();
         ok(undefined);
       }, fail);
       return true;
