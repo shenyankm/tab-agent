@@ -20,9 +20,9 @@ entrypoints/
   popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
   options/         # 设置页（独立标签页）：凭证 / 主题 / 语言 / 摘录管理 / 隐私
 lib/
-  settings.ts      # 全部持久化项（storage.defineItem）+ 主题工具
+  settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
-  clips.ts         # 摘录：text-fragment URL 生成/解析/高亮（text-fragments-polyfill）
+  clips.ts         # 摘录：IndexedDB 存储 + text-fragment URL 生成/解析/高亮（text-fragments-polyfill）
   i18n.tsx         # 多语言
   utils.ts         # cn()（clsx + tailwind-merge）
 components/ui/     # RetroUI 组件源码（shadcn CLI 添加）
@@ -51,7 +51,7 @@ tests/             # vitest 单元测试（pnpm test）
 
 关键决策：**所有网络请求收敛在 background**。内容脚本只通过长连接 Port 收发消息，凭证不进入页面上下文；Port 断开即中止后台请求（AbortController）。
 
-另有一条轻量消息路径（`runtime.sendMessage`）：**摘录** —— background 的右键菜单 → `{type:'saveClip'}` → content 用当前 Selection 生成 text-fragment URL 存入 storage。
+另有一条轻量消息路径（`runtime.sendMessage`）：**摘录** —— background 的右键菜单 → `{type:'saveClip'}` → content 用当前 Selection 生成 text-fragment URL → `{type:'clipAdd'}` 回传 background 写入扩展 origin 的 IndexedDB（见 §6）。
 
 ## 4. 云端架构（Qoder Cloud Agents）
 
@@ -133,16 +133,23 @@ user.message → session.status_running → agent.thinking
 
 ## 6. 状态与存储
 
-全部持久化项集中在 `lib/settings.ts`，使用 WXT 的 `storage.defineItem`（`local:` 前缀），各页面通过 `.watch()` 实时同步：
+**配置项**集中在 `lib/settings.ts`，使用 WXT 的 `storage.defineItem`（`local:` 前缀），各页面通过 `.watch()` 实时同步：
 
 | Key | 用途 |
 |---|---|
 | `theme` / `petEnabled` / `petPos` | 外观、宠物开关、宠物位置 |
 | `pageCarry` | 携带页面：none / article / screenshot |
-| `clips` / `clipHighlight`（clips 定义在 `lib/clips.ts`） | 摘录列表与高亮开关 |
+| `clipHighlight` | 摘录高亮开关 |
 | `lang`（定义在 `lib/i18n.tsx`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `sessionId.v3` | 云端会话缓存；**语义变化时 bump key 版本号**强制新会话（v2→v3 为挂载 vault_ids） |
+
+**摘录数据**（`lib/clips.ts`）存**扩展 origin** 的 IndexedDB（库 `pixel-agent`，store `clips`，keyPath `id`），storage 不存内容。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
+
+- **读写分离**：background 是唯一写者。所有写操作（`addClip`/`removeClip`，不分 origin）都走 `runtime.sendMessage`（`clipAdd`/`clipDel`）由 background 经 `addClipDirect`/`removeClipDirect` 写库；读操作分 origin——扩展 origin（options）经 `getClipsDirect` 直接读，content script 的 `clipsItem.getValue` 走 `clipsGet` 消息。background `onMessage` 用 `return true` 保持异步通道，并统一回 `{ok:true,data}` / `{ok:false,error}` 信封，避免 direct 操作 reject 时发送方永久挂起。
+- **变更同步**：写库后 background 双通道广播 `{type:'clipsChanged'}`——`tabs.sendMessage` 到各 tab 的 content script（排除来源 tab），`runtime.sendMessage` 到 options 等扩展页（`tabs.sendMessage` 到不了扩展页）；watcher 收到后拉全量。`clipsItem` 保持与 WXT storage item 同形的 `getValue`/`watch`，消费方经 `useStorageValue` 无感切换。
+- **旧版迁移**：background 启动时一次性把 `local:clips` 导入 IndexedDB，用 `local:clipsMigrated` 标记位做幂等闸门（只在扩展 origin 执行，避免多 content script 各自迁移并抢着删全局旧 key），完成后删除旧 key。
+- **排序稳定**：`addClipDirect` 用 `Math.max(Date.now(), last+1)` 保证 `createdAt` 单调，同毫秒连续摘录的 newest-first 顺序确定。
 
 ## 7. 内容脚本 UI 隔离
 
