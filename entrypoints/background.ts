@@ -1,6 +1,7 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
+import { getClipsDirect, addClipDirect, removeClipDirect, type Clip } from '@/lib/clips';
 
 type ChatOut =
   | { type: 'delta'; text: string }
@@ -199,7 +200,35 @@ async function handleChat(
   }
 }
 
+// fan clipsChanged out to content scripts in every tab except the one that
+// triggered the write (its own watcher already refreshed via the request-response),
+// and to extension pages (options) which tabs.sendMessage can't reach.
+function fanOutClipsChanged(excludeTabId?: number) {
+  browser.tabs
+    .query({})
+    .then((tabs) => {
+      for (const tab of tabs)
+        if (tab.id && tab.id !== excludeTabId)
+          browser.tabs.sendMessage(tab.id, { type: 'clipsChanged' }).catch(() => {
+            /* no content script on this tab */
+          });
+    })
+    .catch(() => {
+      /* tabs.query failed */
+    });
+  // runtime.sendMessage reaches extension pages (options) but not content scripts;
+  // background itself has no watcher, so no echo to worry about here.
+  void browser.runtime.sendMessage({ type: 'clipsChanged' }).catch(() => {
+    /* no extension page listening */
+  });
+}
+
 export default defineBackground(() => {
+  // warm the extension-origin DB and run the one-shot legacy migration at startup
+  void getClipsDirect().catch(() => {
+    /* open failed; next access retries */
+  });
+
   // "save clip" context menu; title follows the UI language
   browser.runtime.onInstalled.addListener(async () => {
     browser.contextMenus.create({
@@ -217,6 +246,33 @@ export default defineBackground(() => {
       browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
         /* no content script on this page (chrome://, store) */
       });
+  });
+
+  // clips live in the extension origin's IndexedDB; background is the sole writer.
+  // Content scripts (page origin, per-site isolated IDB) proxy reads/writes here.
+  // return true keeps the message channel open for the async sendResponse; every
+  // branch resolves {ok:true,data} or {ok:false,error} so the sender never hangs.
+  browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    const ok = (data: unknown) => sendResponse({ ok: true, data });
+    const fail = (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) });
+    if (msg?.type === 'clipsGet') {
+      getClipsDirect().then(ok, fail);
+      return true;
+    }
+    if (msg?.type === 'clipAdd') {
+      addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
+        fanOutClipsChanged(sender.tab?.id);
+        ok(clip);
+      }, fail);
+      return true;
+    }
+    if (msg?.type === 'clipDel') {
+      removeClipDirect(msg.id as string).then(() => {
+        fanOutClipsChanged(sender.tab?.id);
+        ok(undefined);
+      }, fail);
+      return true;
+    }
   });
 
   browser.runtime.onConnect.addListener((port) => {
