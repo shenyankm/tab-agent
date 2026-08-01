@@ -62,29 +62,6 @@ body {
   overscroll-behavior: contain;
 }
 
-/* neobrutalism.com scrollbar */
-.pixel-agent-messages::-webkit-scrollbar,
-.pixel-agent-md pre::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
-}
-
-.pixel-agent-messages::-webkit-scrollbar-track,
-.pixel-agent-md pre::-webkit-scrollbar-track {
-  background: var(--background);
-}
-
-.pixel-agent-messages::-webkit-scrollbar-thumb,
-.pixel-agent-md pre::-webkit-scrollbar-thumb {
-  background: var(--primary);
-  border: 2px solid var(--border);
-}
-
-.pixel-agent-messages::-webkit-scrollbar-thumb:hover,
-.pixel-agent-md pre::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-hover);
-}
-
 .pixel-agent-bubble-user {
   align-self: flex-end;
   max-width: 85%;
