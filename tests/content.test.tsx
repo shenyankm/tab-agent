@@ -45,6 +45,7 @@ vi.mock('@/lib/clips', () => ({
   removeClip: (id: string) => mockRemoveClip(id),
   highlightClip: (clip: unknown) => mockHighlightClip(clip),
   removeMarks: (marks: unknown) => mockRemoveMarks(marks),
+  clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`,
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -104,7 +105,7 @@ vi.mock('wxt/utils/content-script-ui/shadow-root', () => ({
   createShadowRootUi: () => ({ mount: vi.fn() }),
 }));
 
-import { FloatingAgent } from '@/entrypoints/content';
+import { FloatingAgent } from '@/components/floating-agent';
 
 describe('FloatingAgent', () => {
   afterEach(cleanup);
