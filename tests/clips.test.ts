@@ -5,6 +5,7 @@ import {
   highlightClip,
   addClip,
   removeClip,
+  updateClip,
   clipsItem,
   getClipsDirect,
   addClipDirect,
@@ -64,6 +65,38 @@ describe('highlightClip', () => {
     const clip = { id: 'x', url: 'https://e.com/p#:~:text=vanished', pageUrl: 'https://e.com/p', title: '', text: 'vanished', createdAt: 0 };
     expect(highlightClip(clip)).toEqual([]);
   });
+
+  // fallback: page text shifted (dynamic render, whitespace drift) so the fragment
+  // directive no longer matches — locate clip.text directly (Obsidian textQuote-style)
+  it('falls back to locating clip.text when the fragment directive is stale', () => {
+    document.body.innerHTML = '<p>alpha bravo charlie</p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=expired-term', pageUrl: 'https://e.com/p', title: '', text: 'bravo', createdAt: 0 };
+    const marks = highlightClip(clip);
+    expect(marks[0]?.tagName).toBe('MARK');
+    expect(document.querySelector('mark')?.textContent).toBe('bravo');
+  });
+
+  it('returns null when neither the fragment nor the text is on the page', () => {
+    document.body.innerHTML = '<p>nothing to see</p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=gone', pageUrl: 'https://e.com/p', title: '', text: 'vanished', createdAt: 0 };
+    expect(highlightClip(clip)).toEqual([]);
+  });
+
+  // bare-URL clip (no fragment directive): keep the old no-highlight behavior,
+  // the fallback text search only covers "fragment existed but went stale"
+  it('does not text-search for clips without a fragment directive', () => {
+    document.body.innerHTML = '<p>alpha bravo charlie</p>';
+    const clip = { id: 'x', url: 'https://e.com/p', pageUrl: 'https://e.com/p', title: '', text: 'bravo', createdAt: 0 };
+    expect(highlightClip(clip)).toEqual([]);
+  });
+
+  it('skips script text nodes in the fallback search', () => {
+    document.body.innerHTML = '<script>const secret = "top-secret";</script><p>top-secret visible</p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=stale', pageUrl: 'https://e.com/p', title: '', text: 'top-secret', createdAt: 0 };
+    const marks = highlightClip(clip);
+    expect(marks.length).toBe(1);
+    expect(marks[0].parentElement?.tagName).toBe('P'); // 命中正文而非 script
+  });
 });
 
 // extension-origin storage: exercise the direct API (jsdom's location is http:,
@@ -114,6 +147,28 @@ describe('clip storage (extension origin)', () => {
     expect(updated.text).toBe('hello'); // untouched fields preserved
     // non-existent id: no throw
     await updateClipDirect('ghost', { category: 'x' });
+  });
+
+  it('updateClipDirect whitelists patch keys and validates types', async () => {
+    const clip = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'hello' });
+    // 越权字段(消息层不可信)与脏类型必须被丢弃,不能覆盖 keyPath/保护字段
+    await updateClipDirect(clip.id, {
+      category: 'x',
+      notes: 'boom',
+      id: 'stolen',
+      createdAt: 0,
+      pageUrl: 'https://evil.com',
+    } as any);
+    const [updated] = await getClipsDirect();
+    expect(updated.category).toBe('x');
+    expect(updated.id).toBe(clip.id);
+    expect(updated.createdAt).toBe(clip.createdAt);
+    expect(updated.pageUrl).toBe(clip.pageUrl); // 未被越权字段覆盖
+    expect(updated.notes).toBeUndefined(); // 非数组 notes 被丢弃
+    // 合法 notes 数组照常写入
+    await updateClipDirect(clip.id, { notes: ['note one'] });
+    const [u2] = await getClipsDirect();
+    expect(u2.notes).toEqual(['note one']);
   });
 
   it('migrates legacy clips once, sets the flag and clears the old key', async () => {
@@ -170,6 +225,9 @@ describe('clip storage (content script proxy)', () => {
 
       await removeClip('x');
       expect(sendSpy).toHaveBeenCalledWith({ type: 'clipDel', id: 'x' });
+
+      await updateClip('x', { notes: ['note'] });
+      expect(sendSpy).toHaveBeenCalledWith({ type: 'clipUpdate', id: 'x', patch: { notes: ['note'] } });
 
       expect(openSpy).not.toHaveBeenCalled(); // the whole point: no page-origin DB
     } finally {

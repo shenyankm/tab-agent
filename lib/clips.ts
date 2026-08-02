@@ -19,6 +19,7 @@ export type Clip = {
   createdAt: number;
   category?: string;
   relatedIds?: string[];
+  notes?: string[]; // user annotations, appended to exports
 };
 
 // --- IndexedDB storage ---
@@ -129,12 +130,24 @@ export async function removeClipDirect(id: string): Promise<void> {
   broadcastClipsChanged();
 }
 
-export async function updateClipDirect(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds'>>, broadcast = true): Promise<void> {
+// patch 来自页面消息(不可信)与 classify 响应:白名单 + 类型校验。id 是 keyPath,
+// 不校验的话可整体覆盖另一条记录;脏类型(如 notes 非数组)会击穿渲染。
+const PATCH_KEYS = ['category', 'relatedIds', 'notes'] as const;
+export async function updateClipDirect(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes'>>, broadcast = true): Promise<void> {
+  const safe: Partial<Clip> = {};
+  for (const k of PATCH_KEYS) {
+    const v = (patch as Record<string, unknown>)[k];
+    if (v === undefined) continue;
+    if (k === 'notes' && !(Array.isArray(v) && v.every((n) => typeof n === 'string'))) continue;
+    if (k === 'relatedIds' && !(Array.isArray(v) && v.every((id) => typeof id === 'string'))) continue;
+    if (k === 'category' && typeof v !== 'string') continue;
+    safe[k] = v as never;
+  }
   const db = await openDB();
   const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
   const clip = await req2p(store.get(id)) as Clip | undefined;
   if (!clip) return;
-  await req2p(store.put({ ...clip, ...patch }));
+  await req2p(store.put({ ...clip, ...safe }));
   if (broadcast) broadcastClipsChanged();
 }
 
@@ -201,6 +214,10 @@ export function removeClip(id: string): Promise<void> {
   return write<void>({ type: 'clipDel', id });
 }
 
+export function updateClip(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes'>>): Promise<void> {
+  return write<void>({ type: 'clipUpdate', id, patch });
+}
+
 // the fragment directive reserves "-" "," "&"; encodeURIComponent leaves "-" alone
 const enc = (s: string) => encodeURIComponent(s).replace(/-/g, '%2D');
 
@@ -260,18 +277,48 @@ function trimRangeToText(range: Range, text: string) {
  * 同一条定位/高亮/淡出路径。 */
 export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#pixel-agent-clip=${clip.id}`;
 
+// script/style 等子树的文本节点不属于正文,命中会向脚本字符串插 <mark>(篡改页面)
+const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+
+/** 兜底定位:文本片段失配(页面改动/动态渲染)时按 clip.text 在文本节点中直接查找
+ * (Obsidian Clipper textQuote 重锚思路的简化版)
+ * ponytail: 单文本节点 indexOf,跨节点文本不查;多实例取第一个,无歧义消解——兜底路径 */
+function findTextRange(text: string): Range | null {
+  const q = text.trim();
+  if (!q || !document.body) return null; // all_urls 匹配的 XML/SVG 页可能无 body
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node: Node | null; (node = walker.nextNode()); ) {
+    if (SKIP_TEXT_PARENTS.has((node.parentElement as HTMLElement | null)?.tagName ?? '')) continue;
+    const i = (node as Text).data.indexOf(q);
+    if (i >= 0) {
+      const r = document.createRange();
+      r.setStart(node, i);
+      r.setEnd(node, i + q.length);
+      return r;
+    }
+  }
+  return null;
+}
+
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
 export function highlightClip(clip: Clip): Element[] {
+  let fragment: TextFragment | undefined;
   try {
-    const fragment = parseFragmentDirectives(getFragmentDirectives(new URL(clip.url).hash)).text?.[0];
-    if (!fragment?.textStart) return [];
-    const ranges = processTextFragmentDirective(fragment);
-    if (!ranges.length) return [];
-    trimRangeToText(ranges[0], clip.text);
-    return markRange(ranges[0]);
+    fragment = parseFragmentDirectives(getFragmentDirectives(new URL(clip.url).hash)).text?.[0];
+    if (fragment?.textStart) {
+      const ranges = processTextFragmentDirective(fragment);
+      if (ranges.length) {
+        trimRangeToText(ranges[0], clip.text);
+        return markRange(ranges[0]);
+      }
+    }
   } catch {
-    return []; // malformed URL, or the text is no longer on the page
+    /* malformed URL */
   }
+  // 兜底仅覆盖"fragment 曾存在但失配"(页面改动);裸 URL clip 无 fragment,保持旧行为不高亮
+  if (!fragment?.textStart) return [];
+  const range = findTextRange(clip.text);
+  return range ? markRange(range) : []; // the text is no longer on the page
 }
 
 export { removeMarks } from 'text-fragments-polyfill/text-fragment-utils';

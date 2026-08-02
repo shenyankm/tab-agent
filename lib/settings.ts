@@ -11,6 +11,8 @@ export const petPosItem = storage.defineItem<{ right: number; bottom: number }>(
   fallback: { right: 20, bottom: 20 },
 });
 export const pageCarryItem = storage.defineItem<PageCarry>('local:pageCarry', { fallback: 'article' });
+// comma-separated knowledge categories for clip classification (empty = built-in list)
+export const categoriesItem = storage.defineItem<string>('local:categories', { fallback: '' });
 export const patItem = storage.defineItem<string>('local:pat', { fallback: '' });
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
