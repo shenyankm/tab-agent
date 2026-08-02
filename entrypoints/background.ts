@@ -1,7 +1,7 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
-import { getClipsDirect, addClipDirect, removeClipDirect, type Clip } from '@/lib/clips';
+import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips';
 
 type ChatOut =
   | { type: 'delta'; text: string }
@@ -35,9 +35,7 @@ async function createSession(pat: string, agentId: string, envId: string, vaultI
     }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
-  const session = await res.json();
-  await sessionIdItem.setValue(session.id);
-  return session.id as string;
+  return (await res.json()).id as string;
 }
 
 type PageContext = { url: string; title: string; text: string };
@@ -90,34 +88,57 @@ async function streamReply(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const frames = parseSSE(buffer + decoder.decode(value, { stream: true }));
-    buffer = frames.rest;
+  // ponytail: 90s read timeout — covers silent connection drops where TCP never
+  // signals closure (MV3 worker suspension, proxy idle-kill). Agent tool calls
+  // (WebFetch, Bash) can take 30-60s; heartbeats arrive every ~15s, so 90s of
+  // silence means the connection is dead. Upgrade to a heartbeat-aware watchdog
+  // if false positives appear.
+  let timer: ReturnType<typeof setTimeout> = 0 as any;
+  let rejectTimeout: (e: Error) => void;
+  const timeout = new Promise<never>((_, reject) => { rejectTimeout = reject; });
+  const armTimeout = () => { clearTimeout(timer); timer = setTimeout(() => rejectTimeout(new Error('stream read timeout')), 90_000); };
+  const onAbort = () => rejectTimeout(signal.reason ?? new Error('aborted'));
+  signal.addEventListener('abort', onAbort, { once: true });
+  armTimeout();
 
-    // one read() often carries several frames; coalesce so the UI re-renders once per read
-    let text = '';
-    for (const data of frames.data) {
-      let payload;
-      try {
-        payload = JSON.parse(data);
-      } catch {
-        continue;
+  try {
+    while (true) {
+      const { done, value } = await Promise.race([reader.read(), timeout]);
+      if (done) break;
+      armTimeout(); // reset for next read
+      const frames = parseSSE(buffer + decoder.decode(value, { stream: true }));
+      buffer = frames.rest;
+
+      // one read() often carries several frames; coalesce so the UI re-renders once per read
+      let text = '';
+      for (const data of frames.data) {
+        let payload;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        // isPosted also gates deltas: a fresh stream replays the old turn's in-flight deltas
+        // ponytail: only agent.message emits deltas today; if that changes, filter via event_start's event.id→type map
+        if (payload.type === 'event_delta' && isPosted() && payload.delta?.content?.text) {
+          text += payload.delta.content.text;
+        } else if (payload.type === 'session.status_idle' && isPosted()) {
+          // ponytail: isPosted filters idle events replayed before our POST returns; if long
+          // histories ever race past it, key off our user.message event id instead
+          if (text) send({ type: 'delta', text });
+          send({ type: 'done' });
+          return;
+        }
       }
-      // isPosted also gates deltas: a fresh stream replays the old turn's in-flight deltas
-      // ponytail: only agent.message emits deltas today; if that changes, filter via event_start's event.id→type map
-      if (payload.type === 'event_delta' && isPosted() && payload.delta?.content?.text) {
-        text += payload.delta.content.text;
-      } else if (payload.type === 'session.status_idle' && isPosted()) {
-        // ponytail: isPosted filters idle events replayed before our POST returns; if long
-        // histories ever race past it, key off our user.message event id instead
-        if (text) send({ type: 'delta', text });
-        send({ type: 'done' });
-        return;
-      }
+      if (text) send({ type: 'delta', text });
     }
-    if (text) send({ type: 'delta', text });
+    // stream closed without session.status_idle (server close, network drop, or the
+    // idle event was filtered by the isPosted gate during replay) — complete the turn
+    // so the content script doesn't hang in "thinking" forever
+    send({ type: 'done' });
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -127,6 +148,8 @@ async function handleChat(
   screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
+  /** Pass to use a dedicated session (e.g. classify) without touching the user's chat session. */
+  ownSession?: string,
 ) {
   const [pat, agentId, envId, vaultId] = await Promise.all([
     patItem.getValue(),
@@ -139,7 +162,7 @@ async function handleChat(
     return;
   }
 
-  let sessionId = await sessionIdItem.getValue();
+  let sessionId = ownSession ?? await sessionIdItem.getValue();
 
   // uploads happen once; mounting is per-session, so it happens inside tryTurn
   const mounts: Mount[] = [];
@@ -196,6 +219,7 @@ async function handleChat(
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
     sessionId = await createSession(pat, agentId, envId, vaultId);
+    if (ownSession === undefined) await sessionIdItem.setValue(sessionId);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
 }
@@ -220,6 +244,74 @@ function fanOutClipsChanged() {
   void browser.runtime.sendMessage({ type: 'clipsChanged' }).catch(() => {
     /* no extension page listening */
   });
+}
+
+/** Send all clips to the cloud agent for knowledge-type classification, parse the
+ *  JSON response and write category/relatedIds back to each clip. */
+async function handleClassify(): Promise<{ classified: number }> {
+  const clips = await getClipsDirect();
+  if (!clips.length) return { classified: 0 };
+
+  const clipList = clips
+    .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
+    .join('\n');
+
+  const prompt = `Classify the following text clips into knowledge types and identify relationships between them.
+
+Knowledge types include (but are not limited to): technical-doc, concept, data, quote, tutorial, reference, opinion, news.
+
+Return ONLY a JSON object (no markdown fences) with this exact structure:
+{"clips":[{"id":"<clip id>","category":"<knowledge type>","relatedIds":["<other clip id>",...]}]}
+
+Rules:
+- Every clip must have exactly one category
+- relatedIds lists clips that are topically related (can be empty)
+- Use consistent category names across clips
+- Return nothing except the JSON object
+
+Clips:
+${clipList}`;
+
+  // collect the full agent reply via the send callback; use a dedicated session
+  // so classify never cancels/pollutes the user's chat session
+  const chunks: string[] = [];
+  const done = new Promise<void>((resolve, reject) => {
+    const send = (msg: ChatOut) => {
+      if (msg.type === 'delta') chunks.push(msg.text);
+      else if (msg.type === 'done') resolve();
+      else if (msg.type === 'error') reject(new Error(msg.message ?? msg.code ?? 'classify error'));
+    };
+    handleChat(prompt, undefined, false, new AbortController().signal, send, '').catch(reject);
+  });
+  await done;
+
+  const full = chunks.join('');
+  // extract JSON: try direct parse, then try stripping markdown fences
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(full);
+  } catch {
+    const m = full.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('no JSON in agent reply');
+    parsed = JSON.parse(m[0]);
+  }
+  const items = (parsed as { clips?: unknown })?.clips;
+  if (!Array.isArray(items)) throw new Error('agent reply missing clips array');
+
+  let classified = 0;
+  for (const item of items) {
+    if (!item || typeof item.id !== 'string' || typeof item.category !== 'string') continue;
+    if (!clips.some((c) => c.id === item.id)) continue;
+    await updateClipDirect(item.id, {
+      category: item.category,
+      relatedIds: Array.isArray(item.relatedIds)
+        ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && clips.some((c) => c.id === rid))
+        : [],
+    }, false); // silent: one fan-out at the end covers all contexts
+    classified++;
+  }
+  fanOutClipsChanged();
+  return { classified };
 }
 
 export default defineBackground(() => {
@@ -270,6 +362,13 @@ export default defineBackground(() => {
         fanOutClipsChanged();
         ok(undefined);
       }, fail);
+      return true;
+    }
+    if (msg?.type === 'classifyClips') {
+      // MV3 kills the worker after 30s without extension API activity; classify
+      // (LLM generation + N IDB writes) easily exceeds that
+      const keepalive = setInterval(() => browser.runtime.getPlatformInfo(), 20_000);
+      handleClassify().then(ok, fail).finally(() => clearInterval(keepalive));
       return true;
     }
   });
