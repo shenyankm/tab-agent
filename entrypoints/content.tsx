@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import ReactDOM from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X } from 'lucide-react';
+import { Send, X, Sparkles } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { addClip, buildClipUrl, clipsItem, highlightClip, removeMarks, clipNavUrl, stripHash, type Clip } from '@/lib/clips';
+import { addClip, buildClipUrl, clipsItem, highlightClip, removeMarks, clipNavUrl, stripHash, normalizeUrl, type Clip } from '@/lib/clips';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
 import '@/assets/content.css';
 
@@ -106,8 +106,8 @@ function showClip(clip: Clip, scroll = true): boolean {
 // clips saved on this page (hash-insensitive match); clicking jumps in-page to the
 // re-marked text — new-tab navigation only as fallback when the text is gone
 function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
-  const page = stripHash(location.href);
-  const pageClips = clips.filter((c) => stripHash(c.pageUrl) === page);
+  const page = normalizeUrl(location.href);
+  const pageClips = clips.filter((c) => normalizeUrl(c.pageUrl) === page);
 
   if (pageClips.length === 0)
     return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
@@ -217,9 +217,7 @@ export function FloatingAgent() {
   const stampLast = () =>
     setMessages((m) => m.map((msg, i) => (i === m.length - 1 ? { ...msg, at: Date.now() } : msg)));
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const message = query.trim();
+  const send = (message: string) => {
     if (!message) return; // re-submit while thinking = cancel + new turn (background cancels via 409)
 
     portRef.current?.disconnect();
@@ -227,7 +225,6 @@ export function FloatingAgent() {
     cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
     pendingRef.current = null;
-    setQuery('');
     // drop the aborted turn's empty agent bubble so it doesn't sit on "Thinking…" forever
     setMessages((m) => [
       ...(m.at(-1)?.role === 'agent' && !m.at(-1)!.text ? m.slice(0, -1) : m),
@@ -285,6 +282,12 @@ export function FloatingAgent() {
         text: carry === 'article' ? pageMarkdown().slice(0, 20000) : '',
       },
     });
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    send(query.trim());
+    setQuery('');
   };
 
   const closePanel = () => {
@@ -411,6 +414,16 @@ export function FloatingAgent() {
                 autoComplete="off"
               />
               <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                onClick={() => send(t('widget.summarize'))}
+                aria-label={t('widget.summarize.btn')}
+                title={t('widget.summarize.btn')}
+              >
+                <Sparkles />
+              </Button>
+              <Button
                 type="submit"
                 size="icon"
                 disabled={!query.trim()}
@@ -470,13 +483,13 @@ export default defineContentScript({
 
     // re-apply saved highlights: text fragments only fire on navigation, not on reload
     // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
-    const page = stripHash(location.href);
+    const page = normalizeUrl(location.href);
     // 开关每切换一次，在途的 idle 重放回调作废（否则关闭后残留回调会重新加 mark）
     let clipGen = 0;
     const applyAll = async () => {
       const gen = clipGen;
       for (const clip of await clipsItem.getValue())
-        if (stripHash(clip.pageUrl) === page)
+        if (normalizeUrl(clip.pageUrl) === page)
           // idle-sliced: many clips on a big page must not stall first paint with one scan
           requestIdleCallback(() => {
             if (gen === clipGen) showClip(clip, false);
