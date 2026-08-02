@@ -5,6 +5,8 @@
   "license": "MIT",
   "version": "0.2.1",
   "type": "module",
+  "packageManager": "pnpm@11.13.1",
+  "engines": { "node": ">=18" },
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",

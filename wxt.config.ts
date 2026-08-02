@@ -6,7 +6,14 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Pixel Agent',
+    description: 'A pixel-art pet that answers your page questions and saves knowledge clips.',
     permissions: ['storage', 'contextMenus'],
+    commands: {
+      save_clip: {
+        suggested_key: { default: 'Alt+Shift+S' },
+        description: 'Save selection as clip',
+      },
+    },
     host_permissions: ['https://api.qoder.com/*'],
     // tabs.captureVisibleTab (screenshot page context) needs <all_urls>; requested
     // at runtime in the popup when the user picks "screenshot" (least privilege)
