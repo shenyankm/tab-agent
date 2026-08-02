@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
-  connectListenerRef, messageListenerRef,
-  mockGetClips, mockAddClip, mockRemoveClip,
+  connectListenerRef, messageListenerRef, commandListenerRef,
+  mockGetClips, mockAddClip, mockRemoveClip, mockUpdateClip, mockCategories,
+  mockTabsQuery, mockTabsSend,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
@@ -14,9 +15,14 @@ const {
   mockSessionSet: vi.fn().mockResolvedValue(undefined),
   connectListenerRef: { current: null as ((...args: any[]) => void) | null },
   messageListenerRef: { current: null as ((...args: any[]) => unknown) | null },
+  commandListenerRef: { current: null as ((command: string) => void) | null },
   mockGetClips: vi.fn().mockResolvedValue([]),
   mockAddClip: vi.fn(),
   mockRemoveClip: vi.fn().mockResolvedValue(undefined),
+  mockUpdateClip: vi.fn().mockResolvedValue(undefined),
+  mockCategories: vi.fn().mockResolvedValue(''),
+  mockTabsQuery: vi.fn().mockResolvedValue([]),
+  mockTabsSend: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/settings', () => ({
@@ -26,6 +32,7 @@ vi.mock('@/lib/settings', () => ({
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
+  categoriesItem: { getValue: () => mockCategories() },
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -41,6 +48,7 @@ vi.mock('@/lib/clips', () => ({
   getClipsDirect: () => mockGetClips(),
   addClipDirect: (clip: unknown) => mockAddClip(clip),
   removeClipDirect: (id: string) => mockRemoveClip(id),
+  updateClipDirect: (id: string, patch: unknown, broadcast?: boolean) => mockUpdateClip(id, patch, broadcast),
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -61,9 +69,12 @@ vi.mock('wxt/browser', () => ({
       update: vi.fn(),
       onClicked: { addListener: vi.fn() },
     },
+    commands: {
+      onCommand: { addListener: (fn: (command: string) => void) => { commandListenerRef.current = fn; } },
+    },
     tabs: {
-      query: vi.fn().mockResolvedValue([]),
-      sendMessage: vi.fn().mockResolvedValue(undefined),
+      query: (info: unknown) => mockTabsQuery(info),
+      sendMessage: (tabId: number, msg: unknown) => mockTabsSend(tabId, msg),
     },
   },
 }));
@@ -211,23 +222,25 @@ describe('background handleChat', () => {
   });
 });
 
+// invoke the registered onMessage listener and capture the async sendResponse
+function dispatch(msg: unknown, senderTabId?: number) {
+  const respond = vi.fn();
+  const ret = messageListenerRef.current?.(
+    msg,
+    { tab: senderTabId === undefined ? undefined : { id: senderTabId } },
+    respond,
+  );
+  return { respond, keptOpen: ret === true };
+}
+
 describe('background clips message handler', () => {
   beforeEach(() => {
     mockGetClips.mockResolvedValue([]);
     mockAddClip.mockReset();
     mockRemoveClip.mockResolvedValue(undefined);
+    mockUpdateClip.mockReset();
+    mockUpdateClip.mockResolvedValue(undefined);
   });
-
-  // invoke the registered onMessage listener and capture the async sendResponse
-  function dispatch(msg: unknown, senderTabId?: number) {
-    const respond = vi.fn();
-    const ret = messageListenerRef.current?.(
-      msg,
-      { tab: senderTabId === undefined ? undefined : { id: senderTabId } },
-      respond,
-    );
-    return { respond, keptOpen: ret === true };
-  }
 
   it('clipsGet responds with the clips and keeps the channel open', async () => {
     const clips = [{ id: 'a', text: 'x' }];
@@ -256,6 +269,14 @@ describe('background clips message handler', () => {
     expect(respond).toHaveBeenCalledWith({ ok: true, data: undefined });
   });
 
+  it('clipUpdate writes via updateClipDirect and responds', async () => {
+    const { respond, keptOpen } = dispatch({ type: 'clipUpdate', id: 'a', patch: { notes: ['n'] } }, 3);
+    expect(keptOpen).toBe(true);
+    await until(() => respond.mock.calls.length > 0);
+    expect(mockUpdateClip).toHaveBeenCalledWith('a', { notes: ['n'] }, undefined);
+    expect(respond).toHaveBeenCalledWith({ ok: true, data: undefined });
+  });
+
   it('responds {ok:false} instead of hanging when the direct op rejects', async () => {
     mockGetClips.mockRejectedValue(new Error('idb down'));
     const { respond, keptOpen } = dispatch({ type: 'clipsGet' });
@@ -268,5 +289,68 @@ describe('background clips message handler', () => {
     const { respond, keptOpen } = dispatch({ type: 'somethingElse' });
     expect(keptOpen).toBe(false);
     expect(respond).not.toHaveBeenCalled();
+  });
+});
+
+describe('background commands', () => {
+  beforeEach(() => {
+    mockTabsQuery.mockReset();
+    mockTabsQuery.mockResolvedValue([]);
+    mockTabsSend.mockReset();
+    mockTabsSend.mockResolvedValue(undefined);
+  });
+
+  it('save_clip forwards saveClip to the active tab', async () => {
+    mockTabsQuery.mockResolvedValue([{ id: 9 }]);
+    commandListenerRef.current?.('save_clip');
+    await until(() => mockTabsSend.mock.calls.length > 0);
+    expect(mockTabsQuery).toHaveBeenCalledWith({ active: true, currentWindow: true });
+    expect(mockTabsSend).toHaveBeenCalledWith(9, { type: 'saveClip' });
+  });
+
+  it('ignores other commands', () => {
+    commandListenerRef.current?.('some_other_command');
+    expect(mockTabsQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('background classify', () => {
+  it('uses custom categories from settings and writes results', async () => {
+    mockGetClips.mockResolvedValue([
+      { id: 'a', url: 'https://e.com/p', pageUrl: 'https://e.com/p', title: 'T', text: 'hello world', createdAt: 1 },
+    ]);
+    mockCategories.mockResolvedValue('concept, AI/ML');
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const url = String(_url);
+      if (url.endsWith('/sessions') && init?.method === 'POST') {
+        return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ id: 'cls-sess' }) });
+      }
+      if (url.includes('/events/stream')) {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          body: sseStream([
+            JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[]}]}' } } }),
+            JSON.stringify({ type: 'session.status_idle' }),
+          ]),
+        });
+      }
+      if (url.includes('/events') && init?.method === 'POST') {
+        return Promise.resolve({ status: 200, ok: true });
+      }
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { respond } = dispatch({ type: 'classifyClips' });
+    await until(() => respond.mock.calls.length > 0);
+
+    // 自定义类别进入 prompt
+    const eventsPost = fetchMock.mock.calls.find(([u, i]) => String(u).includes('/events') && i?.method === 'POST');
+    expect(JSON.stringify(eventsPost?.[1]?.body)).toContain('concept, AI/ML');
+    // 结果写回,静默不广播(handleClassify 末尾统一 fan-out)
+    expect(mockUpdateClip).toHaveBeenCalledWith('a', { category: 'concept', relatedIds: [] }, false);
+    expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
+    vi.unstubAllGlobals();
   });
 });

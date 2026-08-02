@@ -1,7 +1,11 @@
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, categoriesItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
 import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips';
+
+// MV3 kills the worker after 30s without extension API activity; ping to stay alive
+// while a turn or batch classify streams nothing for that long
+const keepalive = () => setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), 20_000);
 
 type ChatOut =
   | { type: 'delta'; text: string }
@@ -148,7 +152,7 @@ async function handleChat(
   screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
-  /** Pass to use a dedicated session (e.g. classify) without touching the user's chat session. */
+  /** Pass a session id to reuse it; pass '' to force-create a dedicated one (falsy → new session). */
   ownSession?: string,
 ) {
   const [pat, agentId, envId, vaultId] = await Promise.all([
@@ -252,13 +256,19 @@ async function handleClassify(): Promise<{ classified: number }> {
   const clips = await getClipsDirect();
   if (!clips.length) return { classified: 0 };
 
+  // 分类类别可在设置页自定义(逗号分隔);未配置时用内置列表
+  const customCats = (await categoriesItem.getValue()).split(',').map((s) => s.trim()).filter(Boolean);
+  const knowledgeTypes = customCats.length
+    ? customCats.join(', ')
+    : 'technical-doc, concept, data, quote, tutorial, reference, opinion, news';
+
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
     .join('\n');
 
   const prompt = `Classify the following text clips into knowledge types and identify relationships between them.
 
-Knowledge types include (but are not limited to): technical-doc, concept, data, quote, tutorial, reference, opinion, news.
+Knowledge types include (but are not limited to): ${knowledgeTypes}.
 
 Return ONLY a JSON object (no markdown fences) with this exact structure:
 {"clips":[{"id":"<clip id>","category":"<knowledge type>","relatedIds":["<other clip id>",...]}]}
@@ -339,6 +349,21 @@ export default defineBackground(() => {
       });
   });
 
+  // 剪藏快捷键:对活动页复用 content script 的保存路径(选区→fragment→storage)
+  browser.commands.onCommand.addListener((command) => {
+    if (command !== 'save_clip') return;
+    browser.tabs.query({ active: true, currentWindow: true })
+      .then(([tab]) => {
+        if (tab?.id)
+          browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
+            /* no content script on this page (chrome://, store) */
+          });
+      })
+      .catch(() => {
+        /* no active tab */
+      });
+  });
+
   // clips live in the extension origin's IndexedDB; background is the sole writer.
   // Content scripts (page origin, per-site isolated IDB) proxy reads/writes here.
   // return true keeps the message channel open for the async sendResponse; every
@@ -364,11 +389,17 @@ export default defineBackground(() => {
       }, fail);
       return true;
     }
+    if (msg?.type === 'clipUpdate') {
+      updateClipDirect(msg.id as string, msg.patch).then(() => {
+        fanOutClipsChanged();
+        ok(undefined);
+      }, fail);
+      return true;
+    }
     if (msg?.type === 'classifyClips') {
-      // MV3 kills the worker after 30s without extension API activity; classify
-      // (LLM generation + N IDB writes) easily exceeds that
-      const keepalive = setInterval(() => browser.runtime.getPlatformInfo(), 20_000);
-      handleClassify().then(ok, fail).finally(() => clearInterval(keepalive));
+      // classify (LLM generation + N IDB writes) easily exceeds the 30s worker cap
+      const ping = keepalive();
+      handleClassify().then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
   });
@@ -385,16 +416,15 @@ export default defineBackground(() => {
           /* port closed */
         }
       };
-      // MV3 kills the worker after 30s without extension API activity; a screenshot
-      // turn (tool call + thinking) can stream nothing for that long, so ping to stay alive
-      const keepalive = setInterval(() => browser.runtime.getPlatformInfo(), 20_000);
+      // a screenshot turn (tool call + thinking) can stream nothing for that long
+      const ping = keepalive();
       handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send)
         .catch((err) => {
           console.error('[pixel-agent]', err); // port may be gone; keep a trace in the SW console
           if (!abort.signal.aborted)
             send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
         })
-        .finally(() => clearInterval(keepalive));
+        .finally(() => clearInterval(ping));
     });
   });
 });
