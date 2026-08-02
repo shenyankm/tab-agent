@@ -47,6 +47,11 @@ Fill them in:
 2. Paste PAT / Agent ID / Environment ID (and Vault ID if needed). Fields save on blur.
 3. Language and theme (system / dark / light) can also be changed here.
 
+## Shortcuts
+
+- `Alt+Shift+S` — save the current selection as a clip (needs text selected first;
+  rebindable under `chrome://extensions/shortcuts`).
+
 ## Verify
 
 1. Open any webpage — a pixel pet should appear in the bottom-right corner.

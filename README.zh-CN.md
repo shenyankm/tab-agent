@@ -47,6 +47,10 @@ Chrome 加载：
 2. 依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需）。输入框失焦即保存。
 3. 同页可切换语言与主题（跟随设备 / 深色 / 浅色）。
 
+## 快捷键
+
+- `Alt+Shift+S` — 将当前选中文字保存为摘录（需先选中文字；可在 `chrome://extensions/shortcuts` 重新绑定）。
+
 ## 验证
 
 1. 打开任意网页，右下角应出现像素宠物。
