@@ -9,6 +9,7 @@ import {
   getClipsDirect,
   addClipDirect,
   removeClipDirect,
+  updateClipDirect,
   closeClipsDB,
 } from '@/lib/clips';
 
@@ -97,6 +98,22 @@ describe('clip storage (extension origin)', () => {
     expect(b.createdAt).toBeGreaterThan(a.createdAt);
     const clips = await getClipsDirect();
     expect(clips.map((c) => c.text)).toEqual(['b', 'a']);
+  });
+
+  it('normalizes tracking params on save', async () => {
+    const clip = await addClipDirect({ url: 'https://x.com/a?utm_source=tw#:~:text=hi', pageUrl: 'https://x.com/a?utm_source=tw', title: 'T', text: 'hi' });
+    expect(clip.pageUrl).toBe('https://x.com/a');
+  });
+
+  it('updateClipDirect merges patch and ignores missing ids', async () => {
+    const clip = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'hello' });
+    await updateClipDirect(clip.id, { category: 'concept', relatedIds: ['nope'] });
+    const [updated] = await getClipsDirect();
+    expect(updated.category).toBe('concept');
+    expect(updated.relatedIds).toEqual(['nope']);
+    expect(updated.text).toBe('hello'); // untouched fields preserved
+    // non-existent id: no throw
+    await updateClipDirect('ghost', { category: 'x' });
   });
 
   it('migrates legacy clips once, sets the flag and clears the old key', async () => {

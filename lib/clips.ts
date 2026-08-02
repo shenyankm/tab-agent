@@ -17,6 +17,8 @@ export type Clip = {
   title: string;
   text: string;
   createdAt: number;
+  category?: string;
+  relatedIds?: string[];
 };
 
 // --- IndexedDB storage ---
@@ -111,6 +113,7 @@ export async function getClipsDirect(): Promise<Clip[]> {
 export async function addClipDirect(clip: Omit<Clip, 'id' | 'createdAt'>): Promise<Clip> {
   const full = {
     ...clip,
+    pageUrl: normalizeUrl(clip.pageUrl),
     id: crypto.randomUUID(),
     createdAt: (lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1)),
   };
@@ -124,6 +127,15 @@ export async function removeClipDirect(id: string): Promise<void> {
   const db = await openDB();
   await req2p(db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id));
   broadcastClipsChanged();
+}
+
+export async function updateClipDirect(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds'>>, broadcast = true): Promise<void> {
+  const db = await openDB();
+  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+  const clip = await req2p(store.get(id)) as Clip | undefined;
+  if (!clip) return;
+  await req2p(store.put({ ...clip, ...patch }));
+  if (broadcast) broadcastClipsChanged();
 }
 
 // ---- unified facade: direct in the extension origin, message proxy in content scripts ----
@@ -151,6 +163,24 @@ export const clipsItem = {
 };
 
 export const stripHash = (url: string) => url.split('#')[0];
+
+// Tracking params that don't identify content — borrowed from Obsidian Clipper
+const TRACKING = new Set([
+  'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
+  'fbclid','gclid','dclid','msclkid','twclid',
+  'mc_cid','mc_eid','_ga','_gl','ref','si',
+]);
+
+/** Strip hash + tracking params so the same article always maps to one key. */
+export function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    u.hash = '';
+    for (const k of [...u.searchParams.keys()])
+      if (TRACKING.has(k)) u.searchParams.delete(k);
+    return u.toString();
+  } catch { return raw; }
+}
 
 // Writes always go through background (the sole writer) so its fan-out reaches
 // every context regardless of origin; only reads take the direct path in the
