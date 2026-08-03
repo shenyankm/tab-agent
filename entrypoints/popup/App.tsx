@@ -1,13 +1,7 @@
-import { ChevronDown, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
+import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { petEnabledItem, pageCarryItem, clipHighlightItem, type PageCarry } from '@/lib/settings';
@@ -22,9 +16,9 @@ function App() {
   const highlight = useStorageValue(clipHighlightItem, true);
 
   // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep old choice
-  const onCarryChange = async (v: string) => {
+  const onCarryChange = async (v: PageCarry) => {
     if (v === 'screenshot' && !(await browser.permissions.request({ origins: ['<all_urls>'] }))) return;
-    pageCarryItem.setValue(v as PageCarry);
+    pageCarryItem.setValue(v);
   };
 
   return (
@@ -53,21 +47,11 @@ function App() {
 
       <div className="flex w-full items-center justify-between gap-4">
         <span className="shrink-0 text-sm font-medium">{t('settings.pageCarry')}</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              {t(`carry.${carry}`)}
-              <ChevronDown className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuRadioGroup value={carry} onValueChange={onCarryChange}>
-              {carries.map((c) => (
-                <DropdownMenuRadioItem key={c} value={c}>{t(`carry.${c}`)}</DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <RadioDropdown
+          value={carry}
+          onChange={onCarryChange}
+          options={carries.map((c): [PageCarry, string] => [c, t(`carry.${c}`)])}
+        />
       </div>
 
     </div>
