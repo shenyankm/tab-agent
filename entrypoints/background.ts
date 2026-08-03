@@ -1,7 +1,7 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
-import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, normalizeUrl, type Clip } from '@/lib/clips';
+import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, type Clip } from '@/lib/clips';
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
 // while a turn or batch classify streams nothing for that long
@@ -12,14 +12,22 @@ type ChatOut =
   | { type: 'done' }
   | { type: 'error'; code?: 'unconfigured' | 'auth'; message?: string };
 
-async function api(pat: string, path: string, init?: RequestInit) {
+// Every non-streaming call gets a 30s hang guard: a dead gateway must not keep
+// handleChat unsettled forever — that would leak the keepalive interval and pin
+// the worker alive permanently. Streams opt out (timeout: false) and rely on
+// their own 90s read watchdog instead.
+async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
+  const { timeout, ...rest } = init ?? {};
+  const signals = [rest.signal, timeout === false ? undefined : AbortSignal.timeout(timeout ?? 30_000)]
+    .filter((s): s is AbortSignal => !!s);
   const res = await fetch(GATEWAY + path, {
-    ...init,
+    ...rest,
+    signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
     headers: {
       Authorization: `Bearer ${pat}`,
       // multipart body: let fetch set the boundary itself
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...init?.headers,
+      ...(rest.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...rest.headers,
     },
   });
   // single choke point: every endpoint routes through here
@@ -28,9 +36,10 @@ async function api(pat: string, path: string, init?: RequestInit) {
   return res;
 }
 
-async function createSession(pat: string, agentId: string, envId: string, vaultId: string) {
+async function createSession(pat: string, agentId: string, envId: string, vaultId: string, signal?: AbortSignal) {
   const res = await api(pat, '/sessions', {
     method: 'POST',
+    signal,
     body: JSON.stringify({
       agent: { id: agentId, type: 'agent' },
       environment_id: envId,
@@ -45,10 +54,10 @@ async function createSession(pat: string, agentId: string, envId: string, vaultI
 type PageContext = { url: string; title: string; text: string };
 type Mount = { fileId: string; path: string; note: string };
 
-async function uploadFile(pat: string, name: string, blob: Blob) {
+async function uploadFile(pat: string, name: string, blob: Blob, signal?: AbortSignal) {
   const form = new FormData();
   form.append('file', blob, name);
-  const res = await api(pat, '/files', { method: 'POST', body: form });
+  const res = await api(pat, '/files', { method: 'POST', body: form, signal });
   if (!res.ok) throw new Error(`upload file: HTTP ${res.status}`);
   return (await res.json()).id as string;
 }
@@ -59,6 +68,7 @@ function postUserMessage(
   text: string,
   page?: PageContext,
   notes: string[] = [],
+  signal?: AbortSignal,
 ) {
   // context is inlined into the user message: agents with browser tools ignore
   // side-channel context and open their own (blank) cloud browser instead
@@ -68,6 +78,7 @@ function postUserMessage(
   for (const note of notes) body += `\n\n${note}`;
   return api(pat, `/sessions/${sessionId}/events`, {
     method: 'POST',
+    signal,
     body: JSON.stringify({
       events: [{ type: 'user.message', content: [{ type: 'text', text: body }] }],
     }),
@@ -85,6 +96,7 @@ async function streamReply(
   const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas[]=agent.message`, {
     headers: { Accept: 'text/event-stream' },
     signal,
+    timeout: false, // long-lived by design; the 90s read watchdog below guards it
   });
   if (!res.ok || !res.body) throw new Error(`stream: HTTP ${res.status}`);
 
@@ -175,7 +187,7 @@ async function handleChat(
     // in extension contexts and needs the <all_urls> host permission
     const dataUrl = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
     mount = {
-      fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob()),
+      fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob(), signal),
       path: '/data/input/screenshot.jpg',
       note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
     };
@@ -191,6 +203,7 @@ async function handleChat(
       if (mount) {
         const mounted = await api(pat, `/sessions/${sid}/resources`, {
           method: 'POST',
+          signal: turnSignal,
           body: JSON.stringify({ type: 'file', file_id: mount.fileId, mount_path: mount.path }),
         });
         if (mounted.status === 404) return false; // dead session: recreate and re-mount
@@ -200,14 +213,14 @@ async function handleChat(
       // pre-await rejections (dead-session 404, failure-path abort) must not fire
       // unhandledrejection; `await streaming` below still surfaces the error
       streaming.catch(() => {});
-      let res = await postUserMessage(pat, sid, text, page, notes);
+      let res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then retry the post
-        await api(pat, `/sessions/${sid}/cancel`, { method: 'POST' });
+        await api(pat, `/sessions/${sid}/cancel`, { method: 'POST', signal: turnSignal });
         // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
         for (let i = 0; i < 5 && res.status === 409; i++) {
           await new Promise((r) => setTimeout(r, 1000));
-          res = await postUserMessage(pat, sid, text, page, notes);
+          res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
         }
       }
       if (res.status === 404) return false;
@@ -222,7 +235,7 @@ async function handleChat(
 
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
-    sessionId = await createSession(pat, agentId, envId, vaultId);
+    sessionId = await createSession(pat, agentId, envId, vaultId, signal);
     if (ownSession === undefined) await sessionIdItem.setValue(sessionId);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
@@ -250,12 +263,51 @@ function fanOutClipsChanged() {
   });
 }
 
-/** Send all clips to the cloud agent for knowledge-type classification, parse the
- *  JSON response and write category/relatedIds back to each clip. */
-async function handleClassify(): Promise<{ classified: number }> {
-  const clips = await getClipsDirect();
-  if (!clips.length) return { classified: 0 };
+// one prompt per batch: a single all-clips prompt grows linearly in input and
+// O(N²) in output (relatedIds), truncating the JSON reply and voiding the whole run
+const CLASSIFY_BATCH = 50;
 
+/** Parse the agent's JSON reply into sanitized patches for this batch's ids. */
+function parseClassifyPatches(full: string, ids: Set<string>) {
+  // extract JSON: try direct parse, then try stripping markdown fences
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(full);
+  } catch {
+    const m = full.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('no JSON in agent reply');
+    parsed = JSON.parse(m[0]);
+  }
+  const items = (parsed as { clips?: unknown })?.clips;
+  if (!Array.isArray(items)) throw new Error('agent reply missing clips array');
+
+  const patches: { id: string; patch: { category: string; relatedIds: string[]; tags?: string[] } }[] = [];
+  for (const item of items) {
+    if (!item || typeof item.id !== 'string' || typeof item.category !== 'string') continue;
+    if (!ids.has(item.id)) continue;
+    patches.push({
+      id: item.id,
+      patch: {
+        category: item.category,
+        relatedIds: Array.isArray(item.relatedIds)
+          ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && ids.has(rid))
+          : [],
+        // tags are AI-generated; absent in the reply = leave untouched
+        ...(Array.isArray(item.tags)
+          ? { tags: item.tags.filter((tag: unknown) => typeof tag === 'string') }
+          : {}),
+      },
+    });
+  }
+  return patches;
+}
+
+/** Send one batch to the cloud agent and collect the full reply; one retry on an
+ *  unparseable reply. Uses a dedicated session so classify never cancels/pollutes
+ *  the user's chat session. ponytail: relations never cross batches — the model
+ *  only sees its own batch, so relatedIds stay batch-local. */
+async function classifyBatch(clips: Clip[]) {
+  const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
     .join('\n');
@@ -275,59 +327,46 @@ Rules:
 Clips:
 ${clipList}`;
 
-  // collect the full agent reply via the send callback; use a dedicated session
-  // so classify never cancels/pollutes the user's chat session
-  const chunks: string[] = [];
-  const done = new Promise<void>((resolve, reject) => {
-    const send = (msg: ChatOut) => {
-      if (msg.type === 'delta') chunks.push(msg.text);
-      else if (msg.type === 'done') resolve();
-      else if (msg.type === 'error') reject(new Error(msg.message ?? msg.code ?? 'classify error'));
-    };
-    handleChat(prompt, undefined, false, new AbortController().signal, send, '').catch(reject);
-  });
-  await done;
-
-  const full = chunks.join('');
-  // extract JSON: try direct parse, then try stripping markdown fences
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(full);
-  } catch {
-    const m = full.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('no JSON in agent reply');
-    parsed = JSON.parse(m[0]);
+  for (let attempt = 0; ; attempt++) {
+    // collect the full agent reply via the send callback
+    const chunks: string[] = [];
+    const done = new Promise<void>((resolve, reject) => {
+      const send = (msg: ChatOut) => {
+        if (msg.type === 'delta') chunks.push(msg.text);
+        else if (msg.type === 'done') resolve();
+        else if (msg.type === 'error') reject(new Error(msg.message ?? msg.code ?? 'classify error'));
+      };
+      handleChat(prompt, undefined, false, new AbortController().signal, send, '').catch(reject);
+    });
+    await done;
+    try {
+      return parseClassifyPatches(chunks.join(''), ids);
+    } catch (e) {
+      if (attempt === 1) throw e; // one retry, then surface the failure
+    }
   }
-  const items = (parsed as { clips?: unknown })?.clips;
-  if (!Array.isArray(items)) throw new Error('agent reply missing clips array');
+}
+
+/** Send all clips to the cloud agent for knowledge-type classification, parse the
+ *  JSON response and write category/relatedIds back to each clip, batch by batch. */
+async function handleClassify(): Promise<{ classified: number }> {
+  const clips = await getClipsDirect();
+  if (!clips.length) return { classified: 0 };
 
   let classified = 0;
-  const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
-  const patches: { id: string; patch: { category: string; relatedIds: string[]; tags?: string[] } }[] = [];
-  for (const item of items) {
-    if (!item || typeof item.id !== 'string' || typeof item.category !== 'string') continue;
-    if (!ids.has(item.id)) continue;
-    patches.push({
-      id: item.id,
-      patch: {
-        category: item.category,
-        relatedIds: Array.isArray(item.relatedIds)
-          ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && ids.has(rid))
-          : [],
-        // tags are AI-generated; absent in the reply = leave untouched
-        ...(Array.isArray(item.tags)
-          ? { tags: item.tags.filter((tag: unknown) => typeof tag === 'string') }
-          : {}),
-      },
-    });
-    classified++;
+  for (let i = 0; i < clips.length; i += CLASSIFY_BATCH) {
+    // write each batch back as it lands: a later batch's failure keeps earlier progress
+    const patches = await classifyBatch(clips.slice(i, i + CLASSIFY_BATCH));
+    await updateClipsDirect(patches);
+    classified += patches.length;
   }
-  // one transaction instead of N; its single local broadcast + the fan-out below
-  // cover every context
-  await updateClipsDirect(patches);
   fanOutClipsChanged();
   return { classified };
 }
+
+// concurrent classify triggers (two options tabs) share one run — parallel runs
+// would double the LLM cost and race the write-back
+let classifyInFlight: Promise<{ classified: number }> | null = null;
 
 export default defineBackground(() => {
   // warm the extension-origin DB at startup
@@ -399,10 +438,10 @@ export default defineBackground(() => {
       getClipsDirect().then(ok, fail);
       return true;
     }
-    // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道
+    // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道;
+    // pageUrl 索引让读取本身也是 O(本页) 而非全表扫描
     if (msg?.type === 'clipsGetForPage') {
-      getClipsDirect()
-        .then((clips) => ok(clips.filter((c) => normalizeUrl(c.pageUrl) === msg.page)), fail);
+      getClipsForPageDirect(msg.page as string).then(ok, fail);
       return true;
     }
     if (msg?.type === 'clipAdd') {
@@ -429,7 +468,8 @@ export default defineBackground(() => {
     if (msg?.type === 'classifyClips') {
       // classify (LLM generation + N IDB writes) easily exceeds the 30s worker cap
       const ping = keepalive();
-      handleClassify().then(ok, fail).finally(() => clearInterval(ping));
+      classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
+      classifyInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
   });
