@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Brain } from 'lucide-react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type SimulationNodeDatum } from 'd3-force';
 import { zoom as d3Zoom, zoomIdentity } from 'd3-zoom';
@@ -20,9 +20,7 @@ export default function GraphPage() {
   const [filter, setFilter] = useState<string | null>(null);
 
   const classified = clips.filter((c) => c.category);
-  const categories = useMemo(() => [...new Set(classified.map((c) => c.category!))].sort(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps — classified derives from clips
-    [clips]);
+  const categories = [...new Set(classified.map((c) => c.category!))].sort();
 
   // build graph data
   const idSet = new Set(classified.map((c) => c.id));
@@ -50,14 +48,12 @@ export default function GraphPage() {
   }
   for (const n of nodes) n.degree = degreeMap.get(n.id) ?? 0;
 
-  const filtered = useMemo(() => filter
+  const filtered = filter
     ? { nodes: nodes.filter((n) => n.category === filter), links: links.filter((l) =>
         nodes.some((n) => n.id === l.source && n.category === filter) &&
         nodes.some((n) => n.id === l.target && n.category === filter)
       ) }
-    : { nodes, links },
-    // eslint-disable-next-line react-hooks/exhaustive-deps — nodes/links derive from clips
-    [clips, filter]);
+    : { nodes, links };
 
   const runClassify = () => {
     setClassifying(true);
