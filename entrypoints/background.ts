@@ -342,11 +342,12 @@ export default defineBackground(() => {
     browser.contextMenus.update('save-clip', { title: dict[lang]['clips.menu'] });
   });
   // the content script owns the save: it has the live Selection for fragment generation
+  const saveClipToTab = (tabId: number) =>
+    browser.tabs.sendMessage(tabId, { type: 'saveClip' }).catch(() => {
+      /* no content script on this page (chrome://, store) */
+    });
   browser.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'save-clip' && tab?.id)
-      browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
-        /* no content script on this page (chrome://, store) */
-      });
+    if (info.menuItemId === 'save-clip' && tab?.id) saveClipToTab(tab.id);
   });
 
   // 剪藏快捷键:对活动页复用 content script 的保存路径(选区→fragment→storage)
@@ -354,10 +355,7 @@ export default defineBackground(() => {
     if (command !== 'save_clip') return;
     browser.tabs.query({ active: true, currentWindow: true })
       .then(([tab]) => {
-        if (tab?.id)
-          browser.tabs.sendMessage(tab.id, { type: 'saveClip' }).catch(() => {
-            /* no content script on this page (chrome://, store) */
-          });
+        if (tab?.id) saveClipToTab(tab.id);
       })
       .catch(() => {
         /* no active tab */
