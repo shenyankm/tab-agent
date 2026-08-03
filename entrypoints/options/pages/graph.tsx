@@ -1,81 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, Download } from 'lucide-react';
+import { Brain } from 'lucide-react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type SimulationNodeDatum } from 'd3-force';
 import { zoom as d3Zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { clipsItem, clipNavUrl, type Clip } from '@/lib/clips';
+import { clipsItem, clipNavUrl } from '@/lib/clips';
 import { colorFor, CategoryChips } from './clips';
 
 type GNode = SimulationNodeDatum & { id: string; label: string; category: string; clipUrl: string; degree: number };
-
-/** Write each classified clip as an Obsidian-compatible .md note into a user-picked
- *  vault directory (File System Access API). Fallback: download a single combined file. */
-async function exportObsidian(clips: Clip[]) {
-  const classified = clips.filter((c) => c.category);
-  if (!classified.length) return;
-
-  const noteName = (c: Clip) => (c.title || c.text.slice(0, 40)).replace(/[\\/:*?"<>|]/g, '-');
-  // dedup file names so same-title clips don't overwrite each other
-  const seen = new Map<string, number>();
-  const uniqueName = (c: Clip) => {
-    const base = noteName(c);
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    return n ? `${base}-${c.id.slice(0, 6)}` : base;
-  };
-  const names = new Map(classified.map((c) => [c.id, uniqueName(c)]));
-  const quote = (text: string) => text.split('\n').map((l) => `> ${l}`).join('\n');
-  const toMd = (clip: Clip) => {
-    const related = (clip.relatedIds ?? [])
-      .map((id) => names.get(id))
-      .filter(Boolean)
-      .map((name) => `- [[${name}]]`)
-      .join('\n');
-    const notes = (clip.notes ?? []).map((n) => `- ${n}`).join('\n');
-    return `---\ntags: [web-clip, ${clip.category}]\nsource: ${clip.pageUrl}\nclipped: ${new Date(clip.createdAt).toISOString().slice(0, 10)}\n---\n\n# ${names.get(clip.id)}\n\n${quote(clip.text)}\n\n${notes ? `## Notes\n\n${notes}\n\n` : ''}${related ? `## Related\n\n${related}\n` : ''}`;
-  };
-
-  // preferred: write individual files into a vault directory (Obsidian Graph View needs one file per note)
-  if ('showDirectoryPicker' in window) {
-    try {
-      const dir = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
-      for (const clip of classified) {
-        // one directory per category keeps vault browsing aligned with the graph;
-        // category 来自 AI 分类/用户设置,可能含路径非法字符,与 noteName 同规则清洗
-        const sub = await dir.getDirectoryHandle((clip.category ?? '').replace(/[\\\/:*?"<>|]/g, '-'), { create: true });
-        const handle = await sub.getFileHandle(`${names.get(clip.id)}.md`, { create: true });
-        const w = await handle.createWritable();
-        await w.write(toMd(clip));
-        await w.close();
-      }
-      return;
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return; // user cancelled picker
-      // fall through to single-file download
-    }
-  }
-  // fallback: single combined markdown file
-  const byCat = new Map<string, Clip[]>();
-  for (const c of classified) {
-    if (!byCat.has(c.category!)) byCat.set(c.category!, []);
-    byCat.get(c.category!)!.push(c);
-  }
-  let body = '';
-  for (const [cat, list] of byCat) {
-    body += `## ${cat}\n\n`;
-    // 与目录路径同输出(toMd 含 notes/related),避免降级时丢备注
-    for (const c of list) body += `${toMd(c)}\n\n`;
-  }
-  const blob = new Blob([`# Pixel Agent Clips\n\n${body}`], { type: 'text/markdown' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'pixel-agent-clips.md';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-}
 
 export default function GraphPage() {
   const { t } = useI18n();
@@ -225,10 +159,6 @@ export default function GraphPage() {
         <Button variant="outline" size="sm" disabled={classifying} onClick={runClassify}>
           <Brain className="size-4" />
           {classifying ? t('graph.classifying') : t('graph.classify')}
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => exportObsidian(clips)}>
-          <Download className="size-4" />
-          {t('graph.export')}
         </Button>
         <CategoryChips cats={categories} selected={filter} onToggle={setFilter} />
       </div>
