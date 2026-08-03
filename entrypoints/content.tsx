@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom/client';
 import { FloatingAgent, showClip, clearAllMarks } from '@/components/floating-agent';
-import { addClip, buildClipUrl, clipsItem, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
-import { petEnabledItem, petPosItem, clipHighlightItem } from '@/lib/settings';
+import { addClip, buildClipUrl, clipsItem, normalizeUrl } from '@/lib/clips';
+import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
 import '@/assets/content.css';
 
 export default defineContentScript({
@@ -78,7 +78,7 @@ export default defineContentScript({
     // （性能优先，与"关闭宠物"的用户意图一致）
     let ui: Awaited<ReturnType<typeof mountUI>> | null = null;
     let mountChain: Promise<void> = Promise.resolve();
-    petEnabledItem.watch((on) => {
+    const sync = (on: boolean) => {
       mountChain = mountChain.then(async () => {
         if (on && !ui) {
           ui = await mountUI();
@@ -88,16 +88,10 @@ export default defineContentScript({
           ui = null;
         }
       });
-    });
+    };
+    petEnabledItem.watch(sync);
     // 初始挂载走同一条链：与切换互斥，避免双挂载或禁用状态下挂载
-    if (await petEnabledItem.getValue()) {
-      mountChain = mountChain.then(async () => {
-        if (!ui) {
-          ui = await mountUI();
-          ui.mount();
-        }
-      });
-    }
+    sync(await petEnabledItem.getValue());
     await mountChain;
   },
 });
