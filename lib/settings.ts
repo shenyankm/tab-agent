@@ -13,6 +13,24 @@ export const petPosItem = storage.defineItem<{ right: number; bottom: number }>(
 export const pageCarryItem = storage.defineItem<PageCarry>('local:pageCarry', { fallback: 'article' });
 // comma-separated knowledge categories for clip classification (empty = built-in list)
 export const categoriesItem = storage.defineItem<string>('local:categories', { fallback: '' });
+// Markdown export template; {{key}} variables rendered by lib/export.ts
+export const MD_TEMPLATE_DEFAULT = `---
+source: {{url}}
+title: {{title}}
+author: {{author}}
+published: {{published}}
+createdAt: {{createdAt}}
+category: {{category}}
+tags: {{tags}}
+---
+
+> {{text}}
+
+{{fullText}}
+
+{{notes}}
+`;
+export const mdTemplateItem = storage.defineItem<string>('local:mdTemplate', { fallback: MD_TEMPLATE_DEFAULT });
 export const patItem = storage.defineItem<string>('local:pat', { fallback: '' });
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
