@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-libra
 const {
   mockThemeGet, mockThemeWatch, mockEnabledGet, mockEnabledWatch,
   mockPosGet, mockPosSet, mockCarryGet, mockClipsGet, mockRemoveClip, mockHighlightClip,
-  mockHighlightOn, mockRemoveMarks, portRef,
+  mockHighlightOn, mockRemoveMarks, portRef, mockParse, mdRenderRef,
 } = vi.hoisted(() => ({
   mockThemeGet: vi.fn().mockResolvedValue('light'),
   mockThemeWatch: vi.fn().mockReturnValue(() => {}),
@@ -25,6 +25,8 @@ const {
     postMessage: vi.fn(),
     disconnect: vi.fn(),
   },
+  mockParse: vi.fn(),
+  mdRenderRef: { count: 0 },
 }));
 
 vi.mock('@/lib/settings', () => ({
@@ -66,8 +68,7 @@ vi.mock('@/lib/clips', () => {
   };
 });
 
-vi.mock('@/lib/i18n', () => ({
-  langItem: { getValue: () => Promise.resolve('en') },
+vi.mock('@/lib/i18n', () => ({  langItem: { getValue: () => Promise.resolve('en') },
   useI18n: () => ({
     lang: 'en',
     setLang: vi.fn(),
@@ -128,7 +129,23 @@ vi.mock('wxt/utils/content-script-ui/shadow-root', () => ({
   createShadowRootUi: () => ({ mount: vi.fn() }),
 }));
 
-import { FloatingAgent, saveClipDraft } from '@/components/floating-agent';
+// controllable Readability: pageText tests pick article vs fallback per case
+vi.mock('@mozilla/readability', () => ({
+  // a function (not arrow) so it can be called with `new`
+  Readability: vi.fn().mockImplementation(function () {
+    return { parse: () => mockParse() };
+  }),
+}));
+
+// count markdown renders: memoized bubbles must skip drag frames and the 1s tick
+vi.mock('react-markdown', () => ({
+  default: ({ children }: { children: string }) => {
+    mdRenderRef.count++;
+    return <div className="md">{children}</div>;
+  },
+}));
+
+import { FloatingAgent, saveClipDraft, pageText } from '@/components/floating-agent';
 import { addClip, type Clip } from '@/lib/clips';
 
 describe('FloatingAgent', () => {
@@ -138,6 +155,8 @@ describe('FloatingAgent', () => {
     vi.clearAllMocks();
     portRef.listener = null;
     portRef.disconnectListener = null;
+    mdRenderRef.count = 0;
+    mockParse.mockReturnValue(null); // default: no article → innerText fallback
     mockEnabledGet.mockResolvedValue(true);
     mockThemeGet.mockResolvedValue('light');
     mockPosGet.mockResolvedValue({ right: 20, bottom: 20 });
@@ -361,5 +380,62 @@ describe('FloatingAgent', () => {
     fireEvent.click(launcher);
 
     expect(await screen.findByText('Hi! What would you like to know about this page?')).toBeInTheDocument();
+  });
+
+  // perf regression guard: dragging the pet re-renders FloatingAgent every frame;
+  // done bubbles are memoized and must NOT re-run the markdown pipeline per frame
+  it('dragging the pet does not re-render done markdown bubbles', async () => {
+    render(<FloatingAgent />);
+    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    fireEvent.click(launcher);
+    await screen.findByText('Hi! What would you like to know about this page?');
+    const renders = mdRenderRef.count;
+    expect(renders).toBeGreaterThan(0); // the greeting rendered markdown once
+
+    fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
+    for (let i = 1; i <= 5; i++)
+      fireEvent.pointerMove(launcher, { clientX: 100 - i * 10, clientY: 100, pointerId: 1, buttons: 1 });
+    fireEvent.pointerUp(launcher, { clientX: 50, clientY: 100, pointerId: 1 });
+
+    expect(mdRenderRef.count).toBe(renders);
+  });
+});
+
+describe('pageText', () => {
+  beforeEach(() => mockParse.mockClear());
+  afterEach(() => {
+    history.pushState(null, '', '/'); // the cache is keyed by location.href
+  });
+
+  it('uses the Readability article without forcing an innerText layout', () => {
+    history.pushState(null, '', '/pt-article');
+    mockParse.mockReturnValue({ textContent: 'article text' });
+    const spy = vi.spyOn(document.body, 'innerText', 'get');
+    try {
+      expect(pageText()).toBe('article text');
+      expect(spy).not.toHaveBeenCalled(); // no synchronous layout on the happy path
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('falls back to innerText when Readability finds no article', () => {
+    history.pushState(null, '', '/pt-fallback');
+    mockParse.mockReturnValue(null);
+    const original = Object.getOwnPropertyDescriptor(document.body, 'innerText')!;
+    Object.defineProperty(document.body, 'innerText', { configurable: true, get: () => 'fallback text' });
+    try {
+      expect(pageText()).toBe('fallback text');
+    } finally {
+      Object.defineProperty(document.body, 'innerText', original);
+    }
+  });
+
+  it('caches the 20k-capped text per URL', () => {
+    history.pushState(null, '', '/pt-cap');
+    mockParse.mockReturnValue({ textContent: 'y'.repeat(30_000) });
+    expect(pageText()).toHaveLength(20000);
+    expect(pageText()).toHaveLength(20000); // cache hit: no second parse
+    expect(mockParse).toHaveBeenCalledTimes(1);
   });
 });

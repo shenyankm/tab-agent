@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Send, X, Sparkles } from 'lucide-react';
@@ -54,6 +54,38 @@ const clampPos = (p: { right: number; bottom: number }) => ({
 
 type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
 
+// module-level: a fresh [remarkGfm] array per render would invalidate memoization
+const REMARK_PLUGINS = [remarkGfm];
+
+// memoized bubbles: dragging the pet (pointermove → setPos) and the 1s thinking
+// tick re-render FloatingAgent constantly; without memo, every done bubble would
+// re-run ReactMarkdown's parse pipeline on each of those frames
+const UserBubble = memo(function UserBubble({ msg }: { msg: ChatMessage }) {
+  return (
+    <div className="flex flex-col items-end">
+      <div className="pixel-agent-bubble-user">{msg.text}</div>
+      {msg.at && <span className="mt-1 text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
+    </div>
+  );
+});
+
+const AgentBubble = memo(function AgentBubble({ msg, thinking, status }: { msg: ChatMessage; thinking: boolean; status?: string }) {
+  return (
+    <div>
+      <div className="pixel-agent-md">
+        {msg.text
+          // streaming bubble renders plain text — one markdown parse per
+          // turn, on done (parsing every delta was O(n²) on long replies)
+          ? thinking && !msg.at
+            ? <span className="whitespace-pre-wrap">{msg.text}</span>
+            : <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{msg.text}</ReactMarkdown>
+          : status}
+      </div>
+      {msg.at && <span className="mt-1 block text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
+    </div>
+  );
+});
+
 // ponytail: everything ships eagerly — WXT bundles content scripts as one IIFE and
 // inlines dynamic imports (verified: lazy-loading grew the bundle); revisit if WXT
 // ever supports content-script code splitting
@@ -66,13 +98,18 @@ type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
 let pageTextCache: { url: string; text: string } | null = null;
 export function pageText() {
   if (pageTextCache?.url === location.href) return pageTextCache.text;
-  let text = document.body.innerText;
+  let text: string | undefined;
   try {
     const article = new Readability(document.cloneNode(true) as Document).parse();
     if (article?.textContent) text = article.textContent;
   } catch { /* fall through */ }
-  pageTextCache = { url: location.href, text };
-  return text;
+  // innerText forces a synchronous layout of the whole page — only pay it as the fallback
+  text ??= document.body.innerText;
+  // cache the capped form: consumers slice(0, 20000/500) anyway, and a huge page's
+  // full text would sit in this module-level cache forever
+  const capped = text.slice(0, 20000);
+  pageTextCache = { url: location.href, text: capped };
+  return capped;
 }
 
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
@@ -201,6 +238,17 @@ export function FloatingAgent() {
     // 划词翻译: selected text pre-fills a translate prompt; target language rides the UI locale
     if (open && selRef.current) setQuery(t('widget.translate', { text: selRef.current }));
   }, [open]);
+
+  // warm the page-text cache at idle while the user types — the Readability pass
+  // (full-DOM clone) must not run on the click path of the first question
+  useEffect(() => {
+    if (!open || carry !== 'article') return;
+    // jsdom (tests) lacks requestIdleCallback
+    const ric = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1) as unknown as number);
+    const cic = window.cancelIdleCallback ?? clearTimeout;
+    const id = ric(() => pageText());
+    return () => cic(id);
+  }, [open, carry]);
 
   // keep the newest message in view
   useEffect(() => {
@@ -458,23 +506,18 @@ export function FloatingAgent() {
               <ClipList t={t} />
             ) : messages.map((msg, i) => (
               msg.role === 'user' ? (
-                <div key={i} className="flex flex-col items-end">
-                  <div className="pixel-agent-bubble-user">{msg.text}</div>
-                  {msg.at && <span className="mt-1 text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
-                </div>
+                <UserBubble key={i} msg={msg} />
               ) : (
-                <div key={i}>
-                  <div className="pixel-agent-md">
-                    {msg.text
-                      // streaming bubble renders plain text — one markdown parse per
-                      // turn, on done (parsing every delta was O(n²) on long replies)
-                      ? state === 'thinking' && !msg.at
-                        ? <span className="whitespace-pre-wrap">{msg.text}</span>
-                        : <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-                      : `${t('widget.status.thinking')}… ${Math.max(0, Math.floor(((now || Date.now()) - startRef.current) / 1000))}s`}
-                  </div>
-                  {msg.at && <span className="mt-1 block text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
-                </div>
+                <AgentBubble
+                  key={i}
+                  msg={msg}
+                  thinking={state === 'thinking'}
+                  // only the live thinking bubble receives the ticking status, so the
+                  // 1s elapsed counter doesn't bust memoization of done bubbles
+                  status={!msg.text
+                    ? `${t('widget.status.thinking')}… ${Math.max(0, Math.floor(((now || Date.now()) - startRef.current) / 1000))}s`
+                    : undefined}
+                />
               )
             ))}
           </CardContent>
