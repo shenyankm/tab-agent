@@ -1,6 +1,6 @@
 # Pixel Agent
 
-一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键保存选中文字为摘录（text-fragment 高亮）。
+一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类、生成知识图谱、导出 Obsidian。
 
 [English](README.md) | **中文**
 
@@ -77,11 +77,13 @@ pnpm zip:firefox    # Firefox AMO 提交包
 
 ```
 entrypoints/
-  background.ts     # Service Worker（SSE 流式、会话管理）
-  content.tsx       # 内容脚本（浮动宠物 + 聊天面板）
+  background.ts     # Service Worker（SSE 流式、会话管理、AI 分类）
+  content.tsx       # 内容脚本（浮动宠物 + 聊天面板 + 摘录高亮）
   popup/            # 工具栏弹窗
-  options/          # 设置页
-components/ui/      # RetroUI 组件（shadcn CLI）
+  options/          # Options 页（设置 / 摘录 / 图谱 / 隐私）
+components/
+  floating-agent.tsx  # 浮动宠物 + 聊天/摘录面板（内容脚本全部 UI）
+  ui/               # RetroUI 组件（shadcn CLI）
 lib/                # 共享工具（i18n、设置、SSE 解析器、摘录）
 tests/              # Vitest 测试套件
 ```

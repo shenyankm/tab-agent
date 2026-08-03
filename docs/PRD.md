@@ -2,7 +2,7 @@
 
 ## 1. 产品概述
 
-Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键保存选中文字为摘录（text-fragment 高亮、可跨页跳转）。
+Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类、生成知识图谱、导出 Obsidian。
 
 **目标用户**：拥有 Qoder Cloud Agents 账号、希望在浏览网页时随手向自己的云端 Agent 提问的开发者。
 
@@ -24,43 +24,54 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 | 需求 | 说明 |
 |---|---|
-| 提问 | 文本输入，Enter/按钮发送；思考中重新提交 = 取消旧回合并开新回合 |
-| 流式回答 | Agent 回复逐字追加，Markdown 渲染（含 GFM 表格等） |
+| 提问 | 文本输入，Enter/按钮发送；思考中重新提交 = 取消旧回合并开新回合；思考中气泡显示已耗时秒数 |
+| 快捷操作 | 「总结本页」按钮一键发送内置总结 prompt；面板内 Chat / Clips 页签切换 |
+| 流式回答 | Agent 回复逐字追加（流式期间纯文本渲染），完成后一次性 Markdown 渲染（含 GFM 表格等） |
 | 页面上下文 | 「携带页面」三档：无 / 正文（Readability 提取→Markdown，截断 20k 字符，内联进用户消息）/ 截图（background 截可见区域，上传挂载到 `/data/input/screenshot.jpg`） |
 | 划词翻译 | 选中页面文字后点宠物，输入框预填「翻译成界面语言：…」（选区截断 2k 字符） |
-| 错误提示 | 区分「未配置凭证」「鉴权失败」「通用错误」三类文案 |
+| 错误提示 | 区分「未配置凭证」「鉴权失败」「连接中断（worker 被回收）」「通用错误」四类文案 |
 | 无障碍 | dialog role、aria-live 消息区、Esc 关闭、焦点管理 |
 
 ### 2.3 摘录（Clips）
 
 | 需求 | 说明 |
 |---|---|
-| 保存 | 选中文字 → 右键菜单「保存为摘录」；生成 text-fragment URL（同 Chrome「复制指向突出显示内容的链接」算法，失败时单词回退） |
-| 高亮 | 页面加载时重新标记本页摘录；开关可关（关闭时点击仅定位，3s 后淡出） |
-| 管理 | 面板内列本页摘录（点击页内跳转）；Options 页全量列表：搜索 / 按时间或站点分组 / 分页 / 删除（二次确认）/ 跨页跳转 |
+| 保存 | 选中文字 → 右键菜单「保存为摘录」或快捷键 `Alt+Shift+S`（可改键）；生成 text-fragment URL（同 Chrome「复制指向突出显示内容的链接」算法，失败时单词回退） |
+| 高亮 | 页面加载时重新标记本页摘录；开关可关（关闭时点击仅定位，3s 后淡出）；fragment 失配（页面改动）时按原文兜底重锚 |
+| 管理 | 面板内列本页摘录（点击页内跳转）；Options 页全量列表：搜索 / 按时间或站点分组 / 按分类筛选 / 分页 / 备注（多行）/ 删除（二次确认）/ 跨页跳转（带 clip id 的 hash，目标页定位后清除） |
 
-### 2.4 设置（Options 页 + Popup）
+### 2.4 知识图谱（Options Graph 页签）
+
+| 需求 | 说明 |
+|---|---|
+| AI 分类 | 一键把全部摘录文本发给云端 Agent 分类，回写 category + relatedIds；分类用独立专用 session，不占用/取消用户聊天会话；类别可在设置页自定义（逗号分隔，空 = 内置 8 类） |
+| 图谱 | d3-force 力导向图：节点按分类着色、按关联数定大小；可缩放、按分类筛选；点击节点打开原页并定位到摘录 |
+| 导出 Obsidian | 按分类分目录逐条写 `.md`（frontmatter + 引用块 + 备注 + `[[Related]]` 双链）；浏览器不支持 File System Access API 或用户取消时降级为单文件下载 |
+
+### 2.5 设置（Options 页 + Popup）
 
 | 需求 | 说明 |
 |---|---|
 | 凭证 | PAT / Agent ID / Environment ID / Vault ID（可选），密码型输入框、禁止复制剪切、失焦保存 |
 | 外观 | 主题 system / dark / light；多语言（en / 简 / 繁 / 日） |
+| 知识分类 | 自定义分类列表（逗号分隔），留空时 AI 分类用内置 8 类 |
 | 携带页面 | Popup 下拉选择 无 / 正文 / 截图；选截图时在点击手势内申请 `<all_urls>` 可选权限，拒绝则保持原选项 |
-| 页签 | Settings / Clips / Privacy，页签状态持久化在 URL hash |
-| 隐私声明 | 列出本地存储项、网络访问范围、权限用途、不共享承诺 |
+| 页签 | Settings / Clips / Graph / Privacy，页签状态持久化在 URL hash |
+| 隐私声明 | 列出本地存储项、网络访问范围、AI 分类数据说明、权限用途、不共享承诺 |
 
-### 2.5 会话管理
+### 2.6 会话管理
 
 - 会话惰性创建并缓存 session id；会话失效（404）自动重建并重试一次。
 - 上一回合未结束时发新消息（409）：自动 cancel 旧回合后有界轮询重发。
 - 配置了 Vault ID 时，新会话自动挂载该 vault。
+- AI 分类使用一次性专用 session，不读也不写会话缓存，与聊天会话互不影响。
 
 ## 3. 非功能需求
 
-- **隐私**：所有数据仅存 `storage.local`；网络请求仅发往 `api.qoder.com`；凭证不落任何第三方。
-- **权限最小化**：`storage` + `contextMenus` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请。
-- **性能**：内容脚本注入所有页面，UI 保持轻量；流式渲染不阻塞页面。
-- **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用。
+- **隐私**：配置存 `storage.local`，摘录存扩展 origin 的 IndexedDB；网络请求仅发往 `api.qoder.com`；AI 分类仅在用户点击时发送摘录文本（不含 URL/标题）；凭证不落任何第三方。
+- **权限最小化**：`storage` + `contextMenus` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请；保存摘录快捷键走 `commands` 声明，无需额外权限。
+- **性能**：内容脚本注入所有页面，UI 保持轻量；宠物关闭时不挂载 React；摘录高亮空闲时切片重放；流式渲染不阻塞页面；d3 图谱按需懒加载。
+- **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用；Obsidian 目录导出依赖 File System Access API，不支持的浏览器自动降级为单文件下载。
 
 ## 4. 边界与不做的事（Out of Scope）
 
@@ -72,3 +83,4 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 - 配置三项凭证后首次提问即可收到流式回复。
 - 会话过期、并发提问等异常路径对用户透明（自动恢复，无需手动操作）。
+- 点击「Classify」后摘录获得分类并出现在知识图谱中，可导出为 Obsidian 笔记。

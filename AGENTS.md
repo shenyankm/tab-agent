@@ -25,15 +25,16 @@ Chrome MV3 browser extension built with **WXT** (Vite-based framework) + **React
 
 WXT auto-registers entrypoints by file convention:
 - `background.ts` — service worker, uses `defineBackground()`
-- `content.ts` — content script, uses `defineContentScript()` with `matches`
+- `content.tsx` — content script, uses `defineContentScript()` with `matches`; all its UI lives in `components/floating-agent.tsx`
 - `popup/` — browser action popup (React SPA: `index.html` → `main.tsx` → `App.tsx`)
+- `options/` — options page (same SPA layout; tab pages in `options/pages/`, the d3 graph tab is lazy-loaded)
 
 ### UI Layer
 
 - **Tailwind CSS v4** via `@tailwindcss/vite` plugin registered in `wxt.config.ts`
 - **RetroUI** (neobrutalist shadcn registry) — components live as source in `components/ui/`, added on-demand: `pnpm dlx shadcn@latest add @retroui/<name>`
 - **lucide-react** for icons — named imports are tree-shaken automatically
-- Theme tokens (colors, shadows, radius) defined in `entrypoints/popup/style.css` via CSS custom properties + `@theme inline`
+- Theme tokens (colors, shadows, radius) defined in `assets/style.css` via CSS custom properties + `@theme inline`; `assets/content.css` extends it for the content script's Shadow UI
 - `cn()` utility in `lib/utils.ts` (clsx + tailwind-merge)
 
 ### Component & Icon Rules

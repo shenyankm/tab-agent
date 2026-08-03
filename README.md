@@ -1,6 +1,6 @@
 # Pixel Agent
 
-A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu, text-fragment highlights).
+A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu or `Alt+Shift+S`, text-fragment highlights), classify them with AI, browse them as a knowledge graph, and export to Obsidian.
 
 **English** | [中文](README.zh-CN.md)
 
@@ -78,11 +78,13 @@ pnpm zip:firefox    # Firefox AMO submission
 
 ```
 entrypoints/
-  background.ts     # Service worker (SSE streaming, session management)
-  content.tsx       # Content script (floating pet + chat panel)
+  background.ts     # Service worker (SSE streaming, session management, AI classify)
+  content.tsx       # Content script (floating pet + chat panel + clip highlights)
   popup/            # Browser action popup
-  options/          # Settings page
-components/ui/      # RetroUI components (shadcn CLI)
+  options/          # Options page (Settings / Clips / Graph / Privacy)
+components/
+  floating-agent.tsx  # Floating pet + chat/clips panel (all content-script UI)
+  ui/               # RetroUI components (shadcn CLI)
 lib/                # Shared utilities (i18n, settings, SSE parser, clips)
 tests/              # Vitest test suites
 ```
