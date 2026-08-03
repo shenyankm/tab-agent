@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Send, X, Sparkles } from 'lucide-react';
 import { Readability } from '@mozilla/readability';
-import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -67,18 +66,19 @@ type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
 // ever supports content-script code splitting
 
 // Readability mutates its input, so it gets a clone; null/throw (non-article pages,
-// framesets) falls back to raw innerText
+// framesets) falls back to raw innerText. article.textContent is plain text — the
+// page context goes into an LLM prompt, no markdown conversion needed.
 // ponytail: keyed by URL — same-URL DOM changes (SPA-loaded content) go stale;
 // invalidate on mutation reports if summaries ever lag the page
-let pageMdCache: { url: string; text: string } | null = null;
-export function pageMarkdown() {
-  if (pageMdCache?.url === location.href) return pageMdCache.text;
+let pageTextCache: { url: string; text: string } | null = null;
+export function pageText() {
+  if (pageTextCache?.url === location.href) return pageTextCache.text;
   let text = document.body.innerText;
   try {
     const article = new Readability(document.cloneNode(true) as Document).parse();
-    if (article?.content) text = new TurndownService().turndown(article.content);
+    if (article?.textContent) text = article.textContent;
   } catch { /* fall through */ }
-  pageMdCache = { url: location.href, text };
+  pageTextCache = { url: location.href, text };
   return text;
 }
 
@@ -318,7 +318,7 @@ export function FloatingAgent() {
         url: location.href,
         title: document.title,
         // ponytail: 20k char cap; per-section chunking if long articles get truncated
-        text: carry === 'article' ? pageMarkdown().slice(0, 20000) : '',
+        text: carry === 'article' ? pageText().slice(0, 20000) : '',
       },
     });
   };

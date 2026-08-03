@@ -9,7 +9,7 @@
 | 组件库 | RetroUI（neobrutalist shadcn registry，组件以源码形式放在 `components/ui/`） |
 | 图标 | lucide-react（具名导入，自动 tree-shake） |
 | Markdown | react-markdown + remark-gfm |
-| 正文提取 | @mozilla/readability + turndown（页面正文 → Markdown） |
+| 正文提取 | @mozilla/readability（页面正文 → 纯文本） |
 | 摘录高亮 | text-fragments-polyfill（fragment 生成/解析 + `<mark>` 包裹） |
 | 知识图谱 | d3-force / d3-zoom / d3-selection（仅 options Graph 页，React.lazy 懒加载） |
 | 包管理 | pnpm |

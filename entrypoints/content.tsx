@@ -1,21 +1,8 @@
 import ReactDOM from 'react-dom/client';
-import { FloatingAgent, showClip, clearAllMarks, pageMarkdown, saveClipDraft } from '@/components/floating-agent';
+import { FloatingAgent, showClip, clearAllMarks, pageText, saveClipDraft } from '@/components/floating-agent';
 import { addClip, buildClipUrl, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips';
 import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
 import '@/assets/content.css';
-
-// 页面 meta 不可信:仅截断后存储用于展示/导出,不拼 HTML
-const readPageMeta = () => {
-  const meta = (sel: string) => document.querySelector<HTMLMetaElement>(sel)?.content?.trim().slice(0, 500) ?? '';
-  const out: { author?: string; description?: string; published?: string } = {};
-  const author = meta('meta[name="author"]');
-  const description = meta('meta[name="description"], meta[property="og:description"]');
-  const published = meta('meta[property="article:published_time"], meta[name="date"]');
-  if (author) out.author = author;
-  if (description) out.description = description;
-  if (published) out.published = published;
-  return out;
-};
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -33,22 +20,17 @@ export default defineContentScript({
           pageUrl: location.href,
           title: document.title,
           text,
-          ...readPageMeta(),
         });
       }
-      // 整页剪藏:Readability 正文(失败回退 innerText)进 fullText,text 留短摘要
+      // 整页剪藏:Readability 正文(失败回退 innerText)截短存进 text,
       // 供列表/分类使用;无 fragment,不高亮(与裸 URL clip 语义一致)
-      // ponytail: fullText 10万字符截断;整页 clip 多到拖慢 options getAll 时再拆独立 store
       if (msg?.type === 'saveClipPage') {
-        const full = pageMarkdown();
         addClip({
           kind: 'page',
           url: location.href,
           pageUrl: location.href,
           title: document.title,
-          text: full.slice(0, 500),
-          fullText: full.slice(0, 100_000),
-          ...readPageMeta(),
+          text: pageText().slice(0, 500),
         });
       }
     });
