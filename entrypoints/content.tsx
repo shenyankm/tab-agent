@@ -1,5 +1,5 @@
 import ReactDOM from 'react-dom/client';
-import { FloatingAgent, showClip, clearAllMarks, pageMarkdown } from '@/components/floating-agent';
+import { FloatingAgent, showClip, clearAllMarks, pageMarkdown, saveClipDraft } from '@/components/floating-agent';
 import { addClip, buildClipUrl, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips';
 import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
 import '@/assets/content.css';
@@ -21,21 +21,19 @@ export default defineContentScript({
   matches: ['<all_urls>'],
   cssInjectionMode: 'ui',
   async main(ctx) {
-    // "save clip" from the background context menu: selection → text-fragment URL → storage
+    // "save clip" from the background context menu: selection → text-fragment URL →
+    // 编辑卡片（宠物 UI 在挂载时）→ storage；fragment 必须在选区还活着时生成
     browser.runtime.onMessage.addListener((msg: { type?: string }) => {
       if (msg?.type === 'saveClip') {
         const sel = window.getSelection();
         const text = sel?.toString().trim();
         if (!sel || !text) return;
-        addClip({
+        saveClipDraft({
           url: buildClipUrl(location.href, sel),
           pageUrl: location.href,
           title: document.title,
           text,
           ...readPageMeta(),
-        }).then(async (clip) => {
-          // mark right away as save feedback, unless highlighting is switched off
-          if (await clipHighlightItem.getValue()) showClip(clip, false);
         });
       }
       // 整页剪藏:Readability 正文(失败回退 innerText)进 fullText,text 留短摘要

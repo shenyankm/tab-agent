@@ -88,6 +88,12 @@ vi.mock('@/lib/i18n', () => ({
         'nav.clips': 'Clips',
         'clips.empty': 'No clips yet.',
         'clips.delete': 'Delete clip',
+        'clips.editor.heading': 'Edit before saving',
+        'clips.editor.title': 'Title',
+        'clips.tagsPlaceholder': 'Tags (comma separated)…',
+        'clips.notePlaceholder': 'Add notes (one per line)…',
+        'clips.save': 'Save',
+        'clips.cancel': 'Cancel',
       };
       let s = dict[key] ?? key;
       if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
@@ -123,7 +129,8 @@ vi.mock('wxt/utils/content-script-ui/shadow-root', () => ({
   createShadowRootUi: () => ({ mount: vi.fn() }),
 }));
 
-import { FloatingAgent } from '@/components/floating-agent';
+import { FloatingAgent, saveClipDraft } from '@/components/floating-agent';
+import { addClip, type Clip } from '@/lib/clips';
 
 describe('FloatingAgent', () => {
   afterEach(cleanup);
@@ -227,6 +234,30 @@ describe('FloatingAgent', () => {
 
     // management lives in the options page: no delete button in the widget
     expect(screen.queryByRole('button', { name: 'Delete clip' })).not.toBeInTheDocument();
+  });
+
+  it('saveClipDraft pops the edit card; saving commits edited title/tags/notes', async () => {
+    vi.mocked(addClip).mockResolvedValue({ id: 'c1', createdAt: 1 } as unknown as Clip);
+    render(<FloatingAgent />);
+    await screen.findByRole('button', { name: 'Open Pixel Agent' });
+
+    // panel closed — the card still pops
+    act(() => saveClipDraft({ url: 'http://localhost/', pageUrl: 'http://localhost/', title: 'Page', text: 'selected words' }));
+    expect(await screen.findByText('Edit before saving')).toBeInTheDocument();
+    expect(screen.getByText('selected words')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'My title' } });
+    fireEvent.change(screen.getByPlaceholderText('Tags (comma separated)…'), { target: { value: 'a, b, a' } });
+    fireEvent.change(screen.getByPlaceholderText('Add notes (one per line)…'), { target: { value: 'note one\n\nnote two' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(addClip).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'selected words',
+      title: 'My title',
+      tags: ['a', 'b'],
+      notes: ['note one', 'note two'],
+    }));
+    await waitFor(() => expect(screen.queryByText('Edit before saving')).not.toBeInTheDocument());
   });
 
   it('pre-fills a translate prompt from the page selection, capped at 2k chars', async () => {
