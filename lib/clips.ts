@@ -54,9 +54,27 @@ function req2p<T>(req: IDBRequest<T>): Promise<T> {
 function openDB(): Promise<IDBDatabase> {
   if (!dbPromise) {
     const p = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
-      req.onsuccess = () => resolve(req.result);
+      const req = indexedDB.open(DB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        const store = db.objectStoreNames.contains(STORE)
+          ? req.transaction!.objectStore(STORE) // v1 → v2 upgrade
+          : db.createObjectStore(STORE, { keyPath: 'id' });
+        // createdAt: newest-first reads without getAll+sort; pageUrl: per-page
+        // reads (clipsGetForPage) without scanning the whole store
+        if (!store.indexNames.contains('createdAt')) store.createIndex('createdAt', 'createdAt');
+        if (!store.indexNames.contains('pageUrl')) store.createIndex('pageUrl', 'pageUrl');
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        // don't block a later upgrade (another context holding the old version
+        // open): close and let the next call reopen at the new version
+        db.onversionchange = () => {
+          db.close();
+          if (dbPromise === p) dbPromise = null;
+        };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
     });
     // reset the cache once on failure so a later call retries, instead of caching
@@ -88,7 +106,17 @@ function broadcastClipsChanged() {
 
 export async function getClipsDirect(): Promise<Clip[]> {
   const db = await openDB();
-  const clips = await req2p(db.transaction(STORE).objectStore(STORE).getAll());
+  // index read is already createdAt-ascending; reverse instead of getAll+sort
+  const clips = await req2p(db.transaction(STORE).objectStore(STORE).index('createdAt').getAll());
+  return clips.reverse(); // newest first
+}
+
+/** Read only one page's clips via the pageUrl index (values are normalized at write). */
+export async function getClipsForPageDirect(page: string): Promise<Clip[]> {
+  const db = await openDB();
+  const clips = await req2p(
+    db.transaction(STORE).objectStore(STORE).index('pageUrl').getAll(normalizeUrl(page)),
+  );
   return clips.sort((a, b) => b.createdAt - a.createdAt); // newest first
 }
 
@@ -138,13 +166,28 @@ export async function updateClipDirect(id: string, patch: ClipPatch): Promise<vo
 export async function updateClipsDirect(patches: { id: string; patch: ClipPatch }[]): Promise<void> {
   if (!patches.length) return;
   const db = await openDB();
-  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
-  await Promise.all(patches.map(async ({ id, patch }) => {
+  const tx = db.transaction(STORE, 'readwrite');
+  const store = tx.objectStore(STORE);
+  // one getAll + in-memory merge, then all puts issued synchronously: awaiting
+  // individual get→put pairs inside the transaction lets it go inactive at the
+  // microtask boundary (Firefox throws TransactionInactiveError)
+  const all = (await req2p(store.getAll())) as Clip[];
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const done = new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  for (const { id, patch } of patches) {
     const safe = sanitizePatch(patch);
-    if (!Object.keys(safe).length) return;
-    const clip = await req2p(store.get(id)) as Clip | undefined;
-    if (clip) await req2p(store.put({ ...clip, ...safe }));
-  }));
+    if (!Object.keys(safe).length) continue;
+    const clip = byId.get(id);
+    if (!clip) continue;
+    const merged = { ...clip, ...safe };
+    byId.set(id, merged); // two patches to one id accumulate instead of clobbering
+    store.put(merged);
+  }
+  await done;
   broadcastClipsChanged();
 }
 
@@ -168,7 +211,7 @@ export function clipsPageItem(page: string) {
     const getValue = (): Promise<Clip[]> =>
       isContentScript()
         ? write<Clip[]>({ type: 'clipsGetForPage', page })
-        : getClipsDirect().then((clips) => clips.filter((c) => normalizeUrl(c.pageUrl) === page));
+        : getClipsForPageDirect(page);
     item = { getValue, watch: (cb) => watchChanges(() => void getValue().then(cb)) };
     pageItems.set(page, item);
   }

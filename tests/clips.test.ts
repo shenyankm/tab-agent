@@ -9,6 +9,7 @@ import {
   updateClip,
   clipsItem,
   getClipsDirect,
+  getClipsForPageDirect,
   addClipDirect,
   removeClipDirect,
   updateClipDirect,
@@ -235,6 +236,46 @@ describe('clip storage (extension origin)', () => {
     expect(clips.find((c) => c.id === a.id)?.category).toBe('concept');
     expect(clips.find((c) => c.id === b.id)).toMatchObject({ category: 'data', relatedIds: [a.id] });
     expect(clips.find((c) => c.id === a.id)?.notes).toBeUndefined();
+  });
+
+  it('updateClipsDirect accumulates two patches to the same id instead of clobbering', async () => {
+    const a = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'a' });
+    await updateClipsDirect([
+      { id: a.id, patch: { category: 'concept' } },
+      { id: a.id, patch: { tags: ['ai'] } },
+    ]);
+    const [updated] = await getClipsDirect();
+    expect(updated).toMatchObject({ category: 'concept', tags: ['ai'] });
+  });
+
+  it('getClipsForPageDirect reads one page via the index, newest first', async () => {
+    await addClipDirect({ url: 'https://a', pageUrl: 'https://a?utm_source=tw', title: 'A', text: 'first' });
+    await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'second' });
+    await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'B', text: 'other page' });
+
+    const clips = await getClipsForPageDirect('https://a');
+    expect(clips.map((c) => c.text)).toEqual(['second', 'first']); // tracking params normalized at write
+  });
+
+  it('migrates a v1 database: rows intact, indexes usable', async () => {
+    // build a v1-shaped DB (store only, no indexes), then close it
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('pixel-agent', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('clips', { keyPath: 'id' });
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('clips', 'readwrite');
+        tx.objectStore('clips').put({ id: 'old', url: 'https://a/', pageUrl: 'https://a/', title: 'A', text: 'legacy', createdAt: 5 });
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    // the module opens at v2 → onupgradeneeded adds the indexes around the old row
+    const clips = await getClipsDirect();
+    expect(clips.map((c) => c.id)).toEqual(['old']);
+    expect((await getClipsForPageDirect('https://a')).map((c) => c.id)).toEqual(['old']);
   });
 
 });
