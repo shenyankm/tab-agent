@@ -13,9 +13,10 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
+import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { clipsPageItem, highlightClip, unhighlightClip, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
+import { addClip, clipsPageItem, highlightClip, unhighlightClip, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -107,6 +108,24 @@ export function showClip(clip: Clip, scroll = true): boolean {
   return true;
 }
 
+type ClipDraft = Omit<Clip, 'id' | 'createdAt'>;
+
+const draftEvents = new EventTarget();
+let editorMounted = false;
+
+const commitDraft = async (draft: ClipDraft) => {
+  const clip = await addClip(draft);
+  // mark right away as save feedback, unless highlighting is switched off
+  if (await clipHighlightItem.getValue()) showClip(clip, false);
+};
+
+/** 划词保存入口（content.tsx 调用）：编辑卡片在挂载就弹出卡片编辑后再入库，
+ *  否则（宠物关闭、UI 未挂载）直接保存，保持旧行为。 */
+export function saveClipDraft(draft: ClipDraft) {
+  if (editorMounted) draftEvents.dispatchEvent(new CustomEvent('draft', { detail: draft }));
+  else void commitDraft(draft);
+}
+
 /** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */
 export function clearAllMarks() {
   for (const marks of markByClip.values()) unhighlightClip(marks);
@@ -148,6 +167,7 @@ export function FloatingAgent() {
   const carry = useStorageValue(pageCarryItem, 'article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
+  const [draft, setDraft] = useState<ClipDraft | null>(null);
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,6 +181,16 @@ export function FloatingAgent() {
 
   useEffect(() => {
     petPosItem.getValue().then((p) => setPos(clampPos(p)));
+  }, []);
+
+  useEffect(() => {
+    editorMounted = true;
+    const onDraft = (e: Event) => setDraft((e as CustomEvent<ClipDraft>).detail);
+    draftEvents.addEventListener('draft', onDraft);
+    return () => {
+      editorMounted = false;
+      draftEvents.removeEventListener('draft', onDraft);
+    };
   }, []);
 
   // devtools, split screen and window resizes shrink the viewport; without this the
@@ -299,6 +329,21 @@ export function FloatingAgent() {
     setQuery('');
   };
 
+  // 与 options Clips 页同款解析：逗号分标签、换行分备注，空则不写字段
+  const saveDraft = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const f = new FormData(event.currentTarget);
+    const tags = [...new Set(String(f.get('tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
+    const notes = String(f.get('notes') ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+    void commitDraft({
+      ...draft!,
+      title: String(f.get('title') ?? '').trim() || draft!.title,
+      tags: tags.length ? tags : undefined,
+      notes: notes.length ? notes : undefined,
+    });
+    setDraft(null);
+  };
+
   const closePanel = () => {
     setOpen(false);
     requestAnimationFrame(() => launcherRef.current?.focus());
@@ -351,17 +396,48 @@ export function FloatingAgent() {
       className={`pixel-agent-shell${isDark(theme) ? ' dark' : ''}`}
       style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') closePanel();
+        if (event.key === 'Escape') (draft ? setDraft(null) : closePanel());
       }}
     >
-      {open && (
+      {(open || draft) && (
         <Card
           id="pixel-agent-panel"
           className={`pixel-agent-panel${below ? ' pixel-agent-panel--below' : ''}${alignLeft ? ' pixel-agent-panel--left' : ''} gap-0 py-0`}
           style={{ maxHeight: Math.min(480, Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98)) }}
           role="dialog"
-          aria-label="Pixel Agent"
+          aria-label={draft ? t('clips.editor.heading') : 'Pixel Agent'}
         >
+          {draft ? (
+            <>
+              <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
+                <span className="font-bold">{t('clips.editor.heading')}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDraft(null)}
+                  aria-label={t('clips.cancel')}
+                >
+                  <X />
+                </Button>
+              </CardHeader>
+              <form onSubmit={saveDraft} className="flex flex-col gap-2 overflow-y-auto p-4">
+                <p className="line-clamp-2 text-xs text-muted-foreground">{draft.text}</p>
+                <Input name="title" defaultValue={draft.title} placeholder={t('clips.editor.title')} autoFocus aria-label={t('clips.editor.title')} />
+                <Input name="tags" placeholder={t('clips.tagsPlaceholder')} aria-label={t('clips.tagsPlaceholder')} />
+                <Textarea name="notes" rows={2} placeholder={t('clips.notePlaceholder')} aria-label={t('clips.notePlaceholder')} />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
+                    {t('clips.cancel')}
+                  </Button>
+                  <Button type="submit" size="sm">
+                    {t('clips.save')}
+                  </Button>
+                </div>
+              </form>
+            </>
+          ) : (
+          <>
           <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
             <Menubar>
               <MenubarTrigger active={tab === 'chat'} onClick={() => setTab('chat')}>
@@ -442,6 +518,8 @@ export function FloatingAgent() {
               </Button>
             </form>
           </CardFooter>
+          )}
+          </>
           )}
         </Card>
       )}
