@@ -40,7 +40,6 @@ vi.mock('@/lib/clips', () => ({
   clipsItem: { getValue: () => mockClipsGet(), watch: () => () => {} },
   addClip: vi.fn(),
   buildClipUrl: vi.fn(),
-  stripHash: (u: string) => u.split('#')[0],
   normalizeUrl: (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } },
   removeClip: (id: string) => mockRemoveClip(id),
   highlightClip: (clip: unknown) => mockHighlightClip(clip),

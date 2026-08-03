@@ -175,7 +175,7 @@ export const clipsItem = {
   },
 };
 
-export const stripHash = (url: string) => url.split('#')[0];
+const stripHash = (url: string) => url.split('#')[0];
 
 // Tracking params that don't identify content — borrowed from Obsidian Clipper
 const TRACKING = new Set([

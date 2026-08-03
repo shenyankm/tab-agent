@@ -18,7 +18,7 @@ import { useStorageValue } from '@/lib/utils';
 import { clipsItem, highlightClip, removeMarks, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
 
-export type AgentState = 'idle' | 'thinking' | 'done';
+type AgentState = 'idle' | 'thinking' | 'done';
 
 // 3-frame strip cropped from the full sheet (184×168 each) — keeps decoded RAM tiny per tab
 const sheet = { width: 552, height: 168 };
