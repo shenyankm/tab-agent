@@ -1,6 +1,6 @@
 # Pixel Agent
 
-一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类、生成知识图谱、导出 Obsidian。
+一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类、生成知识图谱。
 
 [English](README.md) | **中文**
 

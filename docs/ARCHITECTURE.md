@@ -174,14 +174,14 @@ options Graph 页一键触发，目标是「不污染用户聊天会话」：
 - **变更同步**：写库后 background 双通道广播 `{type:'clipsChanged'}`——`tabs.sendMessage` 到所有 tab 的 content script（来源 tab 也会收到，重拉全量是幂等的），`runtime.sendMessage` 到 options 等扩展页（`tabs.sendMessage` 到不了扩展页）；watcher 收到后拉全量。`clipsItem` 保持与 WXT storage item 同形的 `getValue`/`watch`，消费方经 `useStorageValue` 无感切换。
 - **旧版迁移**：background 启动时一次性把 `local:clips` 导入 IndexedDB，用 `local:clipsMigrated` 标记位做幂等闸门（只在扩展 origin 执行，避免多 content script 各自迁移并抢着删全局旧 key），完成后删除旧 key。
 - **排序稳定**：`addClipDirect` 用 `Math.max(Date.now(), last+1)` 保证 `createdAt` 单调，同毫秒连续摘录的 newest-first 顺序确定。
-- **URL 归一**：`normalizeUrl` 去 hash 并删跟踪参数（`utm_*`/`fbclid`/`gclid` 等，清单借自 Obsidian Clipper），同文多链归一到一个 key；「本页摘录」匹配与 `pageUrl` 入库都走它。
+- **URL 归一**：`normalizeUrl` 去 hash 并删跟踪参数（`utm_*`/`fbclid`/`gclid` 等常见清单），同文多链归一到一个 key；「本页摘录」匹配与 `pageUrl` 入库都走它。
 - **跨页跳转 URL**：`clipNavUrl` 带 `#pixel-agent-clip=<id>` 而非 text-fragment——原生 `::target-text` 高亮无法编程清除，「关闭高亮时淡出」会失效；目标页 content script 按 id 查库后走 `showClip` 同一条定位/高亮/淡出路径，消费后 `history.replaceState` 清掉 hash。
 - **失配兜底**：fragment 失配（页面改动/动态渲染）时按 `clip.text` 在文本节点中直接查找重锚（跳过 script/style 等子树，避免向脚本字符串插 `<mark>`）；裸 URL 摘录保持不高亮。
 
-### 知识图谱与导出（options Graph 页）
+### 知识图谱（options Graph 页）
 
 - d3-force 力导向图：节点按 `category` 着色、按关联度数定半径，`relatedIds` 去重成无向边；d3-zoom 缩放，分类 chip 筛选；点击节点 `clipNavUrl` 开新页定位。d3 约 30KB gz，`React.lazy` 只在进入 Graph 页签时加载。
-- **导出 Obsidian**：优先 File System Access API（`showDirectoryPicker`，用户手势内选目录）按分类分目录逐条写 `.md`——frontmatter（tags/source/clipped）+ 引用块正文 + Notes + `[[Related]]` 双链，同名文件去重；用户取消或浏览器不支持时降级为单个合并 `.md` 下载。
+- 不再提供 Obsidian 导出（曾通过 Local REST API 插件推送笔记，已整体移除）；扩展为纯浏览器应用，所有 AI 能力均基于 Qoder Cloud Agent。
 
 ## 7. 内容脚本 UI 隔离
 
@@ -197,7 +197,6 @@ options Graph 页一键触发，目标是「不污染用户聊天会话」：
 - `commands` 声明 `save_clip`（默认 `Alt+Shift+S`，可在 `chrome://extensions/shortcuts` 改键）：复用右键菜单同一条 content script 保存路径，无需额外权限。
 - 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。
 - AI 分类把**摘录文本**发往用户自己配置的云端 Agent（不含 URL/标题等元数据），仅在用户点击「Classify」时触发；隐私页有专门章节说明。
-- Obsidian 导出的目录写入用 File System Access API（`showDirectoryPicker`），在用户手势内选目录，不需要 manifest 权限。
 
 ## 9. 构建与校验
 

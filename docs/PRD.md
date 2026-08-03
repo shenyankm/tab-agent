@@ -2,7 +2,7 @@
 
 ## 1. 产品概述
 
-Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类、生成知识图谱、导出 Obsidian。
+Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类、生成知识图谱。
 
 **目标用户**：拥有 Qoder Cloud Agents 账号、希望在浏览网页时随手向自己的云端 Agent 提问的开发者。
 
@@ -46,7 +46,6 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 |---|---|
 | AI 分类 | 一键把全部摘录文本发给云端 Agent 分类，回写 category + relatedIds；分类用独立专用 session，不占用/取消用户聊天会话；类别可在设置页自定义（逗号分隔，空 = 内置 8 类） |
 | 图谱 | d3-force 力导向图：节点按分类着色、按关联数定大小；可缩放、按分类筛选；点击节点打开原页并定位到摘录 |
-| 导出 Obsidian | 按分类分目录逐条写 `.md`（frontmatter + 引用块 + 备注 + `[[Related]]` 双链）；浏览器不支持 File System Access API 或用户取消时降级为单文件下载 |
 
 ### 2.5 设置（Options 页 + Popup）
 
@@ -71,16 +70,17 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 - **隐私**：配置存 `storage.local`，摘录存扩展 origin 的 IndexedDB；网络请求仅发往 `api.qoder.com`；AI 分类仅在用户点击时发送摘录文本（不含 URL/标题）；凭证不落任何第三方。
 - **权限最小化**：`storage` + `contextMenus` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请；保存摘录快捷键走 `commands` 声明，无需额外权限。
 - **性能**：内容脚本注入所有页面，UI 保持轻量；宠物关闭时不挂载 React；摘录高亮空闲时切片重放；流式渲染不阻塞页面；d3 图谱按需懒加载。
-- **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用；Obsidian 目录导出依赖 File System Access API，不支持的浏览器自动降级为单文件下载。
+- **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用。
 
 ## 4. 边界与不做的事（Out of Scope）
 
 - 不做多会话/历史记录 UI（每个扩展实例复用一个云端 session）。
 - 不做文件附件（页面正文/截图携带已覆盖主场景）。
 - 不做自建后端 —— 直连 Qoder 云端网关。
+- 不做 Obsidian/本地笔记应用集成（曾有的 Local REST API 导出已移除），所有 AI 能力基于 Qoder Cloud Agent。
 
 ## 5. 成功指标
 
 - 配置三项凭证后首次提问即可收到流式回复。
 - 会话过期、并发提问等异常路径对用户透明（自动恢复，无需手动操作）。
-- 点击「Classify」后摘录获得分类并出现在知识图谱中，可导出为 Obsidian 笔记。
+- 点击「Classify」后摘录获得分类并出现在知识图谱中。
