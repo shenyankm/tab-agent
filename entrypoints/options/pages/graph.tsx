@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Brain } from 'lucide-react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type SimulationNodeDatum } from 'd3-force';
 import { zoom as d3Zoom, zoomIdentity } from 'd3-zoom';
@@ -19,41 +19,46 @@ export default function GraphPage() {
   const [classifyError, setClassifyError] = useState('');
   const [filter, setFilter] = useState<string | null>(null);
 
-  const classified = clips.filter((c) => c.category);
-  const categories = [...new Set(classified.map((c) => c.category!))].sort();
+  // memoized: unstable references here re-run the effect below on every unrelated
+  // setState — clearing the SVG, restarting the simulation and resetting the zoom
+  const classified = useMemo(() => clips.filter((c) => c.category), [clips]);
+  const categories = useMemo(() => [...new Set(classified.map((c) => c.category!))].sort(), [classified]);
 
   // build graph data
-  const idSet = new Set(classified.map((c) => c.id));
-  const nodes: GNode[] = classified.map((c) => ({
-    id: c.id,
-    label: c.text.slice(0, 60),
-    category: c.category!,
-    clipUrl: clipNavUrl(c),
-    degree: 0,
-  }));
-  const links: { source: string; target: string }[] = [];
-  const seenEdges = new Set<string>();
-  for (const c of classified) {
-    for (const rid of c.relatedIds ?? []) {
-      if (!idSet.has(rid) || rid === c.id) continue;
-      const key = c.id < rid ? `${c.id}|${rid}` : `${rid}|${c.id}`;
-      if (!seenEdges.has(key)) { seenEdges.add(key); links.push({ source: c.id, target: rid }); }
+  const { nodes, links } = useMemo(() => {
+    const idSet = new Set(classified.map((c) => c.id));
+    const nodes: GNode[] = classified.map((c) => ({
+      id: c.id,
+      label: c.text.slice(0, 60),
+      category: c.category!,
+      clipUrl: clipNavUrl(c),
+      degree: 0,
+    }));
+    const links: { source: string; target: string }[] = [];
+    const seenEdges = new Set<string>();
+    for (const c of classified) {
+      for (const rid of c.relatedIds ?? []) {
+        if (!idSet.has(rid) || rid === c.id) continue;
+        const key = c.id < rid ? `${c.id}|${rid}` : `${rid}|${c.id}`;
+        if (!seenEdges.has(key)) { seenEdges.add(key); links.push({ source: c.id, target: rid }); }
+      }
     }
-  }
-  // compute degree for node sizing
-  const degreeMap = new Map<string, number>();
-  for (const l of links) {
-    degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1);
-    degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1);
-  }
-  for (const n of nodes) n.degree = degreeMap.get(n.id) ?? 0;
+    // compute degree for node sizing
+    const degreeMap = new Map<string, number>();
+    for (const l of links) {
+      degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1);
+      degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1);
+    }
+    for (const n of nodes) n.degree = degreeMap.get(n.id) ?? 0;
+    return { nodes, links };
+  }, [classified]);
 
-  const filtered = filter
+  const filtered = useMemo(() => filter
     ? { nodes: nodes.filter((n) => n.category === filter), links: links.filter((l) =>
         nodes.some((n) => n.id === l.source && n.category === filter) &&
         nodes.some((n) => n.id === l.target && n.category === filter)
       ) }
-    : { nodes, links };
+    : { nodes, links }, [filter, nodes, links]);
 
   const runClassify = () => {
     setClassifying(true);
