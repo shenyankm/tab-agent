@@ -237,26 +237,6 @@ describe('clip storage (extension origin)', () => {
     expect(clips.find((c) => c.id === a.id)?.notes).toBeUndefined();
   });
 
-  it('migrates legacy clips once, sets the flag and clears the old key', async () => {
-    const legacy = [
-      { id: 'old-1', url: 'https://a#:~:text=a', pageUrl: 'https://a', title: 'A', text: 'a', createdAt: 1 },
-      { id: 'old-2', url: 'https://b#:~:text=b', pageUrl: 'https://b', title: 'B', text: 'b', createdAt: 2 },
-    ];
-    await storage.setItem('local:clips', legacy);
-
-    const clips = await getClipsDirect();
-
-    expect(clips.map((c) => c.id)).toEqual(['old-2', 'old-1']); // newest first
-    expect(await storage.getItem('local:clips')).toBeNull();
-    expect(await storage.getItem('local:clipsMigrated')).toBe(true);
-
-    // second open is a no-op: re-seeding the legacy key must NOT re-import
-    await closeClipsDB();
-    await storage.setItem('local:clips', legacy);
-    await getClipsDirect();
-    expect((await getClipsDirect()).filter((c) => c.id === 'old-1')).toHaveLength(1); // no duplicate
-  });
-
 });
 
 // content-script side: the facade must proxy over runtime messages and NEVER touch

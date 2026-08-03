@@ -1,9 +1,15 @@
 import { useState } from 'react';
-import { Trash2, ChevronLeft, ChevronRight, Pencil, Link, Download, FileJson } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, Pencil, Link, EllipsisVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioDropdown } from '@/components/radio-dropdown';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,13 +19,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips';
-import { mdTemplateItem } from '@/lib/settings';
-import { clipsToMarkdown, downloadFile } from '@/lib/export';
 
 const PAGE_SIZE = 10;
 
@@ -67,7 +70,7 @@ export default function ClipsPage() {
   const [cat, setCat] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
-  const [tagsText, setTagsText] = useState('');
+  const [deleting, setDeleting] = useState<Clip | null>(null);
 
   const cats = [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort();
   const q = query.trim().toLowerCase();
@@ -106,56 +109,30 @@ export default function ClipsPage() {
           {clip.tags?.length ? ` · ${clip.tags.map((tag) => `#${tag}`).join(' ')}` : ''}
         </span>
       </button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={() => navigator.clipboard.writeText(clip.url)}
-        aria-label={t('clips.copyLink')}
-        title={t('clips.copyLink')}
-      >
-        <Link />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={() => {
-          setEditingNote(editingNote === clip.id ? null : clip.id);
-          setNoteText(clip.notes?.join('\n') ?? '');
-          setTagsText(clip.tags?.join(', ') ?? '');
-        }}
-        aria-label={t('clips.notePlaceholder')}
-        title={t('clips.notePlaceholder')}
-      >
-        <Pencil />
-      </Button>
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={t('clips.delete')}>
-            <Trash2 />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label={t('clips.moreActions')}>
+            <EllipsisVertical />
           </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('clips.confirmDelete')}</AlertDialogTitle>
-            <AlertDialogDescription className="line-clamp-2">{clip.text}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('clips.cancel')}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => removeClip(clip.id)}>
-              {t('clips.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-0">
+          <DropdownMenuItem onClick={() => navigator.clipboard.writeText(clip.url)}>
+            <Link /> {t('clips.copyLink')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            setEditingNote(editingNote === clip.id ? null : clip.id);
+            setNoteText(clip.notes?.join('\n') ?? '');
+          }}>
+            <Pencil /> {t('clips.editNote')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDeleting(clip)}>
+            <Trash2 /> {t('clips.delete')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
     {editingNote === clip.id && (
       <div className="border-b border-border pb-3">
-        <Input
-          value={tagsText}
-          onChange={(e) => setTagsText(e.target.value)}
-          placeholder={t('clips.tagsPlaceholder')}
-          className="mb-2"
-        />
         <Textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
@@ -172,7 +149,6 @@ export default function ClipsPage() {
             onClick={() => {
               updateClip(clip.id, {
                 notes: noteText.split('\n').map((s) => s.trim()).filter(Boolean),
-                tags: [...new Set(tagsText.split(',').map((s) => s.trim()).filter(Boolean))],
               })
                 .then(() => setEditingNote(null))
                 .catch(() => { /* 保存失败:编辑器保持打开,可重试 */ });
@@ -185,12 +161,6 @@ export default function ClipsPage() {
     )}
     </div>
   );
-
-  // 导出当前筛选结果:分类/搜索条件免费生效
-  const stamp = `pixel-agent-clips-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}`;
-  const exportMd = () =>
-    mdTemplateItem.getValue().then((tpl) => downloadFile(`${stamp}.md`, 'text/markdown', clipsToMarkdown(filtered, tpl)));
-  const exportJson = () => downloadFile(`${stamp}.json`, 'application/json', JSON.stringify(filtered, null, 2));
 
   return (
     <>
@@ -209,24 +179,6 @@ export default function ClipsPage() {
             ['site', t('clips.view.site')],
           ]}
         />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={exportMd}
-          aria-label={t('clips.export.md')}
-          title={t('clips.export.md')}
-        >
-          <Download />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={exportJson}
-          aria-label={t('clips.export.json')}
-          title={t('clips.export.json')}
-        >
-          <FileJson />
-        </Button>
       </div>
 
       {cats.length > 0 && (
@@ -287,6 +239,21 @@ export default function ClipsPage() {
           </div>
         ))
       )}
+
+      <AlertDialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('clips.confirmDelete')}</AlertDialogTitle>
+            <AlertDialogDescription className="line-clamp-2">{deleting?.text}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('clips.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && removeClip(deleting.id)}>
+              {t('clips.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

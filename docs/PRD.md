@@ -44,7 +44,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 | 需求 | 说明 |
 |---|---|
-| AI 分类 | 一键把全部摘录文本发给云端 Agent 分类，回写 category + relatedIds；分类用独立专用 session，不占用/取消用户聊天会话；类别可在设置页自定义（逗号分隔，空 = 内置 8 类） |
+| AI 分类 | 一键把全部摘录文本发给云端 Agent 分类，回写 category + relatedIds + tags（标签由 AI 生成，用户不可手动编辑）；分类用独立专用 session，不占用/取消用户聊天会话；类别由 Agent 自拟（每次全量重分类，自洽） |
 | 图谱 | d3-force 力导向图：节点按分类着色、按关联数定大小；可缩放、按分类筛选；点击节点打开原页并定位到摘录 |
 
 ### 2.5 设置（Options 页 + Popup）
@@ -53,7 +53,6 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 |---|---|
 | 凭证 | PAT / Agent ID / Environment ID / Vault ID（可选），密码型输入框、禁止复制剪切、失焦保存 |
 | 外观 | 主题 system / dark / light；多语言（en / 简 / 繁 / 日） |
-| 知识分类 | 自定义分类列表（逗号分隔），留空时 AI 分类用内置 8 类 |
 | 携带页面 | Popup 下拉选择 无 / 正文 / 截图；选截图时在点击手势内申请 `<all_urls>` 可选权限，拒绝则保持原选项 |
 | 页签 | Settings / Clips / Graph / Privacy，页签状态持久化在 URL hash |
 | 隐私声明 | 列出本地存储项、网络访问范围、AI 分类数据说明、权限用途、不共享承诺 |
@@ -84,3 +83,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 - 配置三项凭证后首次提问即可收到流式回复。
 - 会话过期、并发提问等异常路径对用户透明（自动恢复，无需手动操作）。
 - 点击「Classify」后摘录获得分类并出现在知识图谱中。
+
+## 6. 暂缓功能（Backlog）
+
+- **摘录导出**：Clips 页一键导出当前筛选结果为 Markdown（可自定义 `{{var}}` 模板，默认含 YAML frontmatter / 摘录引用 / 整页正文 / 标注）或 JSON。v0.2.x 移除；等笔记工具（Obsidian/Logseq 等）导入需求明确后恢复。

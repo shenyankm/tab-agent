@@ -1,4 +1,4 @@
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, categoriesItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
 import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, normalizeUrl, type Clip } from '@/lib/clips';
@@ -256,26 +256,19 @@ async function handleClassify(): Promise<{ classified: number }> {
   const clips = await getClipsDirect();
   if (!clips.length) return { classified: 0 };
 
-  // 分类类别可在设置页自定义(逗号分隔);未配置时用内置列表
-  const customCats = (await categoriesItem.getValue()).split(',').map((s) => s.trim()).filter(Boolean);
-  const knowledgeTypes = customCats.length
-    ? customCats.join(', ')
-    : 'technical-doc, concept, data, quote, tutorial, reference, opinion, news';
-
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
     .join('\n');
 
   const prompt = `Classify the following text clips into knowledge types and identify relationships between them.
 
-Knowledge types include (but are not limited to): ${knowledgeTypes}.
-
 Return ONLY a JSON object (no markdown fences) with this exact structure:
-{"clips":[{"id":"<clip id>","category":"<knowledge type>","relatedIds":["<other clip id>",...]}]}
+{"clips":[{"id":"<clip id>","category":"<knowledge type>","relatedIds":["<other clip id>",...],"tags":["<keyword>",...]}]}
 
 Rules:
 - Every clip must have exactly one category
 - relatedIds lists clips that are topically related (can be empty)
+- tags: up to 3 short topical keywords (can be empty)
 - Use consistent category names across clips
 - Return nothing except the JSON object
 
@@ -310,7 +303,7 @@ ${clipList}`;
 
   let classified = 0;
   const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
-  const patches: { id: string; patch: { category: string; relatedIds: string[] } }[] = [];
+  const patches: { id: string; patch: { category: string; relatedIds: string[]; tags?: string[] } }[] = [];
   for (const item of items) {
     if (!item || typeof item.id !== 'string' || typeof item.category !== 'string') continue;
     if (!ids.has(item.id)) continue;
@@ -321,6 +314,10 @@ ${clipList}`;
         relatedIds: Array.isArray(item.relatedIds)
           ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && ids.has(rid))
           : [],
+        // tags are AI-generated; absent in the reply = leave untouched
+        ...(Array.isArray(item.tags)
+          ? { tags: item.tags.filter((tag: unknown) => typeof tag === 'string') }
+          : {}),
       },
     });
     classified++;
@@ -333,14 +330,10 @@ ${clipList}`;
 }
 
 export default defineBackground(() => {
-  // warm the extension-origin DB and run the one-shot legacy migration at startup
+  // warm the extension-origin DB at startup
   void getClipsDirect().catch(() => {
     /* open failed; next access retries */
   });
-
-  // Obsidian integration was removed; drop its leftover config keys (idempotent)
-  void storage.removeItem('local:obsidianApiUrl');
-  void storage.removeItem('local:obsidianApiKey');
 
   // "save clip" context menus; titles follow the UI language
   const MENU_TITLES = {

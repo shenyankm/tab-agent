@@ -90,7 +90,6 @@ vi.mock('@/lib/i18n', () => ({
         'clips.delete': 'Delete clip',
         'clips.editor.heading': 'Edit before saving',
         'clips.editor.title': 'Title',
-        'clips.tagsPlaceholder': 'Tags (comma separated)…',
         'clips.notePlaceholder': 'Add notes (one per line)…',
         'clips.save': 'Save',
         'clips.cancel': 'Cancel',
@@ -236,7 +235,7 @@ describe('FloatingAgent', () => {
     expect(screen.queryByRole('button', { name: 'Delete clip' })).not.toBeInTheDocument();
   });
 
-  it('saveClipDraft pops the edit card; saving commits edited title/tags/notes', async () => {
+  it('saveClipDraft pops the edit card; saving commits edited title/notes', async () => {
     vi.mocked(addClip).mockResolvedValue({ id: 'c1', createdAt: 1 } as unknown as Clip);
     render(<FloatingAgent />);
     await screen.findByRole('button', { name: 'Open Pixel Agent' });
@@ -247,14 +246,12 @@ describe('FloatingAgent', () => {
     expect(screen.getByText('selected words')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'My title' } });
-    fireEvent.change(screen.getByPlaceholderText('Tags (comma separated)…'), { target: { value: 'a, b, a' } });
     fireEvent.change(screen.getByPlaceholderText('Add notes (one per line)…'), { target: { value: 'note one\n\nnote two' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(addClip).toHaveBeenCalledWith(expect.objectContaining({
       text: 'selected words',
       title: 'My title',
-      tags: ['a', 'b'],
       notes: ['note one', 'note two'],
     }));
     await waitFor(() => expect(screen.queryByText('Edit before saving')).not.toBeInTheDocument());

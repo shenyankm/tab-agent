@@ -39,8 +39,6 @@ export type Clip = {
 
 const DB_NAME = 'pixel-agent';
 const STORE = 'clips';
-const LEGACY_KEY = 'local:clips';
-const MIGRATED_KEY = 'local:clipsMigrated';
 const CHANGED = 'clipsChanged';
 
 // content scripts share the page's origin; extension pages are chrome-extension:.
@@ -65,9 +63,6 @@ function openDB(): Promise<IDBDatabase> {
       req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
-    }).then(async (db) => {
-      await migrateLegacy(db);
-      return db;
     });
     // reset the cache once on failure so a later call retries, instead of caching
     // the rejection forever; the returned promise still rejects for this caller.
@@ -84,24 +79,6 @@ export async function closeClipsDB() {
   const db = await dbPromise?.catch(() => null);
   db?.close();
   dbPromise = null;
-}
-
-/** One-shot import of pre-IndexedDB clips; gated by a flag so it runs exactly once
- *  in the extension origin (never in content scripts, which would each migrate
- *  their own per-site DB and race to delete the shared legacy key). */
-async function migrateLegacy(db: IDBDatabase) {
-  try {
-    if (await storage.getItem<boolean>(MIGRATED_KEY)) return;
-    const legacy = await storage.getItem<Clip[]>(LEGACY_KEY);
-    if (legacy?.length) {
-      const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
-      await Promise.all(legacy.map((clip) => req2p(store.put(clip))));
-    }
-    await storage.setItem(MIGRATED_KEY, true);
-    await storage.removeItem(LEGACY_KEY);
-  } catch {
-    /* flag not set → next extension-origin open retries */
-  }
 }
 
 // extension-origin local writes don't cross contexts via tabs.sendMessage, so fan

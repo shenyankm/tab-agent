@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
   connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef,
-  mockGetClips, mockAddClip, mockRemoveClip, mockUpdateClip, mockUpdateClips, mockCategories,
+  mockGetClips, mockAddClip, mockRemoveClip, mockUpdateClip, mockUpdateClips,
   mockTabsQuery, mockTabsSend,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
@@ -22,7 +22,6 @@ const {
   mockRemoveClip: vi.fn().mockResolvedValue(undefined),
   mockUpdateClip: vi.fn().mockResolvedValue(undefined),
   mockUpdateClips: vi.fn().mockResolvedValue(undefined),
-  mockCategories: vi.fn().mockResolvedValue(''),
   mockTabsQuery: vi.fn().mockResolvedValue([]),
   mockTabsSend: vi.fn().mockResolvedValue(undefined),
 }));
@@ -34,7 +33,6 @@ vi.mock('@/lib/settings', () => ({
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
-  categoriesItem: { getValue: () => mockCategories() },
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -50,7 +48,7 @@ vi.mock('@/lib/clips', () => ({
   getClipsDirect: () => mockGetClips(),
   addClipDirect: (clip: unknown) => mockAddClip(clip),
   removeClipDirect: (id: string) => mockRemoveClip(id),
-  updateClipDirect: (id: string, patch: unknown, broadcast?: boolean) => mockUpdateClip(id, patch, broadcast),
+  updateClipDirect: (id: string, patch: unknown) => mockUpdateClip(id, patch),
   updateClipsDirect: (patches: unknown) => mockUpdateClips(patches),
   normalizeUrl: (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } },
 }));
@@ -299,7 +297,7 @@ describe('background clips message handler', () => {
     const { respond, keptOpen } = dispatch({ type: 'clipUpdate', id: 'a', patch: { notes: ['n'] } }, 3);
     expect(keptOpen).toBe(true);
     await until(() => respond.mock.calls.length > 0);
-    expect(mockUpdateClip).toHaveBeenCalledWith('a', { notes: ['n'] }, undefined);
+    expect(mockUpdateClip).toHaveBeenCalledWith('a', { notes: ['n'] });
     expect(respond).toHaveBeenCalledWith({ ok: true, data: undefined });
   });
 
@@ -372,11 +370,10 @@ describe('background commands', () => {
 });
 
 describe('background classify', () => {
-  it('uses custom categories from settings and writes results', async () => {
+  it('classifies clips and writes results', async () => {
     mockGetClips.mockResolvedValue([
       { id: 'a', url: 'https://e.com/p', pageUrl: 'https://e.com/p', title: 'T', text: 'hello world', createdAt: 1 },
     ]);
-    mockCategories.mockResolvedValue('concept, AI/ML');
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
@@ -387,7 +384,7 @@ describe('background classify', () => {
           status: 200,
           ok: true,
           body: sseStream([
-            JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[]}]}' } } }),
+            JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[],"tags":["ai","x"]}]}' } } }),
             JSON.stringify({ type: 'session.status_idle' }),
           ]),
         });
@@ -402,12 +399,9 @@ describe('background classify', () => {
     const { respond } = dispatch({ type: 'classifyClips' });
     await until(() => respond.mock.calls.length > 0);
 
-    // 自定义类别进入 prompt
-    const eventsPost = fetchMock.mock.calls.find(([u, i]) => String(u).includes('/events') && i?.method === 'POST');
-    expect(JSON.stringify(eventsPost?.[1]?.body)).toContain('concept, AI/ML');
     // 结果批量写回(单事务),handleClassify 末尾统一 fan-out
     expect(mockUpdateClips).toHaveBeenCalledWith([
-      { id: 'a', patch: { category: 'concept', relatedIds: [] } },
+      { id: 'a', patch: { category: 'concept', relatedIds: [], tags: ['ai', 'x'] } },
     ]);
     expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
     vi.unstubAllGlobals();

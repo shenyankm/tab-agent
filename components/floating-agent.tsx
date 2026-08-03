@@ -329,16 +329,14 @@ export function FloatingAgent() {
     setQuery('');
   };
 
-  // 与 options Clips 页同款解析：逗号分标签、换行分备注，空则不写字段
+  // 与 options Clips 页同款解析：换行分备注，空则不写字段
   const saveDraft = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
-    const tags = [...new Set(String(f.get('tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
     const notes = String(f.get('notes') ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
     void commitDraft({
       ...draft!,
       title: String(f.get('title') ?? '').trim() || draft!.title,
-      tags: tags.length ? tags : undefined,
       notes: notes.length ? notes : undefined,
     });
     setDraft(null);
@@ -424,7 +422,6 @@ export function FloatingAgent() {
               <form onSubmit={saveDraft} className="flex flex-col gap-2 overflow-y-auto p-4">
                 <p className="line-clamp-2 text-xs text-muted-foreground">{draft.text}</p>
                 <Input name="title" defaultValue={draft.title} placeholder={t('clips.editor.title')} autoFocus aria-label={t('clips.editor.title')} />
-                <Input name="tags" placeholder={t('clips.tagsPlaceholder')} aria-label={t('clips.tagsPlaceholder')} />
                 <Textarea name="notes" rows={2} placeholder={t('clips.notePlaceholder')} aria-label={t('clips.notePlaceholder')} />
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
