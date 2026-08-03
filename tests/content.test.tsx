@@ -36,16 +36,35 @@ vi.mock('@/lib/settings', () => ({
   isDark: () => false,
 }));
 
-vi.mock('@/lib/clips', () => ({
-  clipsItem: { getValue: () => mockClipsGet(), watch: () => () => {} },
-  addClip: vi.fn(),
-  buildClipUrl: vi.fn(),
-  normalizeUrl: (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } },
-  removeClip: (id: string) => mockRemoveClip(id),
-  highlightClip: (clip: unknown) => mockHighlightClip(clip),
-  removeMarks: (marks: unknown) => mockRemoveMarks(marks),
-  clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`,
-}));
+vi.mock('@/lib/clips', () => {
+  const normalize = (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } };
+  // stable item per page: useStorageValue keys its effect on item identity
+  const pageItems = new Map<string, { getValue: () => Promise<unknown[]>; watch: () => () => void }>();
+  return {
+    clipsPageItem: (page: string) => {
+      let item = pageItems.get(page);
+      if (!item) {
+        item = {
+          // background 只回本页摘录:mock 同样按 page 过滤
+          getValue: () => mockClipsGet().then((clips: { pageUrl: string }[]) =>
+            clips.filter((c) => normalize(c.pageUrl) === page)),
+          watch: () => () => {},
+        };
+        pageItems.set(page, item);
+      }
+      return item;
+    },
+    addClip: vi.fn(),
+    buildClipUrl: vi.fn(),
+    normalizeUrl: normalize,
+    removeClip: (id: string) => mockRemoveClip(id),
+    highlightClip: (clip: unknown) => mockHighlightClip(clip),
+    // IMG outline reset + removeMarks under one roof; tests only exercise marks
+    unhighlightClip: (els: unknown) => mockRemoveMarks(els),
+    removeMarks: (marks: unknown) => mockRemoveMarks(marks),
+    clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`,
+  };
+});
 
 vi.mock('@/lib/i18n', () => ({
   langItem: { getValue: () => Promise.resolve('en') },
