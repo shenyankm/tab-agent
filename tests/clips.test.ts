@@ -3,6 +3,7 @@ import { fakeBrowser } from 'wxt/testing';
 import {
   buildClipUrl,
   highlightClip,
+  unhighlightClip,
   addClip,
   removeClip,
   updateClip,
@@ -11,6 +12,8 @@ import {
   addClipDirect,
   removeClipDirect,
   updateClipDirect,
+  updateClipsDirect,
+  clipsPageItem,
   closeClipsDB,
 } from '@/lib/clips';
 
@@ -106,6 +109,28 @@ describe('highlightClip', () => {
     expect(marks.map((m) => m.textContent).join('')).toBe('bravo');
     expect(marks[0].closest('p')?.textContent).toBe('start alpha bravo charlie end');
   });
+
+  describe('image clips', () => {
+    const imgClip = {
+      id: 'x', url: 'https://e.com/i.png', pageUrl: 'https://e.com/p', title: '', text: 'i.png',
+      createdAt: 0, kind: 'image' as const, imageSrc: 'https://e.com/i.png',
+    };
+
+    it('outlines the matching img; unhighlightClip resets it', () => {
+      document.body.innerHTML = '<img src="https://e.com/i.png">';
+      const img = document.querySelector('img')!;
+      const marks = highlightClip(imgClip);
+      expect(marks).toEqual([img]);
+      expect(img.style.outline).toContain('#f39c12');
+      unhighlightClip(marks);
+      expect(img.style.outline).toBe('');
+    });
+
+    it('returns [] when the image is gone (same contract as stale text fragments)', () => {
+      document.body.innerHTML = '<p>no image here</p>';
+      expect(highlightClip(imgClip)).toEqual([]);
+    });
+  });
 });
 
 // extension-origin storage: exercise the direct API (jsdom's location is http:,
@@ -180,6 +205,38 @@ describe('clip storage (extension origin)', () => {
     expect(u2.notes).toEqual(['note one']);
   });
 
+  it('updateClipDirect accepts tags and drops dirty tags payloads', async () => {
+    const clip = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'hello' });
+    await updateClipDirect(clip.id, { tags: ['ai', 'web'] });
+    expect((await getClipsDirect())[0].tags).toEqual(['ai', 'web']);
+    // 脏类型(非字符串数组)必须被丢弃,同 notes 契约
+    await updateClipDirect(clip.id, { tags: 'boom' as any });
+    expect((await getClipsDirect())[0].tags).toEqual(['ai', 'web']);
+  });
+
+  it('addClipDirect passes through the new optional fields', async () => {
+    const clip = await addClipDirect({
+      url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'summary',
+      kind: 'page', fullText: 'body', tags: ['x'], author: 'Ann', published: '2026-01-01',
+    });
+    expect(clip).toMatchObject({ kind: 'page', fullText: 'body', tags: ['x'], author: 'Ann', published: '2026-01-01' });
+  });
+
+  it('updateClipsDirect patches many clips in one call and skips unknown/dirty entries', async () => {
+    const a = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'a' });
+    const b = await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'B', text: 'b' });
+    await updateClipsDirect([
+      { id: a.id, patch: { category: 'concept' } },
+      { id: b.id, patch: { category: 'data', relatedIds: [a.id] } },
+      { id: 'ghost', patch: { category: 'x' } }, // 不存在的 id:不抛错
+      { id: a.id, patch: { notes: 'boom' as any } }, // 脏 patch:sanitize 后无可写字段,跳过
+    ]);
+    const clips = await getClipsDirect();
+    expect(clips.find((c) => c.id === a.id)?.category).toBe('concept');
+    expect(clips.find((c) => c.id === b.id)).toMatchObject({ category: 'data', relatedIds: [a.id] });
+    expect(clips.find((c) => c.id === a.id)?.notes).toBeUndefined();
+  });
+
   it('migrates legacy clips once, sets the flag and clears the old key', async () => {
     const legacy = [
       { id: 'old-1', url: 'https://a#:~:text=a', pageUrl: 'https://a', title: 'A', text: 'a', createdAt: 1 },
@@ -209,9 +266,10 @@ describe('clip storage (content script proxy)', () => {
 
   it('getValue/addClip/removeClip send messages and do not open IndexedDB', async () => {
     const openSpy = vi.spyOn(indexedDB, 'open');
-    const sendSpy = vi.fn((msg: { type: string; clip?: object; id?: string }) => {
+    const sendSpy = vi.fn((msg: { type: string; clip?: object; id?: string; page?: string }) => {
       // background replies with the {ok,data} envelope the facade unwraps
       if (msg.type === 'clipsGet') return Promise.resolve({ ok: true, data: [] });
+      if (msg.type === 'clipsGetForPage') return Promise.resolve({ ok: true, data: [] });
       if (msg.type === 'clipAdd')
         return Promise.resolve({ ok: true, data: { ...msg.clip, id: 'x', createdAt: 1 } });
       return Promise.resolve({ ok: true, data: undefined });
@@ -225,6 +283,10 @@ describe('clip storage (content script proxy)', () => {
     try {
       await clipsItem.getValue();
       expect(sendSpy).toHaveBeenCalledWith({ type: 'clipsGet' });
+
+      // per-page reads carry the page key so background can filter before replying
+      await clipsPageItem('https://e.com/p').getValue();
+      expect(sendSpy).toHaveBeenCalledWith({ type: 'clipsGetForPage', page: 'https://e.com/p' });
 
       await addClip({ url: 'u', pageUrl: 'p', title: 't', text: 's' });
       expect(sendSpy).toHaveBeenCalledWith({

@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { clipsItem, highlightClip, removeMarks, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
+import { clipsPageItem, highlightClip, unhighlightClip, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
 
 type AgentState = 'idle' | 'thinking' | 'done';
@@ -67,12 +67,18 @@ type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
 
 // Readability mutates its input, so it gets a clone; null/throw (non-article pages,
 // framesets) falls back to raw innerText
-function pageMarkdown() {
+// ponytail: keyed by URL — same-URL DOM changes (SPA-loaded content) go stale;
+// invalidate on mutation reports if summaries ever lag the page
+let pageMdCache: { url: string; text: string } | null = null;
+export function pageMarkdown() {
+  if (pageMdCache?.url === location.href) return pageMdCache.text;
+  let text = document.body.innerText;
   try {
     const article = new Readability(document.cloneNode(true) as Document).parse();
-    if (article?.content) return new TurndownService().turndown(article.content);
+    if (article?.content) text = new TurndownService().turndown(article.content);
   } catch { /* fall through */ }
-  return document.body.innerText;
+  pageMdCache = { url: location.href, text };
+  return text;
 }
 
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
@@ -83,7 +89,7 @@ export function showClip(clip: Clip, scroll = true): boolean {
   let marks = markByClip.get(clip.id);
   // SPA 导航后旧 mark 已失连：先清残留再重建，避免嵌套
   if (!marks?.length || !marks.every((el) => el.isConnected)) {
-    if (marks?.length) removeMarks(marks);
+    if (marks?.length) unhighlightClip(marks);
     marks = highlightClip(clip);
     if (!marks.length) return false;
     markByClip.set(clip.id, marks);
@@ -94,7 +100,7 @@ export function showClip(clip: Clip, scroll = true): boolean {
     clipHighlightItem.getValue().then((on) => {
       if (on) return;
       setTimeout(() => {
-        if (markByClip.delete(clip.id)) removeMarks(marks); // already-gone marks no-op
+        if (markByClip.delete(clip.id)) unhighlightClip(marks); // already-gone marks no-op
       }, 3000);
     });
   }
@@ -103,20 +109,20 @@ export function showClip(clip: Clip, scroll = true): boolean {
 
 /** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */
 export function clearAllMarks() {
-  for (const marks of markByClip.values()) removeMarks(marks);
+  for (const marks of markByClip.values()) unhighlightClip(marks);
   markByClip.clear();
 }
 
 // clips saved on this page (hash-insensitive match); clicking jumps in-page to the
-// re-marked text — new-tab navigation only as fallback when the text is gone
-function ClipList({ clips, t }: { clips: Clip[]; t: (key: string) => string }) {
-  const page = normalizeUrl(location.href);
-  const pageClips = clips.filter((c) => normalizeUrl(c.pageUrl) === page);
+// re-marked text — new-tab navigation only as fallback when the text is gone.
+// 订阅挂在列表自身:面板/页签没打开时不随 clipsChanged 全量重读
+function ClipList({ t }: { t: (key: string) => string }) {
+  const clips = useStorageValue(clipsPageItem(normalizeUrl(location.href)), []);
 
-  if (pageClips.length === 0)
+  if (clips.length === 0)
     return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
 
-  return pageClips.map((clip) => (
+  return clips.map((clip) => (
     <button
       key={clip.id}
       type="button"
@@ -142,7 +148,6 @@ export function FloatingAgent() {
   const carry = useStorageValue(pageCarryItem, 'article');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
-  const clips = useStorageValue(clipsItem, []);
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -379,7 +384,7 @@ export function FloatingAgent() {
 
           <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
             {tab === 'clips' ? (
-              <ClipList clips={clips} t={t} />
+              <ClipList t={t} />
             ) : messages.map((msg, i) => (
               msg.role === 'user' ? (
                 <div key={i} className="flex flex-col items-end">

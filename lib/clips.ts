@@ -8,6 +8,7 @@ import {
   markRange,
   parseFragmentDirectives,
   processTextFragmentDirective,
+  removeMarks,
 } from 'text-fragments-polyfill/text-fragment-utils';
 
 export type Clip = {
@@ -17,6 +18,14 @@ export type Clip = {
   title: string;
   text: string;
   createdAt: number;
+  kind?: 'page' | 'image'; // absent = selection excerpt
+  fullText?: string; // page clips only, capped at save time
+  imageSrc?: string; // image clips only
+  tags?: string[];
+  // page metadata captured at save time (untrusted input: display/export only)
+  author?: string;
+  description?: string;
+  published?: string;
   category?: string;
   relatedIds?: string[];
   notes?: string[]; // user annotations, appended to exports
@@ -132,17 +141,25 @@ export async function removeClipDirect(id: string): Promise<void> {
 
 // patch 来自页面消息(不可信)与 classify 响应:白名单 + 类型校验。id 是 keyPath,
 // 不校验的话可整体覆盖另一条记录;脏类型(如 notes 非数组)会击穿渲染。
-const PATCH_KEYS = ['category', 'relatedIds', 'notes'] as const;
-export async function updateClipDirect(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes'>>, broadcast = true): Promise<void> {
+const PATCH_KEYS = ['category', 'relatedIds', 'notes', 'tags'] as const;
+type ClipPatch = Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes' | 'tags'>>;
+
+function sanitizePatch(patch: ClipPatch): Partial<Clip> {
   const safe: Partial<Clip> = {};
   for (const k of PATCH_KEYS) {
     const v = (patch as Record<string, unknown>)[k];
     if (v === undefined) continue;
     if (k === 'notes' && !(Array.isArray(v) && v.every((n) => typeof n === 'string'))) continue;
+    if (k === 'tags' && !(Array.isArray(v) && v.every((n) => typeof n === 'string'))) continue;
     if (k === 'relatedIds' && !(Array.isArray(v) && v.every((id) => typeof id === 'string'))) continue;
     if (k === 'category' && typeof v !== 'string') continue;
     safe[k] = v as never;
   }
+  return safe;
+}
+
+export async function updateClipDirect(id: string, patch: ClipPatch, broadcast = true): Promise<void> {
+  const safe = sanitizePatch(patch);
   const db = await openDB();
   const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
   const clip = await req2p(store.get(id)) as Clip | undefined;
@@ -151,29 +168,64 @@ export async function updateClipDirect(id: string, patch: Partial<Pick<Clip, 'ca
   if (broadcast) broadcastClipsChanged();
 }
 
+/** Batch patch in one readwrite transaction (classify writes hundreds); broadcasts once. */
+export async function updateClipsDirect(patches: { id: string; patch: ClipPatch }[]): Promise<void> {
+  if (!patches.length) return;
+  const db = await openDB();
+  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+  await Promise.all(patches.map(async ({ id, patch }) => {
+    const safe = sanitizePatch(patch);
+    if (!Object.keys(safe).length) return;
+    const clip = await req2p(store.get(id)) as Clip | undefined;
+    if (clip) await req2p(store.put({ ...clip, ...safe }));
+  }));
+  broadcastClipsChanged();
+}
+
 // ---- unified facade: direct in the extension origin, message proxy in content scripts ----
 
 /** Same shape as a WXT storage item, so useStorageValue keeps working unchanged. */
 export const clipsItem = {
   getValue: (): Promise<Clip[]> =>
     isContentScript() ? write<Clip[]>({ type: 'clipsGet' }) : getClipsDirect(),
-  watch(cb: (clips: Clip[]) => void): () => void {
-    const refresh = () => void clipsItem.getValue().then(cb);
-    const onMessage = (msg: { type?: string }) => {
-      if (msg?.type === CHANGED) refresh();
-    };
-    browser.runtime.onMessage.addListener(onMessage);
-    if (isContentScript()) {
-      // content writes go through messages; background's broadcast covers this page
-      return () => browser.runtime.onMessage.removeListener(onMessage);
-    }
-    localChanges.addEventListener(CHANGED, refresh);
-    return () => {
-      localChanges.removeEventListener(CHANGED, refresh);
-      browser.runtime.onMessage.removeListener(onMessage);
-    };
-  },
+  watch: (cb: (clips: Clip[]) => void) =>
+    watchChanges(() => void clipsItem.getValue().then(cb)),
 };
+
+// content script 的每次 clipsChanged 只关心本页:background 过滤后回传,payload
+// 从 O(全部摘录) 降到 O(本页)。Map 保证同一 page 返回同一对象,否则
+// useStorageValue 的 [item] 依赖每次渲染都是新对象,会退订/重订阅死循环。
+const pageItems = new Map<string, { getValue: () => Promise<Clip[]>; watch: typeof clipsItem.watch }>();
+export function clipsPageItem(page: string) {
+  let item = pageItems.get(page);
+  if (!item) {
+    const getValue = (): Promise<Clip[]> =>
+      isContentScript()
+        ? write<Clip[]>({ type: 'clipsGetForPage', page })
+        : getClipsDirect().then((clips) => clips.filter((c) => normalizeUrl(c.pageUrl) === page));
+    item = { getValue, watch: (cb) => watchChanges(() => void getValue().then(cb)) };
+    pageItems.set(page, item);
+  }
+  return item;
+}
+
+// extension-origin local writes don't cross contexts via tabs.sendMessage, so fan
+// out locally for background/options' own watchers; tabs get the broadcast instead
+function watchChanges(refresh: () => void): () => void {
+  const onMessage = (msg: { type?: string }) => {
+    if (msg?.type === CHANGED) refresh();
+  };
+  browser.runtime.onMessage.addListener(onMessage);
+  if (isContentScript()) {
+    // content writes go through messages; background's broadcast covers this page
+    return () => browser.runtime.onMessage.removeListener(onMessage);
+  }
+  localChanges.addEventListener(CHANGED, refresh);
+  return () => {
+    localChanges.removeEventListener(CHANGED, refresh);
+    browser.runtime.onMessage.removeListener(onMessage);
+  };
+}
 
 const stripHash = (url: string) => url.split('#')[0];
 
@@ -214,7 +266,7 @@ export function removeClip(id: string): Promise<void> {
   return write<void>({ type: 'clipDel', id });
 }
 
-export function updateClip(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes'>>): Promise<void> {
+export function updateClip(id: string, patch: Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes' | 'tags'>>): Promise<void> {
   return write<void>({ type: 'clipUpdate', id, patch });
 }
 
@@ -320,6 +372,16 @@ function findTextRange(text: string, prefix?: string, suffix?: string): Range | 
 
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
 export function highlightClip(clip: Clip): Element[] {
+  if (clip.kind === 'image' && clip.imageSrc) {
+    // ponytail: exact src/currentSrc match — lazy-load/srcset variants miss silently
+    // (same as a stale text fragment); upgrade to normalized matching if reports come in
+    const el = [...document.images].find((img) => img.src === clip.imageSrc || img.currentSrc === clip.imageSrc);
+    if (!el) return [];
+    // cssInjectionMode:'ui' styles only reach the Shadow Root — page imgs need inline styles
+    el.style.outline = '3px solid #f39c12';
+    el.style.outlineOffset = '2px';
+    return [el];
+  }
   let fragment: TextFragment | undefined;
   try {
     fragment = parseFragmentDirectives(getFragmentDirectives(new URL(clip.url).hash)).text?.[0];
@@ -339,4 +401,13 @@ export function highlightClip(clip: Clip): Element[] {
   return range ? markRange(range) : []; // the text is no longer on the page
 }
 
-export { removeMarks } from 'text-fragments-polyfill/text-fragment-utils';
+/** Undo highlightClip for both shapes: IMG inline outline vs polyfill <mark>s. */
+export function unhighlightClip(els: Element[]) {
+  for (const el of els)
+    if (el.tagName === 'IMG') {
+      (el as HTMLElement).style.outline = '';
+      (el as HTMLElement).style.outlineOffset = '';
+    }
+  const marks = els.filter((el) => el.tagName !== 'IMG');
+  if (marks.length) removeMarks(marks);
+}
