@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2, ChevronLeft, ChevronRight, Pencil, Link } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, Pencil, Link, Download, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,8 @@ import {
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips';
+import { mdTemplateItem } from '@/lib/settings';
+import { clipsToMarkdown, downloadFile } from '@/lib/export';
 
 const PAGE_SIZE = 10;
 
@@ -65,11 +67,12 @@ export default function ClipsPage() {
   const [cat, setCat] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [tagsText, setTagsText] = useState('');
 
   const cats = [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort();
   const q = query.trim().toLowerCase();
   const shown = q
-    ? clips.filter((c) => [c.text, c.title, c.pageUrl].some((v) => v.toLowerCase().includes(q)))
+    ? clips.filter((c) => [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q)))
     : clips;
   // category filter composes with search; site view groups the same filtered set
   const filtered = cat ? shown.filter((c) => c.category === cat) : shown;
@@ -100,6 +103,7 @@ export default function ClipsPage() {
         <span className="line-clamp-2 text-sm">{clip.text}</span>
         <span className="mt-1 block truncate text-xs text-muted-foreground">
           {clip.title} · {clip.pageUrl} · {new Date(clip.createdAt).toLocaleString()}
+          {clip.tags?.length ? ` · ${clip.tags.map((tag) => `#${tag}`).join(' ')}` : ''}
         </span>
       </button>
       <Button
@@ -117,6 +121,7 @@ export default function ClipsPage() {
         onClick={() => {
           setEditingNote(editingNote === clip.id ? null : clip.id);
           setNoteText(clip.notes?.join('\n') ?? '');
+          setTagsText(clip.tags?.join(', ') ?? '');
         }}
         aria-label={t('clips.notePlaceholder')}
         title={t('clips.notePlaceholder')}
@@ -145,6 +150,12 @@ export default function ClipsPage() {
     </div>
     {editingNote === clip.id && (
       <div className="border-b border-border pb-3">
+        <Input
+          value={tagsText}
+          onChange={(e) => setTagsText(e.target.value)}
+          placeholder={t('clips.tagsPlaceholder')}
+          className="mb-2"
+        />
         <Textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
@@ -159,7 +170,10 @@ export default function ClipsPage() {
             variant="default"
             size="sm"
             onClick={() => {
-              updateClip(clip.id, { notes: noteText.split('\n').map((s) => s.trim()).filter(Boolean) })
+              updateClip(clip.id, {
+                notes: noteText.split('\n').map((s) => s.trim()).filter(Boolean),
+                tags: [...new Set(tagsText.split(',').map((s) => s.trim()).filter(Boolean))],
+              })
                 .then(() => setEditingNote(null))
                 .catch(() => { /* 保存失败:编辑器保持打开,可重试 */ });
             }}
@@ -171,6 +185,12 @@ export default function ClipsPage() {
     )}
     </div>
   );
+
+  // 导出当前筛选结果:分类/搜索条件免费生效
+  const stamp = `pixel-agent-clips-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}`;
+  const exportMd = () =>
+    mdTemplateItem.getValue().then((tpl) => downloadFile(`${stamp}.md`, 'text/markdown', clipsToMarkdown(filtered, tpl)));
+  const exportJson = () => downloadFile(`${stamp}.json`, 'application/json', JSON.stringify(filtered, null, 2));
 
   return (
     <>
@@ -189,6 +209,24 @@ export default function ClipsPage() {
             ['site', t('clips.view.site')],
           ]}
         />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={exportMd}
+          aria-label={t('clips.export.md')}
+          title={t('clips.export.md')}
+        >
+          <Download />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={exportJson}
+          aria-label={t('clips.export.json')}
+          title={t('clips.export.json')}
+        >
+          <FileJson />
+        </Button>
       </div>
 
       {cats.length > 0 && (

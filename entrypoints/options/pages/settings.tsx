@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels } from '@/lib/i18n';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, categoriesItem, type Theme } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, categoriesItem, mdTemplateItem, type Theme } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
@@ -18,6 +19,7 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<Theme>('system');
   const [conn, setConn] = useState<Record<string, string>>({});
   const [categories, setCategories] = useState('');
+  const [template, setTemplate] = useState('');
   const { lang, setLang, t } = useI18n();
 
   useEffect(() => {
@@ -26,6 +28,7 @@ export default function SettingsPage() {
       item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
     });
     categoriesItem.getValue().then(setCategories);
+    mdTemplateItem.getValue().then(setTemplate);
   }, []);
 
   const onThemeChange = (th: Theme) => {
@@ -86,6 +89,20 @@ export default function SettingsPage() {
             className="max-w-60"
           />
         </div>
+      </div>
+
+      <Separator className="my-6" />
+
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">{t('settings.mdTemplate')}</span>
+        <Textarea
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+          onBlur={() => mdTemplateItem.setValue(template)}
+          rows={10}
+          className="font-mono text-xs"
+        />
+        <span className="text-xs text-muted-foreground">{t('settings.mdTemplateHint')}</span>
       </div>
     </>
   );
