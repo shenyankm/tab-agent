@@ -168,19 +168,19 @@ async function handleChat(
 
   let sessionId = ownSession ?? await sessionIdItem.getValue();
 
-  // uploads happen once; mounting is per-session, so it happens inside tryTurn
-  const mounts: Mount[] = [];
+  // upload happens once; mounting is per-session, so it happens inside tryTurn
+  let mount: Mount | null = null;
   if (screenshot) {
     // captured here, not in the content script: tabs.captureVisibleTab only exists
     // in extension contexts and needs the <all_urls> host permission
     const dataUrl = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
-    mounts.push({
+    mount = {
       fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob()),
       path: '/data/input/screenshot.jpg',
       note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
-    });
+    };
   }
-  const notes = mounts.map((m) => m.note);
+  const notes = mount ? [mount.note] : [];
 
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
@@ -188,10 +188,10 @@ async function handleChat(
     const turn = new AbortController();
     const turnSignal = AbortSignal.any([signal, turn.signal]); // Chrome 116+
     try {
-      for (const m of mounts) {
+      if (mount) {
         const mounted = await api(pat, `/sessions/${sid}/resources`, {
           method: 'POST',
-          body: JSON.stringify({ type: 'file', file_id: m.fileId, mount_path: m.path }),
+          body: JSON.stringify({ type: 'file', file_id: mount.fileId, mount_path: mount.path }),
         });
         if (mounted.status === 404) return false; // dead session: recreate and re-mount
         if (!mounted.ok) throw new Error(`mount file: HTTP ${mounted.status}`);
