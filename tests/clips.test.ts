@@ -67,7 +67,7 @@ describe('highlightClip', () => {
   });
 
   // fallback: page text shifted (dynamic render, whitespace drift) so the fragment
-  // directive no longer matches — locate clip.text directly (Obsidian textQuote-style)
+  // directive no longer matches — locate clip.text directly (textQuote-style)
   it('falls back to locating clip.text when the fragment directive is stale', () => {
     document.body.innerHTML = '<p>alpha bravo charlie</p>';
     const clip = { id: 'x', url: 'https://e.com/p#:~:text=expired-term', pageUrl: 'https://e.com/p', title: '', text: 'bravo', createdAt: 0 };
@@ -96,6 +96,15 @@ describe('highlightClip', () => {
     const marks = highlightClip(clip);
     expect(marks.length).toBe(1);
     expect(marks[0].parentElement?.tagName).toBe('P'); // 命中正文而非 script
+  });
+
+  // multiple occurrences: the fragment's prefix/suffix context picks the right one
+  it('disambiguates repeated text with the fragment prefix/suffix in the fallback', () => {
+    document.body.innerHTML = '<p>bravo decoy</p><p>start alpha bravo charlie end</p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=start%20alpha-,expired,-charlie%20end', pageUrl: 'https://e.com/p', title: '', text: 'bravo', createdAt: 0 };
+    const marks = highlightClip(clip);
+    expect(marks.map((m) => m.textContent).join('')).toBe('bravo');
+    expect(marks[0].closest('p')?.textContent).toBe('start alpha bravo charlie end');
   });
 });
 

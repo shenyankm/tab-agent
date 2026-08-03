@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, Pencil, Link } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -102,6 +102,15 @@ export default function ClipsPage() {
           {clip.title} · {clip.pageUrl} · {new Date(clip.createdAt).toLocaleString()}
         </span>
       </button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => navigator.clipboard.writeText(clip.url)}
+        aria-label={t('clips.copyLink')}
+        title={t('clips.copyLink')}
+      >
+        <Link />
+      </Button>
       <Button
         variant="ghost"
         size="icon-sm"

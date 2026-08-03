@@ -177,7 +177,7 @@ export const clipsItem = {
 
 const stripHash = (url: string) => url.split('#')[0];
 
-// Tracking params that don't identify content — borrowed from Obsidian Clipper
+// Tracking params that don't identify content
 const TRACKING = new Set([
   'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
   'fbclid','gclid','dclid','msclkid','twclid',
@@ -280,24 +280,42 @@ export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#pixel-agen
 // script/style 等子树的文本节点不属于正文,命中会向脚本字符串插 <mark>(篡改页面)
 const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
 
-/** 兜底定位:文本片段失配(页面改动/动态渲染)时按 clip.text 在文本节点中直接查找
- * (Obsidian Clipper textQuote 重锚思路的简化版)
- * ponytail: 单文本节点 indexOf,跨节点文本不查;多实例取第一个,无歧义消解——兜底路径 */
-function findTextRange(text: string): Range | null {
+/** 兜底定位:文本片段失配(页面改动/动态渲染)时按 clip.text 在全文中查找
+ * (textQuote 式重锚思路的简化版);多实例用 fragment 的
+ * prefix/suffix 上下文消解,无吻合再退回第一个命中。
+ * ponytail: 全文拼接 indexOf,命中可能跨元素边界;上下文仅空白归一后精确匹配——兜底路径,模糊匹配等失配报告再说 */
+function findTextRange(text: string, prefix?: string, suffix?: string): Range | null {
   const q = text.trim();
   if (!q || !document.body) return null; // all_urls 匹配的 XML/SVG 页可能无 body
+  const nodes: Text[] = [];
+  let full = '';
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node: Node | null; (node = walker.nextNode()); ) {
     if (SKIP_TEXT_PARENTS.has((node.parentElement as HTMLElement | null)?.tagName ?? '')) continue;
-    const i = (node as Text).data.indexOf(q);
-    if (i >= 0) {
-      const r = document.createRange();
-      r.setStart(node, i);
-      r.setEnd(node, i + q.length);
-      return r;
-    }
+    nodes.push(node as Text);
+    full += (node as Text).data;
   }
-  return null;
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const np = prefix && norm(prefix);
+  const ns = suffix && norm(suffix);
+  const at = (i: number): Range => {
+    // 偏移映射回节点:node 在 full 中起点 = 其之前各节点长度之和
+    let base = 0, n = 0;
+    while (n < nodes.length && base + nodes[n].data.length <= i) base += nodes[n++].data.length;
+    const r = document.createRange();
+    r.setStart(nodes[n], i - base);
+    r.setEnd(nodes[n], i - base + q.length);
+    return r;
+  };
+  let first: Range | null = null;
+  for (let i = full.indexOf(q); i >= 0; i = full.indexOf(q, i + q.length)) {
+    first ??= at(i);
+    // 命中与上下文之间可能隔着空白,归一后用 endsWith/startsWith 比对
+    if (np && !norm(full.slice(0, i)).endsWith(np)) continue;
+    if (ns && !norm(full.slice(i + q.length)).startsWith(ns)) continue;
+    return at(i);
+  }
+  return first; // 无上下文吻合:退回首个命中(旧行为)
 }
 
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
@@ -317,7 +335,7 @@ export function highlightClip(clip: Clip): Element[] {
   }
   // 兜底仅覆盖"fragment 曾存在但失配"(页面改动);裸 URL clip 无 fragment,保持旧行为不高亮
   if (!fragment?.textStart) return [];
-  const range = findTextRange(clip.text);
+  const range = findTextRange(clip.text, fragment.prefix, fragment.suffix);
   return range ? markRange(range) : []; // the text is no longer on the page
 }
 
