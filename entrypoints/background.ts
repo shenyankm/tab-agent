@@ -399,13 +399,10 @@ export default defineBackground(() => {
       getClipsDirect().then(ok, fail);
       return true;
     }
-    // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道;
-    // fullText 一并剥离——重放高亮永远不需要整页正文
+    // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道
     if (msg?.type === 'clipsGetForPage') {
       getClipsDirect()
-        .then((clips) => ok(clips
-          .filter((c) => normalizeUrl(c.pageUrl) === msg.page)
-          .map(({ fullText: _omit, ...rest }) => rest)), fail);
+        .then((clips) => ok(clips.filter((c) => normalizeUrl(c.pageUrl) === msg.page)), fail);
       return true;
     }
     if (msg?.type === 'clipAdd') {

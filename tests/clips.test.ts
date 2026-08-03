@@ -217,9 +217,9 @@ describe('clip storage (extension origin)', () => {
   it('addClipDirect passes through the new optional fields', async () => {
     const clip = await addClipDirect({
       url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'summary',
-      kind: 'page', fullText: 'body', tags: ['x'], author: 'Ann', published: '2026-01-01',
+      kind: 'page', tags: ['x'],
     });
-    expect(clip).toMatchObject({ kind: 'page', fullText: 'body', tags: ['x'], author: 'Ann', published: '2026-01-01' });
+    expect(clip).toMatchObject({ kind: 'page', tags: ['x'] });
   });
 
   it('updateClipsDirect patches many clips in one call and skips unknown/dirty entries', async () => {

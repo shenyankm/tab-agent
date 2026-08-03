@@ -19,13 +19,8 @@ export type Clip = {
   text: string;
   createdAt: number;
   kind?: 'page' | 'image'; // absent = selection excerpt
-  fullText?: string; // page clips only, capped at save time
   imageSrc?: string; // image clips only
   tags?: string[];
-  // page metadata captured at save time (untrusted input: display/export only)
-  author?: string;
-  description?: string;
-  published?: string;
   category?: string;
   relatedIds?: string[];
   notes?: string[]; // user annotations, appended to exports
@@ -135,14 +130,8 @@ function sanitizePatch(patch: ClipPatch): Partial<Clip> {
   return safe;
 }
 
-export async function updateClipDirect(id: string, patch: ClipPatch, broadcast = true): Promise<void> {
-  const safe = sanitizePatch(patch);
-  const db = await openDB();
-  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
-  const clip = await req2p(store.get(id)) as Clip | undefined;
-  if (!clip) return;
-  await req2p(store.put({ ...clip, ...safe }));
-  if (broadcast) broadcastClipsChanged();
+export async function updateClipDirect(id: string, patch: ClipPatch): Promise<void> {
+  return updateClipsDirect([{ id, patch }]);
 }
 
 /** Batch patch in one readwrite transaction (classify writes hundreds); broadcasts once. */

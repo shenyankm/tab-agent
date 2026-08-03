@@ -266,15 +266,6 @@ describe('background clips message handler', () => {
     expect(respond).toHaveBeenCalledWith({ ok: true, data: [{ id: 'a', pageUrl: 'https://e.com/p', text: 'here' }] });
   });
 
-  it('clipsGetForPage strips fullText — highlight replay never needs the article body', async () => {
-    mockGetClips.mockResolvedValue([
-      { id: 'a', pageUrl: 'https://e.com/p', text: 'summary', fullText: 'x'.repeat(1000) },
-    ]);
-    const { respond } = dispatch({ type: 'clipsGetForPage', page: 'https://e.com/p' });
-    await until(() => respond.mock.calls.length > 0);
-    expect(respond).toHaveBeenCalledWith({ ok: true, data: [{ id: 'a', pageUrl: 'https://e.com/p', text: 'summary' }] });
-  });
-
   it('clipAdd writes via addClipDirect, fans out excluding the source tab, responds with the clip', async () => {
     const full = { id: 'n', text: 's', createdAt: 1 };
     mockAddClip.mockResolvedValue(full);
