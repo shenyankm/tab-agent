@@ -11,7 +11,6 @@ import {
   CardHeader,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Menubar, MenubarTrigger } from '@/components/ui/menubar';
 import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
@@ -21,15 +20,9 @@ import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem
 type AgentState = 'idle' | 'thinking' | 'done';
 
 // 3-frame strip cropped from the full sheet (184×168 each) — keeps decoded RAM tiny per tab
-const sheet = { width: 552, height: 168 };
-const faces: Record<AgentState, { x: number; y: number }> = {
-  idle: { x: 0, y: 0 },
-  thinking: { x: 184, y: 0 },
-  done: { x: 368, y: 0 },
-};
+const faces: Record<AgentState, number> = { idle: 0, thinking: 184, done: 368 };
 
 function Mascot({ state, size }: { state: AgentState; size: number }) {
-  const face = faces[state];
   const scale = size / 184;
 
   return (
@@ -43,9 +36,9 @@ function Mascot({ state, size }: { state: AgentState; size: number }) {
         alt=""
         draggable={false}
         style={{
-          width: sheet.width * scale,
-          height: sheet.height * scale,
-          transform: `translate(${-face.x * scale}px, ${-face.y * scale}px)`,
+          width: 552 * scale,
+          height: 168 * scale,
+          transform: `translateX(${-faces[state] * scale}px)`,
         }}
       />
     </span>
@@ -436,14 +429,19 @@ export function FloatingAgent() {
           ) : (
           <>
           <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
-            <Menubar>
-              <MenubarTrigger active={tab === 'chat'} onClick={() => setTab('chat')}>
-                {t('widget.tab.chat')}
-              </MenubarTrigger>
-              <MenubarTrigger active={tab === 'clips'} onClick={() => setTab('clips')}>
-                {t('nav.clips')}
-              </MenubarTrigger>
-            </Menubar>
+            <div className="flex h-8 items-center gap-0.5 rounded border-2 bg-background p-[3px] text-foreground shadow-md">
+              {([['chat', t('widget.tab.chat')], ['clips', t('nav.clips')]] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={tab === v}
+                  className={`flex cursor-pointer items-center rounded-sm px-1.5 py-[2px] text-sm font-medium outline-none select-none hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary${tab === v ? ' bg-accent text-accent-foreground' : ''}`}
+                  onClick={() => setTab(v)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <Button
               type="button"
               variant="ghost"
