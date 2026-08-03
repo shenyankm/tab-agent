@@ -1,7 +1,7 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, categoriesItem } from '@/lib/settings';
 import { dict, langItem } from '@/lib/i18n';
 import { parseSSE } from '@/lib/sse';
-import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips';
+import { getClipsDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, normalizeUrl, type Clip } from '@/lib/clips';
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
 // while a turn or batch classify streams nothing for that long
@@ -309,17 +309,25 @@ ${clipList}`;
   if (!Array.isArray(items)) throw new Error('agent reply missing clips array');
 
   let classified = 0;
+  const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
+  const patches: { id: string; patch: { category: string; relatedIds: string[] } }[] = [];
   for (const item of items) {
     if (!item || typeof item.id !== 'string' || typeof item.category !== 'string') continue;
-    if (!clips.some((c) => c.id === item.id)) continue;
-    await updateClipDirect(item.id, {
-      category: item.category,
-      relatedIds: Array.isArray(item.relatedIds)
-        ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && clips.some((c) => c.id === rid))
-        : [],
-    }, false); // silent: one fan-out at the end covers all contexts
+    if (!ids.has(item.id)) continue;
+    patches.push({
+      id: item.id,
+      patch: {
+        category: item.category,
+        relatedIds: Array.isArray(item.relatedIds)
+          ? item.relatedIds.filter((rid: unknown) => typeof rid === 'string' && ids.has(rid))
+          : [],
+      },
+    });
     classified++;
   }
+  // one transaction instead of N; its single local broadcast + the fan-out below
+  // cover every context
+  await updateClipsDirect(patches);
   fanOutClipsChanged();
   return { classified };
 }
@@ -334,24 +342,45 @@ export default defineBackground(() => {
   void storage.removeItem('local:obsidianApiUrl');
   void storage.removeItem('local:obsidianApiKey');
 
-  // "save clip" context menu; title follows the UI language
+  // "save clip" context menus; titles follow the UI language
+  const MENU_TITLES = {
+    'save-clip': 'clips.menu',
+    'save-clip-page': 'clips.menu.page',
+    'save-clip-image': 'clips.menu.image',
+  } as const;
   browser.runtime.onInstalled.addListener(async () => {
-    browser.contextMenus.create({
-      id: 'save-clip',
-      title: dict[await langItem.getValue()]['clips.menu'],
-      contexts: ['selection'],
-    });
+    const lang = await langItem.getValue();
+    browser.contextMenus.create({ id: 'save-clip', title: dict[lang]['clips.menu'], contexts: ['selection'] });
+    browser.contextMenus.create({ id: 'save-clip-page', title: dict[lang]['clips.menu.page'], contexts: ['page'] });
+    browser.contextMenus.create({ id: 'save-clip-image', title: dict[lang]['clips.menu.image'], contexts: ['image'] });
   });
   langItem.watch((lang) => {
-    browser.contextMenus.update('save-clip', { title: dict[lang]['clips.menu'] });
+    for (const [id, key] of Object.entries(MENU_TITLES))
+      browser.contextMenus.update(id, { title: dict[lang][key] });
   });
-  // the content script owns the save: it has the live Selection for fragment generation
-  const saveClipToTab = (tabId: number) =>
-    browser.tabs.sendMessage(tabId, { type: 'saveClip' }).catch(() => {
+  // the content script owns selection/page saves: it has the live Selection and DOM
+  const saveClipToTab = (tabId: number, type: 'saveClip' | 'saveClipPage' = 'saveClip') =>
+    browser.tabs.sendMessage(tabId, { type }).catch(() => {
       /* no content script on this page (chrome://, store) */
     });
   browser.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'save-clip' && tab?.id) saveClipToTab(tab.id);
+    if (!tab?.id) return;
+    if (info.menuItemId === 'save-clip') return saveClipToTab(tab.id);
+    if (info.menuItemId === 'save-clip-page') return saveClipToTab(tab.id, 'saveClipPage');
+    // image clip: no Selection needed — background (sole writer) saves directly
+    // altText 在 Chrome 的 OnClickData 上有、WXT 的 Firefox 类型未声明
+    const altText = (info as { altText?: string }).altText;
+    if (info.menuItemId === 'save-clip-image' && info.srcUrl)
+      addClipDirect({
+        kind: 'image',
+        url: info.srcUrl,
+        pageUrl: tab.url ?? info.srcUrl,
+        title: tab.title ?? '',
+        text: altText || info.srcUrl,
+        imageSrc: info.srcUrl,
+      }).then(() => fanOutClipsChanged()).catch(() => {
+        /* write failed; menu click has no surface to report on */
+      });
   });
 
   // 剪藏快捷键:对活动页复用 content script 的保存路径(选区→fragment→storage)
@@ -375,6 +404,15 @@ export default defineBackground(() => {
     const fail = (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) });
     if (msg?.type === 'clipsGet') {
       getClipsDirect().then(ok, fail);
+      return true;
+    }
+    // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道;
+    // fullText 一并剥离——重放高亮永远不需要整页正文
+    if (msg?.type === 'clipsGetForPage') {
+      getClipsDirect()
+        .then((clips) => ok(clips
+          .filter((c) => normalizeUrl(c.pageUrl) === msg.page)
+          .map(({ fullText: _omit, ...rest }) => rest)), fail);
       return true;
     }
     if (msg?.type === 'clipAdd') {
