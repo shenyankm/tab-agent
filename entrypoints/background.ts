@@ -330,6 +330,10 @@ export default defineBackground(() => {
     /* open failed; next access retries */
   });
 
+  // Obsidian integration was removed; drop its leftover config keys (idempotent)
+  void storage.removeItem('local:obsidianApiUrl');
+  void storage.removeItem('local:obsidianApiKey');
+
   // "save clip" context menu; title follows the UI language
   browser.runtime.onInstalled.addListener(async () => {
     browser.contextMenus.create({
