@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Trash2, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -109,12 +110,11 @@ export default function ClipsPage() {
     </div>
     {editingNote === clip.id && (
       <div className="border-b border-border pb-3">
-        <textarea
+        <Textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
           rows={3}
           placeholder={t('clips.notePlaceholder')}
-          className="w-full rounded border border-border bg-background p-2 text-sm"
         />
         <div className="mt-2 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditingNote(null)}>
