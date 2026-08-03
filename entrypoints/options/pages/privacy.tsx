@@ -15,7 +15,7 @@ export default function PrivacyPage() {
         <li>{t('settings.theme')}</li>
         <li>{t('settings.pet')}</li>
         <li>{t('settings.pageCarry')}</li>
-        <li>{t('nav.clips')} / {t('settings.clipHighlight')}</li>
+        <li>{t('nav.clips')} / {t('settings.clipHighlight')} / {t('settings.categories')}</li>
         <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')} / {t('settings.vaultId')}</li>
       </ul>
 
