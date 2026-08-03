@@ -48,16 +48,16 @@ export default function ClipsPage() {
     : clips;
   // category filter composes with search; site view groups the same filtered set
   const filtered = cat ? shown.filter((c) => c.category === cat) : shown;
-  const sorted = [...filtered].sort((a, b) => b.createdAt - a.createdAt);
+  // no re-sort: getClipsDirect already returns newest-first, watches re-fetch the same order
 
   // deletions/search can shrink the list under the cursor: clamp instead of resetting
-  const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const cur = Math.min(page, pages);
-  const paged = sorted.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
+  const paged = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
 
   // site view: newest-first inside groups, groups ordered by their newest clip
   const bySite = new Map<string, Clip[]>();
-  for (const c of view === 'site' ? sorted : []) {
+  for (const c of view === 'site' ? filtered : []) {
     const host = new URL(c.pageUrl).hostname;
     bySite.set(host, [...(bySite.get(host) ?? []), c]);
   }
