@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { clipsItem, clipNavUrl, type Clip } from '@/lib/clips';
-import { colorFor } from './clips';
+import { colorFor, CategoryChips } from './clips';
 
 type GNode = SimulationNodeDatum & { id: string; label: string; category: string; clipUrl: string; degree: number };
 
@@ -59,7 +59,10 @@ async function exportObsidian(clips: Clip[]) {
   }
   // fallback: single combined markdown file
   const byCat = new Map<string, Clip[]>();
-  for (const c of classified) byCat.set(c.category!, [...(byCat.get(c.category!) ?? []), c]);
+  for (const c of classified) {
+    if (!byCat.has(c.category!)) byCat.set(c.category!, []);
+    byCat.get(c.category!)!.push(c);
+  }
   let body = '';
   for (const [cat, list] of byCat) {
     body += `## ${cat}\n\n`;
@@ -227,26 +230,7 @@ export default function GraphPage() {
           <Download className="size-4" />
           {t('graph.export')}
         </Button>
-        <div className="flex flex-wrap gap-1">
-          <button
-            type="button"
-            className={`rounded px-2 py-0.5 text-xs ${!filter ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-            onClick={() => setFilter(null)}
-          >
-            All
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={`rounded px-2 py-0.5 text-xs ${filter === cat ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-              style={filter === cat ? {} : { borderLeft: `3px solid ${colorFor(cat, categories)}` }}
-              onClick={() => setFilter(filter === cat ? null : cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+        <CategoryChips cats={categories} selected={filter} onToggle={setFilter} />
       </div>
       {classifyError && <p className="mt-2 text-xs text-destructive">{classifyError}</p>}
       <svg

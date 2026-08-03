@@ -1,15 +1,9 @@
 import { useState } from 'react';
-import { ChevronDown, Trash2, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
+import { RadioDropdown } from '@/components/radio-dropdown';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,8 +22,39 @@ import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/
 const PAGE_SIZE = 10;
 
 // category color palette — deterministic by category name
-export const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b'];
+const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b'];
 export const colorFor = (cat: string, cats: string[]) => COLORS[cats.indexOf(cat) % COLORS.length];
+
+/** "All" + category filter chips, shared with the graph page. */
+export function CategoryChips({ cats, selected, onToggle }: {
+  cats: string[];
+  selected: string | null;
+  onToggle: (cat: string | null) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap gap-1">
+      <button
+        type="button"
+        className={`rounded px-2 py-0.5 text-xs ${!selected ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+        onClick={() => onToggle(null)}
+      >
+        {t('clips.all')}
+      </button>
+      {cats.map((c) => (
+        <button
+          key={c}
+          type="button"
+          className={`rounded px-2 py-0.5 text-xs ${selected === c ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+          style={selected === c ? {} : { borderLeft: `3px solid ${colorFor(c, cats)}` }}
+          onClick={() => onToggle(selected === c ? null : c)}
+        >
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function ClipsPage() {
   const { t } = useI18n();
@@ -59,7 +84,8 @@ export default function ClipsPage() {
   const bySite = new Map<string, Clip[]>();
   for (const c of view === 'site' ? filtered : []) {
     const host = new URL(c.pageUrl).hostname;
-    bySite.set(host, [...(bySite.get(host) ?? []), c]);
+    if (!bySite.has(host)) bySite.set(host, []);
+    bySite.get(host)!.push(c);
   }
 
   const row = (clip: Clip) => (
@@ -145,45 +171,20 @@ export default function ClipsPage() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('clips.search')}
         />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="shrink-0">
-              {t(`clips.view.${view}`)}
-              <ChevronDown className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuRadioGroup
-              value={view}
-              onValueChange={(v) => { setView(v as 'time' | 'site'); setPage(1); }}
-            >
-              <DropdownMenuRadioItem value="time">{t('clips.view.time')}</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="site">{t('clips.view.site')}</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <RadioDropdown
+          className="shrink-0"
+          value={view}
+          onChange={(v) => { setView(v); setPage(1); }}
+          options={[
+            ['time', t('clips.view.time')],
+            ['site', t('clips.view.site')],
+          ]}
+        />
       </div>
 
       {cats.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          <button
-            type="button"
-            className={`rounded px-2 py-0.5 text-xs ${!cat ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-            onClick={() => setCat(null)}
-          >
-            {t('clips.all')}
-          </button>
-          {cats.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={`rounded px-2 py-0.5 text-xs ${cat === c ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-              style={cat === c ? {} : { borderLeft: `3px solid ${colorFor(c, cats)}` }}
-              onClick={() => setCat(cat === c ? null : c)}
-            >
-              {c}
-            </button>
-          ))}
+        <div className="mt-2">
+          <CategoryChips cats={cats} selected={cat} onToggle={setCat} />
         </div>
       )}
 

@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
-import { useI18n, langLabels, type Lang } from '@/lib/i18n';
+import { RadioDropdown } from '@/components/radio-dropdown';
+import { useI18n, langLabels } from '@/lib/i18n';
 import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, categoriesItem, type Theme } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
@@ -45,40 +38,24 @@ export default function SettingsPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <span className="shrink-0 text-sm font-medium">{t('settings.language')}</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                {langLabels[lang]}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuRadioGroup value={lang} onValueChange={(v) => setLang(v as Lang)}>
-                {Object.entries(langLabels).map(([value, label]) => (
-                  <DropdownMenuRadioItem key={value} value={value}>{label}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <RadioDropdown
+            value={lang}
+            onChange={setLang}
+            options={Object.entries(langLabels) as [typeof lang, string][]}
+          />
         </div>
 
         <div className="flex items-center justify-between">
           <span className="shrink-0 text-sm font-medium">{t('settings.theme')}</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                {t(`theme.${theme}`)}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuRadioGroup value={theme} onValueChange={(v) => onThemeChange(v as Theme)}>
-                <DropdownMenuRadioItem value="system">{t('theme.system')}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="dark">{t('theme.dark')}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="light">{t('theme.light')}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <RadioDropdown
+            value={theme}
+            onChange={onThemeChange}
+            options={[
+              ['system', t('theme.system')],
+              ['dark', t('theme.dark')],
+              ['light', t('theme.light')],
+            ]}
+          />
         </div>
       </div>
 
