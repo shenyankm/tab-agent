@@ -90,6 +90,9 @@ importers:
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
+      playwright-core:
+        specifier: ^1.62.1
+        version: 1.62.1
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -3043,6 +3046,11 @@ packages:
 
   pkg-types@2.3.1:
     resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   postcss@8.5.24:
     resolution: {integrity: sha512-8RyVklq0owXUTa4xlpzu4l9AaVKIdQvAcOHZWaMh98HgySsUtxRVf/chRe3dsSLqb6i40BzGRzEUddRaI+9TSw==}
@@ -6892,6 +6900,8 @@ snapshots:
       confbox: 0.2.4
       exsolve: 1.1.1
       pathe: 2.0.3
+
+  playwright-core@1.62.1: {}
 
   postcss@8.5.24:
     dependencies:

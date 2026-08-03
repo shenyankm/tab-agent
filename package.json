@@ -6,7 +6,9 @@
   "version": "0.2.1",
   "type": "module",
   "packageManager": "pnpm@11.13.1",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
@@ -17,6 +19,7 @@
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "node tests/e2e/extension.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -49,6 +52,7 @@
     "@wxt-dev/module-react": "^1.1.5",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
+    "playwright-core": "^1.62.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
