@@ -13,7 +13,7 @@ A pixel-art pet that lives on every webpage. Click it, ask a question, and your 
 
 ## Prerequisites
 
-- Node.js ≥ 18 and pnpm
+- Node.js ≥ 20.11 and pnpm
 - A [Qoder](https://qoder.com) account with [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart) enabled
 
 ## Build & Install
@@ -65,7 +65,7 @@ Fill them in:
 | "Not configured" error | PAT / Agent ID / Environment ID incomplete — fill all three in Settings |
 | "Auth failed" error | PAT expired or wrong — regenerate one |
 | Screenshot context not working | Approve the site-access permission prompt when selecting "Screenshot" in the popup |
-| Want a fresh session | Clear `local:sessionId.v3` via the extension's Service Worker console, or reinstall |
+| Want a fresh session | Clear `local:sessionId.v3` and `local:sessionId.v3.tab.*` via the extension's Service Worker console, or reinstall |
 
 ## Packaging
 
@@ -78,14 +78,15 @@ pnpm zip:firefox    # Firefox AMO submission
 
 ```
 entrypoints/
-  background.ts     # Service worker (SSE streaming, session management, AI classify)
+  background.ts     # Service worker entry (menus, commands, message/port wiring)
   content.tsx       # Content script (floating pet + chat panel + clip highlights)
   popup/            # Browser action popup
   options/          # Options page (Settings / Clips / Graph / Privacy)
 components/
-  floating-agent.tsx  # Floating pet + chat/clips panel (all content-script UI)
+  floating-agent.tsx  # Floating pet composition layer (state, port streaming, drag)
+  agent/            # Presentational parts: Mascot / ChatPanel / ClipDraftEditor
   ui/               # RetroUI components (shadcn CLI)
-lib/                # Shared utilities (i18n, settings, SSE parser, clips)
+lib/                # Shared modules (gateway, classify, i18n, settings, SSE parser, clips)
 tests/              # Vitest test suites
 ```
 
