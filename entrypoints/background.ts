@@ -382,6 +382,8 @@ export default defineBackground(() => {
   } as const;
   browser.runtime.onInstalled.addListener(async () => {
     const lang = await langItem.getValue();
+    // removeAll first: onInstalled also fires on update, create() with an existing id errors
+    browser.contextMenus.removeAll();
     browser.contextMenus.create({ id: 'save-clip', title: dict[lang]['clips.menu'], contexts: ['selection'] });
     browser.contextMenus.create({ id: 'save-clip-page', title: dict[lang]['clips.menu.page'], contexts: ['page'] });
     browser.contextMenus.create({ id: 'save-clip-image', title: dict[lang]['clips.menu.image'], contexts: ['image'] });
