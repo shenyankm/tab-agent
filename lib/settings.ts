@@ -16,6 +16,8 @@ export const agentIdItem = storage.defineItem<string>('local:agentId', { fallbac
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
 export const vaultIdItem = storage.defineItem<string>('local:vaultId', { fallback: '' });
 // v3: key bumped so a fresh session is created with vault_ids attached (v2: pre-page-context history)
+// now the legacy FALLBACK only: chat ports cache per-tab (local:sessionId.v3.tab.<id>) so
+// concurrent tabs can't 409-cancel each other's turns
 export const sessionIdItem = storage.defineItem<string>('local:sessionId.v3', { fallback: '' });
 
 export const isDark = (theme: Theme) =>
@@ -26,4 +28,7 @@ export function initTheme() {
   const apply = (theme: Theme) => document.documentElement.classList.toggle('dark', isDark(theme));
   themeItem.getValue().then(apply);
   themeItem.watch(apply);
+  // follow OS light/dark flips while a page is open when the user picked "system"
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () =>
+    themeItem.getValue().then(apply));
 }

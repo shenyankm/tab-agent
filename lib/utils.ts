@@ -13,8 +13,40 @@ export function useStorageValue<T>(
 ): T {
   const [value, setValue] = useState(initial);
   useEffect(() => {
-    item.getValue().then(setValue);
-    return item.watch(setValue);
+    setValue(initial); // item identity change (SPA nav → new key): reset, don't flash stale data
+    // version guards the race where a watch callback lands before the initial read
+    // resolves — a stale getValue result must not overwrite the newer watched value
+    let version = 0;
+    // getValue rejects for proxied items once the extension context is invalidated
+    // (reload/update) — swallow instead of flooding the page console
+    item.getValue()
+      .then((v) => { if (version === 0) setValue(v); })
+      .catch(() => {});
+    return item.watch((v) => { version++; setValue(v); });
   }, [item]);
   return value;
+}
+
+/** Subscribe to same-document navigations (SPA pushState/replaceState/popstate).
+ * Chrome's navigation API (102+, our floor is 116) covers every case; elsewhere
+ * degrades to popstate/hashchange — patching history.pushState from an isolated
+ * world can't observe page-world calls, so pushState-only apps slip through there. */
+export function onPageNav(cb: () => void): () => void {
+  let last = location.href;
+  const fire = () => {
+    if (location.href === last) return;
+    last = location.href;
+    cb();
+  };
+  const nav = (window as unknown as { navigation?: EventTarget }).navigation;
+  if (nav) {
+    nav.addEventListener('navigatesuccess', fire);
+    return () => nav.removeEventListener('navigatesuccess', fire);
+  }
+  window.addEventListener('popstate', fire);
+  window.addEventListener('hashchange', fire);
+  return () => {
+    window.removeEventListener('popstate', fire);
+    window.removeEventListener('hashchange', fire);
+  };
 }
