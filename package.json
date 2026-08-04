@@ -16,6 +16,7 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "analyze": "wxt build --analysis",
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -35,8 +36,6 @@
     "radix-ui": "^1.6.7",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "text-fragments-polyfill": "^6.7.0"
   },

@@ -1,3 +1,5 @@
+# pnpm 10+ moved build-script approval into this file (single-package repo, no
+# workspaces): these transitive deps may run their postinstall build scripts
 allowBuilds:
   esbuild: true
   spawn-sync: true
