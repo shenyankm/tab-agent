@@ -75,7 +75,6 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 - 不做多会话/历史记录 UI（每个扩展实例复用一个云端 session）。
 - 不做文件附件（页面正文/截图携带已覆盖主场景）。
 - 不做自建后端 —— 直连 Qoder 云端网关。
-- 不做 Obsidian/本地笔记应用集成（曾有的 Local REST API 导出已移除），所有 AI 能力基于 Qoder Cloud Agent。
 
 ## 5. 成功指标
 
@@ -85,4 +84,4 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 ## 6. 暂缓功能（Backlog）
 
-- **摘录导出**：Clips 页一键导出当前筛选结果为 Markdown（可自定义 `{{var}}` 模板，默认含 YAML frontmatter / 摘录引用 / 整页正文 / 标注）或 JSON。v0.2.x 移除；等笔记工具（Obsidian/Logseq 等）导入需求明确后恢复。
+- **摘录导出**：Clips 页一键导出当前筛选结果为 Markdown（可自定义 `{{var}}` 模板，默认含 YAML frontmatter / 摘录引用 / 整页正文 / 标注）或 JSON。v0.2.x 移除；等导入需求明确后恢复。
