@@ -22,22 +22,11 @@ export default function SettingsPage() {
   const highlightColor = useStorageValue(highlightColorItem, 'yellow');
   const memorySync = useStorageValue(memorySyncItem, false);
   const dailyReport = useStorageValue(dailyReportItem, false);
-  const [syncing, setSyncing] = useState(false);
-  const [synced, setSynced] = useState<number | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reportResult, setReportResult] = useState<string | null>(null);
   const [dbId, setDbId] = useState('');
   const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
-
-  // 同步走 background(唯一写方 + keepalive);失败(如未配置 PAT)按 0 条展示
-  const syncNow = () => {
-    setSyncing(true);
-    sendRequest<{ synced: number }>({ type: 'memorySync' })
-      .then((r) => setSynced(r.synced))
-      .catch(() => setSynced(0))
-      .finally(() => setSyncing(false));
-  };
 
   // 手动生成是一个完整 Agent 回合(总结 + 写 Notion),background keepalive 内跑
   const reportNow = () => {
@@ -106,21 +95,12 @@ export default function SettingsPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
+          {/* 写入即自动镜像;开关打开时 background 对存量摘录补一次全量 */}
           <span className="shrink-0 text-sm font-medium">{t('settings.memorySync')}</span>
-          <div className="flex items-center gap-3">
-            {synced !== null && (
-              <span className="text-xs text-muted-foreground">
-                {t('settings.memorySyncResult', { n: synced })}
-              </span>
-            )}
-            <Button size="sm" variant="outline" disabled={syncing} onClick={syncNow}>
-              {t('settings.memorySyncNow')}
-            </Button>
-            <Switch
-              checked={memorySync}
-              onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => {})}
-            />
-          </div>
+          <Switch
+            checked={memorySync}
+            onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => {})}
+          />
         </div>
 
         {connFields.map(([key, item, placeholder]) => (
