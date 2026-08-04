@@ -11,6 +11,7 @@
 import { api } from '@/lib/gateway';
 import { patItem, memoryStoreIdItem, memoryMapItem } from '@/lib/settings';
 import { getClipsDirect, type Clip } from '@/lib/clips-store';
+import { getUsage, toMarkdown } from '@/lib/usage';
 
 /** 会话创建时下发给云端 Agent 的记忆使用说明(resources.instructions)。 */
 export const MEMORY_INSTRUCTIONS =
@@ -108,4 +109,30 @@ export async function syncAllClipsToMemoryStore(): Promise<number> {
     }
   }
   return synced;
+}
+
+/** 当日使用日志 upsert 到 usage/<day>.md(日报 Deployment 的数据源)。
+ *  best-effort:失败静默,下一回合重写即自愈。map key 前缀 usage: 与 clip id 不冲突。 */
+export async function syncUsageToMemoryStore(day: string): Promise<void> {
+  const pat = await patItem.getValue();
+  if (!pat) return;
+  const storeId = await ensureMemoryStore(pat);
+  const content = toMarkdown(day, await getUsage(day));
+  const map = await memoryMapItem.getValue();
+  const mapKey = `usage:${day}`;
+  const memoryId = map[mapKey];
+  const res = memoryId
+    ? await api(pat, `/memory_stores/${storeId}/memories/${memoryId}`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      })
+    : await api(pat, `/memory_stores/${storeId}/memories`, {
+        method: 'POST',
+        body: JSON.stringify({ path: `usage/${day}.md`, content }),
+      });
+  if (!res.ok) return;
+  if (!memoryId) {
+    const data = (await res.json()) as { id?: string };
+    if (typeof data.id === 'string') await memoryMapItem.setValue({ ...map, [mapKey]: data.id });
+  }
 }
