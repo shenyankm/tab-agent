@@ -26,6 +26,7 @@ lib/
   classify.ts      # AI 分类本体：分批 prompt + JSON 信封解包（编排/广播留在 background）
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
+  messages.ts      # runtime 消息协议：类型化 Request/Reply 信封 + sendRequest（content/options → background）
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
   clips.ts         # 兼容门面：re-export 上两者；新代码按需引 store/highlight，polyfill 不进 worker 包
@@ -49,22 +50,13 @@ tests/             # vitest 单元测试（pnpm test）
 
 ## 3. 运行时架构
 
-```
-┌─ 任意网页 ────────────────────────┐
-│  content.tsx（Shadow DOM UI）       │
-│   悬浮宠物 / 聊天面板 / 拖拽 / 划词  │
-└──────────┬────────────────────────┘
-           │ browser.runtime.connect({name:'chat'})
-           │ Port 消息：{text, page?, screenshot?} ⇄ {delta|done|error}
-┌──────────▼────────────────────────┐
-│  background.ts（Service Worker）    │
-│   会话管理 / 截图上传挂载 / SSE 流   │
-└──────────┬────────────────────────┘
-           │ fetch，Bearer PAT
-┌──────────▼────────────────────────┐
-│  https://api.qoder.com/api/v1/cloud │
-│   /sessions /files /events /stream  │
-└───────────────────────────────────┘
+```mermaid
+flowchart TD
+    Page["任意网页 — content.tsx（Shadow DOM UI）<br/>悬浮宠物 / 聊天面板 / 拖拽 / 划词"]
+    BG["background.ts（Service Worker）<br/>会话管理 / 截图上传挂载 / SSE 流"]
+    Cloud["https://api.qoder.com/api/v1/cloud<br/>/sessions /files /events /stream"]
+    Page <--> |"runtime.connect（name: 'chat'）：text + page/screenshot ⇄ delta / done / error"| BG
+    BG --> |"fetch，Bearer PAT"| Cloud
 ```
 
 关键决策：**所有网络请求收敛在 background**。内容脚本只通过长连接 Port 收发消息，凭证不进入页面上下文；Port 断开即中止后台请求（AbortController）。
@@ -78,12 +70,13 @@ tests/             # vitest 单元测试（pnpm test）
 
 扩展没有自建后端，云端三个资源对象由 Qoder 托管（[文档](https://docs.qoder.com/zh/cloud-agents/quickstart)）：
 
-```
-Agent（定义） ──┐
-               ├─► Session（运行实例，绑定二者）──► 事件日志 + SSE 流
-Environment ───┘         │
-（沙箱运行时）            ├─ resources：挂载上传的文件（/data/input/...）
-                         └─ vault_ids：挂载 Vault（密钥/凭据）
+```mermaid
+flowchart LR
+    Agent["Agent（定义）"] --> Session
+    Env["Environment（沙箱运行时）"] --> Session
+    Session["Session（运行实例，绑定二者）"] --> Events["事件日志 + SSE 流"]
+    Session --> Res["resources：挂载上传的文件（/data/input/...）"]
+    Session --> Vault["vault_ids：挂载 Vault（密钥/凭据）"]
 ```
 
 | 对象 | 是什么 | 本扩展怎么用 |
@@ -96,10 +89,9 @@ Environment ───┘         │
 
 Session 是**事件日志 + 事件流**：写入靠 `POST /events`（`user.message`），读取靠 SSE `GET /events/stream`。一个回合内云端依序产生：
 
-```
-user.message → session.status_running → agent.thinking
-  → agent.message（含增量 delta）→ agent.tool_use / agent.tool_result（可多轮）
-  → session.status_idle（stop_reason: end_turn）
+```mermaid
+flowchart LR
+    A["user.message"] --> B["session.status_running"] --> C["agent.thinking"] --> D["agent.message（含增量 delta）"] --> E["agent.tool_use / agent.tool_result（可多轮）"] --> F["session.status_idle（stop_reason: end_turn）"]
 ```
 
 - 扩展用 `?event_deltas[]=agent.message` 只订阅消息增量，工具事件不进 UI。
@@ -163,10 +155,10 @@ user.message → session.status_running → agent.thinking
 
 ### AI 分类（classifyClips）
 
-由 `{type:'classifyClips'}` 消息触发（原 options Graph 页「Classify」按钮），目标是「不污染用户聊天会话」：
+由 `{type:'classifyClips'}` 消息触发（UI 入口已移除，目前仅 background 处理该消息，无前端触发方），目标是「不污染用户聊天会话」：
 
 1. background 把全部摘录按 `CLASSIFY_BATCH = 50` 分批（每条截 500 字符）拼成 prompt，类别由 Agent 自拟（只要求名称跨摘录一致），要求只回 JSON：`{"clips":[{id, category, relatedIds, tags}]}`。
-2. 复用 `handleChat`，传 `ownSession=''` 强制新建**专用 session**——不读、也不写入 `sessionId.v3` 缓存，不会 409 取消用户正在进行的回合。
+2. 复用 `handleChat`，传 `ownSession=''` 强制新建**专用 session**——不读、也不写入 `sessionId.v4.tab.*` 缓存，不会 409 取消用户正在进行的回合。
 3. 每批聚合流式回复后解析 JSON（失败则去 markdown fence 再提取 `{...}`，再失败重试一次），逐条 `updateClipDirect` 回写 `category`/`relatedIds`/`tags`（白名单 + 类型校验）；逐批写库，后批失败保留前批成果；全部写完后做一次 `clipsChanged` 广播。ponytail：`relatedIds` 仅批内有效（模型只看得到本批摘录）。
 4. 并发触发（两个 options 页）由 `classifyInFlight` 共享同一次运行，避免双倍 LLM 成本与写库竞态。
 5. 全程（LLM 生成 + N 次写库）轻易超过 30s worker 上限，期间跑 keepalive ping。
