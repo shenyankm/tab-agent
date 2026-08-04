@@ -138,10 +138,11 @@ vi.mock('@mozilla/readability', () => ({
 }));
 
 // count markdown renders: memoized bubbles must skip drag frames and the 1s tick
-vi.mock('react-markdown', () => ({
-  default: ({ children }: { children: string }) => {
+// (target is the in-house renderer since the react-markdown swap)
+vi.mock('@/lib/markdown', () => ({
+  Markdown: ({ text }: { text: string }) => {
     mdRenderRef.count++;
-    return <div className="md">{children}</div>;
+    return <div className="md">{text}</div>;
   },
 }));
 
@@ -327,7 +328,8 @@ describe('FloatingAgent', () => {
       portRef.listener?.({ type: 'error', code: 'unconfigured' });
     });
 
-    await waitFor(() => expect(screen.getByText('Not configured.')).toBeInTheDocument());
+    // the sr-only live region announces the error too, so the text appears twice
+    await waitFor(() => expect(screen.getAllByText('Not configured.')).not.toHaveLength(0));
   });
 
   // regression: MV3 killed the background worker mid-turn (long screenshot turns) and
@@ -341,7 +343,8 @@ describe('FloatingAgent', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     act(() => portRef.disconnectListener?.());
-    await waitFor(() => expect(screen.getByText('Connection lost.')).toBeInTheDocument());
+    // the sr-only live region announces the error too, so the text appears twice
+    await waitFor(() => expect(screen.getAllByText('Connection lost.')).not.toHaveLength(0));
 
     // settled turn: a later disconnect must not overwrite the answer
     fireEvent.change(input, { target: { value: 'hi again' } });

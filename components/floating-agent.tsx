@@ -1,49 +1,18 @@
-import { memo, useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Send, X, Sparkles } from 'lucide-react';
-import { Readability } from '@mozilla/readability';
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Card } from '@/components/ui/card';
 import { useI18n } from '@/lib/i18n';
-import { useStorageValue } from '@/lib/utils';
-import { addClip, clipsPageItem, highlightClip, unhighlightClip, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips';
-import { themeItem, petEnabledItem, petPosItem, pageCarryItem, clipHighlightItem, isDark } from '@/lib/settings';
+import { cn, useStorageValue } from '@/lib/utils';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem } from '@/lib/settings';
+import { pageText } from '@/lib/page-text';
+import { draftEvents, setEditorMounted, type ClipDraft } from '@/lib/marks';
+import { Mascot, type AgentState } from '@/components/agent/Mascot';
+import { ChatPanel, type ChatMessage } from '@/components/agent/ChatPanel';
+import { ClipDraftEditor } from '@/components/agent/ClipDraftEditor';
 
-type AgentState = 'idle' | 'thinking' | 'done';
-
-// 3-frame strip cropped from the full sheet (184×168 each) — keeps decoded RAM tiny per tab
-const faces: Record<AgentState, number> = { idle: 0, thinking: 184, done: 368 };
-
-function Mascot({ state, size }: { state: AgentState; size: number }) {
-  const scale = size / 184;
-
-  return (
-    <span
-      className={`pixel-agent-mascot pixel-agent-mascot--${state}`}
-      style={{ width: size, height: 168 * scale }}
-      aria-hidden="true"
-    >
-      <img
-        src={browser.runtime.getURL('/mascot-expressions.webp')}
-        alt=""
-        draggable={false}
-        style={{
-          width: 552 * scale,
-          height: 168 * scale,
-          transform: `translateX(${-faces[state] * scale}px)`,
-        }}
-      />
-    </span>
-  );
-}
+// compat facade: the content-script entry imports these from here
+export { pageText } from '@/lib/page-text';
+export { showClip, clearAllMarks, saveClipDraft } from '@/lib/marks';
 
 // keep the pet fully on screen regardless of viewport size; clamp order matters:
 // a viewport narrower than the pet must pin it to 0, not push it off-screen
@@ -52,144 +21,20 @@ const clampPos = (p: { right: number; bottom: number }) => ({
   bottom: Math.max(0, Math.min(p.bottom, window.innerHeight - 78)),
 });
 
-type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
-
-// module-level: a fresh [remarkGfm] array per render would invalidate memoization
-const REMARK_PLUGINS = [remarkGfm];
-
-// memoized bubbles: dragging the pet (pointermove → setPos) and the 1s thinking
-// tick re-render FloatingAgent constantly; without memo, every done bubble would
-// re-run ReactMarkdown's parse pipeline on each of those frames
-const UserBubble = memo(function UserBubble({ msg }: { msg: ChatMessage }) {
-  return (
-    <div className="flex flex-col items-end">
-      <div className="pixel-agent-bubble-user">{msg.text}</div>
-      {msg.at && <span className="mt-1 text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
-    </div>
-  );
-});
-
-const AgentBubble = memo(function AgentBubble({ msg, thinking, status }: { msg: ChatMessage; thinking: boolean; status?: string }) {
-  return (
-    <div>
-      <div className="pixel-agent-md">
-        {msg.text
-          // streaming bubble renders plain text — one markdown parse per
-          // turn, on done (parsing every delta was O(n²) on long replies)
-          ? thinking && !msg.at
-            ? <span className="whitespace-pre-wrap">{msg.text}</span>
-            : <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{msg.text}</ReactMarkdown>
-          : status}
-      </div>
-      {msg.at && <span className="mt-1 block text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
-    </div>
-  );
-});
-
-// ponytail: everything ships eagerly — WXT bundles content scripts as one IIFE and
-// inlines dynamic imports (verified: lazy-loading grew the bundle); revisit if WXT
-// ever supports content-script code splitting
-
-// Readability mutates its input, so it gets a clone; null/throw (non-article pages,
-// framesets) falls back to raw innerText. article.textContent is plain text — the
-// page context goes into an LLM prompt, no markdown conversion needed.
-// ponytail: keyed by URL — same-URL DOM changes (SPA-loaded content) go stale;
-// invalidate on mutation reports if summaries ever lag the page
-let pageTextCache: { url: string; text: string } | null = null;
-export function pageText() {
-  if (pageTextCache?.url === location.href) return pageTextCache.text;
-  let text: string | undefined;
-  try {
-    const article = new Readability(document.cloneNode(true) as Document).parse();
-    if (article?.textContent) text = article.textContent;
-  } catch { /* fall through */ }
-  // innerText forces a synchronous layout of the whole page — only pay it as the fallback
-  text ??= document.body.innerText;
-  // cache the capped form: consumers slice(0, 20000/500) anyway, and a huge page's
-  // full text would sit in this module-level cache forever
-  const capped = text.slice(0, 20000);
-  pageTextCache = { url: location.href, text: capped };
-  return capped;
-}
-
-// clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
-// new ones; isConnected drops SPA-navigation leftovers and re-highlights on demand
-const markByClip = new Map<string, Element[]>();
-
-export function showClip(clip: Clip, scroll = true): boolean {
-  let marks = markByClip.get(clip.id);
-  // SPA 导航后旧 mark 已失连：先清残留再重建，避免嵌套
-  if (!marks?.length || !marks.every((el) => el.isConnected)) {
-    if (marks?.length) unhighlightClip(marks);
-    marks = highlightClip(clip);
-    if (!marks.length) return false;
-    markByClip.set(clip.id, marks);
-  }
-  if (scroll) {
-    marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // highlighting off = locate-only: flash the marks, then fade them out
-    clipHighlightItem.getValue().then((on) => {
-      if (on) return;
-      setTimeout(() => {
-        if (markByClip.delete(clip.id)) unhighlightClip(marks); // already-gone marks no-op
-      }, 3000);
-    });
-  }
-  return true;
-}
-
-type ClipDraft = Omit<Clip, 'id' | 'createdAt'>;
-
-const draftEvents = new EventTarget();
-let editorMounted = false;
-
-const commitDraft = async (draft: ClipDraft) => {
-  const clip = await addClip(draft);
-  // mark right away as save feedback, unless highlighting is switched off
-  if (await clipHighlightItem.getValue()) showClip(clip, false);
-};
-
-/** 划词保存入口（content.tsx 调用）：编辑卡片在挂载就弹出卡片编辑后再入库，
- *  否则（宠物关闭、UI 未挂载）直接保存，保持旧行为。 */
-export function saveClipDraft(draft: ClipDraft) {
-  if (editorMounted) draftEvents.dispatchEvent(new CustomEvent('draft', { detail: draft }));
-  else void commitDraft(draft);
-}
-
-/** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */
-export function clearAllMarks() {
-  for (const marks of markByClip.values()) unhighlightClip(marks);
-  markByClip.clear();
-}
-
-// clips saved on this page (hash-insensitive match); clicking jumps in-page to the
-// re-marked text — new-tab navigation only as fallback when the text is gone.
-// 订阅挂在列表自身:面板/页签没打开时不随 clipsChanged 全量重读
-function ClipList({ t }: { t: (key: string) => string }) {
-  const clips = useStorageValue(clipsPageItem(normalizeUrl(location.href)), []);
-
-  if (clips.length === 0)
-    return <p className="text-xs text-muted-foreground">{t('clips.empty')}</p>;
-
-  return clips.map((clip) => (
-    <button
-      key={clip.id}
-      type="button"
-      className="min-w-0 cursor-pointer text-left"
-      onClick={() => showClip(clip) || window.open(clipNavUrl(clip))}
-      title={clip.text}
-    >
-      <span className="line-clamp-2 text-sm">{clip.text}</span>
-      <span className="mt-1 block truncate text-[10px] text-muted-foreground">
-        {new Date(clip.createdAt).toLocaleString()}
-      </span>
-    </button>
-  ));
-}
-
 export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
+  // compact screen-reader status (thinking / errors) — the message area itself
+  // is aria-live="off" so streaming deltas don't announce every frame
+  const [srStatus, setSrStatus] = useState('');
+  // live OS light/dark, so theme:"system" follows OS flips without a page reload
+  const [osDark, setOsDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setOsDark(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
   const theme = useStorageValue(themeItem, 'system');
   const enabled = useStorageValue(petEnabledItem, true);
   const [pos, setPos] = useState({ right: 20, bottom: 20 });
@@ -214,11 +59,11 @@ export function FloatingAgent() {
   }, []);
 
   useEffect(() => {
-    editorMounted = true;
+    setEditorMounted(true);
     const onDraft = (e: Event) => setDraft((e as CustomEvent<ClipDraft>).detail);
     draftEvents.addEventListener('draft', onDraft);
     return () => {
-      editorMounted = false;
+      setEditorMounted(false);
       draftEvents.removeEventListener('draft', onDraft);
     };
   }, []);
@@ -312,6 +157,7 @@ export function FloatingAgent() {
       { role: 'agent', text: '' },
     ]);
     setState('thinking');
+    setSrStatus(t('widget.status.thinking'));
     startRef.current = Date.now();
     setNow(Date.now());
 
@@ -326,17 +172,20 @@ export function FloatingAgent() {
         flushPending(); // land any un-flushed deltas before the stamp
         stampLast();
         setState('done');
+        setSrStatus('');
         port.disconnect();
       } else if (msg.type === 'error') {
         settled = true;
-        patchLast(msg.code === 'auth'
+        const errText = msg.code === 'auth'
           ? t('widget.error.auth')
           : msg.code === 'unconfigured'
             ? t('widget.error.unconfigured')
-            : t('widget.error.generic', { message: msg.message ?? '' }), true);
+            : t('widget.error.generic', { message: msg.message ?? '' });
+        patchLast(errText, true);
         flushPending(); // the replace lands synchronously, before the stamp
         stampLast();
         setState('done');
+        setSrStatus(errText);
         port.disconnect();
       }
     });
@@ -349,6 +198,7 @@ export function FloatingAgent() {
       flushPending();
       stampLast();
       setState('done');
+      setSrStatus(t('widget.error.disconnected'));
     });
     port.postMessage({
       text: message,
@@ -368,19 +218,6 @@ export function FloatingAgent() {
     event.preventDefault();
     send(query.trim());
     setQuery('');
-  };
-
-  // 与 options Clips 页同款解析：换行分备注，空则不写字段
-  const saveDraft = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const f = new FormData(event.currentTarget);
-    const notes = String(f.get('notes') ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
-    void commitDraft({
-      ...draft!,
-      title: String(f.get('title') ?? '').trim() || draft!.title,
-      notes: notes.length ? notes : undefined,
-    });
-    setDraft(null);
   };
 
   const closePanel = () => {
@@ -432,7 +269,7 @@ export function FloatingAgent() {
 
   return (
     <div
-      className={`pixel-agent-shell${isDark(theme) ? ' dark' : ''}`}
+      className={cn('pixel-agent-shell', theme === 'dark' || (theme === 'system' && osDark) ? 'dark' : '')}
       style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') (draft ? setDraft(null) : closePanel());
@@ -441,123 +278,31 @@ export function FloatingAgent() {
       {(open || draft) && (
         <Card
           id="pixel-agent-panel"
-          className={`pixel-agent-panel${below ? ' pixel-agent-panel--below' : ''}${alignLeft ? ' pixel-agent-panel--left' : ''} gap-0 py-0`}
+          className={cn('pixel-agent-panel gap-0 py-0', below && 'pixel-agent-panel--below', alignLeft && 'pixel-agent-panel--left')}
           style={{ maxHeight: Math.min(480, Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98)) }}
           role="dialog"
           aria-label={draft ? t('clips.editor.heading') : 'Pixel Agent'}
         >
           {draft ? (
-            <>
-              <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
-                <span className="font-bold">{t('clips.editor.heading')}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setDraft(null)}
-                  aria-label={t('clips.cancel')}
-                >
-                  <X />
-                </Button>
-              </CardHeader>
-              <form onSubmit={saveDraft} className="flex flex-col gap-2 overflow-y-auto p-4">
-                <p className="line-clamp-2 text-xs text-muted-foreground">{draft.text}</p>
-                <Input name="title" defaultValue={draft.title} placeholder={t('clips.editor.title')} autoFocus aria-label={t('clips.editor.title')} />
-                <Textarea name="notes" rows={2} placeholder={t('clips.notePlaceholder')} aria-label={t('clips.notePlaceholder')} />
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
-                    {t('clips.cancel')}
-                  </Button>
-                  <Button type="submit" size="sm">
-                    {t('clips.save')}
-                  </Button>
-                </div>
-              </form>
-            </>
+            <ClipDraftEditor t={t} draft={draft} onCancel={() => setDraft(null)} />
           ) : (
-          <>
-          <CardHeader className="flex flex-row items-center justify-between border-b-2 bg-primary p-3 text-primary-foreground">
-            <div className="flex h-8 items-center gap-0.5 rounded border-2 bg-background p-[3px] text-foreground shadow-md">
-              {([['chat', t('widget.tab.chat')], ['clips', t('nav.clips')]] as const).map(([v, label]) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={tab === v}
-                  className={`flex cursor-pointer items-center rounded-sm px-1.5 py-[2px] text-sm font-medium outline-none select-none hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary${tab === v ? ' bg-accent text-accent-foreground' : ''}`}
-                  onClick={() => setTab(v)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={closePanel}
-              aria-label={t('widget.close')}
-            >
-              <X />
-            </Button>
-          </CardHeader>
-
-          <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="polite">
-            {tab === 'clips' ? (
-              <ClipList t={t} />
-            ) : messages.map((msg, i) => (
-              msg.role === 'user' ? (
-                <UserBubble key={i} msg={msg} />
-              ) : (
-                <AgentBubble
-                  key={i}
-                  msg={msg}
-                  thinking={state === 'thinking'}
-                  // only the live thinking bubble receives the ticking status, so the
-                  // 1s elapsed counter doesn't bust memoization of done bubbles
-                  status={!msg.text
-                    ? `${t('widget.status.thinking')}… ${Math.max(0, Math.floor(((now || Date.now()) - startRef.current) / 1000))}s`
-                    : undefined}
-                />
-              )
-            ))}
-          </CardContent>
-
-          {tab === 'chat' && (
-          <CardFooter className="flex-col gap-2 p-3">
-            <form className="flex w-full gap-2" onSubmit={submit}>
-              <label className="sr-only" htmlFor="pixel-agent-query">
-                {t('widget.placeholder')}
-              </label>
-              <Input
-                ref={inputRef}
-                id="pixel-agent-query"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('widget.placeholder')}
-                autoComplete="off"
-              />
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                onClick={() => send(t('widget.summarize'))}
-                aria-label={t('widget.summarize.btn')}
-                title={t('widget.summarize.btn')}
-              >
-                <Sparkles />
-              </Button>
-              <Button
-                type="submit"
-                size="icon"
-                disabled={!query.trim()}
-                aria-label={t('widget.send')}
-              >
-                <Send />
-              </Button>
-            </form>
-          </CardFooter>
-          )}
-          </>
+            <ChatPanel
+              t={t}
+              tab={tab}
+              onTabChange={setTab}
+              onClose={closePanel}
+              scrollRef={scrollRef}
+              srStatus={srStatus}
+              messages={messages}
+              thinking={state === 'thinking'}
+              now={now}
+              startRef={startRef}
+              query={query}
+              onQueryChange={setQuery}
+              inputRef={inputRef}
+              onSubmit={submit}
+              onSummarize={() => send(t('widget.summarize'))}
+            />
           )}
         </Card>
       )}
