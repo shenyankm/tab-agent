@@ -45,10 +45,13 @@ function parseClassifyPatches(full: string, ids: Set<string>) {
 }
 
 /** Send one batch to the cloud agent and collect the full reply; one retry on an
- *  unparseable reply. Uses a dedicated session so classify never cancels/pollutes
- *  the user's chat session. ponytail: relations never cross batches — the model
- *  only sees its own batch, so relatedIds stay batch-local. */
-export async function classifyBatch(clips: Clip[]) {
+ *  unparseable reply. `session` is the per-run holder: '' force-creates a
+ *  dedicated session (never the user's chat session), handleChat resolves the id
+ *  it actually used, and later batches/retries reuse it — one run = one gateway
+ *  session entry instead of N/50 throwaways.
+ *  ponytail: relations never cross batches — the model only sees its own batch,
+ *  so relatedIds stay batch-local. */
+export async function classifyBatch(clips: Clip[], session: { id: string } = { id: '' }) {
   const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
@@ -72,15 +75,21 @@ ${clipList}`;
   for (let attempt = 0; ; attempt++) {
     // collect the full agent reply via the send callback
     const chunks: string[] = [];
+    let chat!: Promise<string | undefined>;
     const done = new Promise<void>((resolve, reject) => {
       const send = (msg: ChatOut) => {
         if (msg.type === 'delta') chunks.push(msg.text);
         else if (msg.type === 'done') resolve();
         else if (msg.type === 'error') reject(new Error(msg.message ?? msg.code ?? 'classify error'));
       };
-      handleChat(prompt, undefined, false, new AbortController().signal, send, '').catch(reject);
+      chat = handleChat(prompt, undefined, false, new AbortController().signal, send, session.id);
+      chat.catch(reject); // network/session failure rejects without a terminal message
     });
     await done;
+    // handleChat resolves a few microtasks after its terminal 'done' message —
+    // await it so session.id is settled before the NEXT batch reads it
+    const usedId = await chat;
+    if (usedId) session.id = usedId;
     try {
       return parseClassifyPatches(chunks.join(''), ids);
     } catch (e) {

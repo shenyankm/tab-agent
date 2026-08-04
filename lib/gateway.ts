@@ -172,7 +172,9 @@ export async function handleChat(
   ownSession?: string,
   /** Port sender identity: per-tab session cache + the window to screenshot. */
   sender?: { tabId?: number; windowId?: number },
-) {
+  // resolves the session id used (a fresh one when created) — classify feeds it
+  // back into the next batch so one run reuses a single dedicated session
+): Promise<string | undefined> {
   const [pat, agentId, envId, vaultId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
@@ -259,4 +261,5 @@ export async function handleChat(
       else await sessionIdItem.setValue(sessionId);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
+  return sessionId;
 }
