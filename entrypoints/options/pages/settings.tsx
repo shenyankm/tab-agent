@@ -7,7 +7,7 @@ import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { sendRequest } from '@/lib/messages';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, highlightColorItem } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
@@ -19,6 +19,7 @@ const connFields = [
 
 export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
+  const highlightColor = useStorageValue(highlightColorItem, 'yellow');
   const memorySync = useStorageValue(memorySyncItem, false);
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState<number | null>(null);
@@ -66,6 +67,21 @@ export default function SettingsPage() {
               ['system', t('theme.system')],
               ['dark', t('theme.dark')],
               ['light', t('theme.light')],
+            ]}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="shrink-0 text-sm font-medium">{t('settings.highlightColor')}</span>
+          <RadioDropdown
+            value={highlightColor}
+            // content.tsx watcher restyles live marks on open tabs
+            onChange={(v) => highlightColorItem.setValue(v)}
+            options={[
+              ['yellow', t('hlcolor.yellow')],
+              ['purple', t('hlcolor.purple')],
+              ['green', t('hlcolor.green')],
+              ['blue', t('hlcolor.blue')],
             ]}
           />
         </div>
