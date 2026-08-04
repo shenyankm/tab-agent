@@ -1,4 +1,4 @@
-# Pixel Agent 技术架构文档
+# Tab Agent 技术架构文档
 
 ## 1. 技术栈
 
@@ -109,7 +109,7 @@ user.message → session.status_running → agent.thinking
 
 ### 本项目实例配置
 
-云端三个对象均命名为 `pixel-agent`（ID 不入库，填在扩展设置页）：
+云端三个对象均命名为 `tab-agent`（ID 不入库，填在扩展设置页）：
 
 **Agent**（v11）
 
@@ -135,7 +135,7 @@ user.message → session.status_running → agent.thinking
 
 ### 每日日报（Deployments）
 
-日报是**后端默认行为，无前端开关**；目标 Notion 数据库在用户的云端 Agent 配置里指定，不在扩展侧配置。日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `pixel-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在其被配置写入的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
+日报是**后端默认行为，无前端开关**；目标 Notion 数据库在用户的云端 Agent 配置里指定，不在扩展侧配置。日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `tab-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在其被配置写入的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
 
 扩展侧只确保 Deployment 存在（`lib/daily-report.ts` 的 `syncDeployment`，worker 每次启动调一次）：已缓存 `dep_` id → 零网络直接返回（指令是静态文本，建好后无需 patch）；未配置凭证 → 静默跳过，下次启动重试；首次创建前按 name 查重（多设备不重复建）。数据链：每个聊天回合/保存摘录/分类完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。
 
@@ -187,13 +187,13 @@ user.message → session.status_running → agent.thinking
 | `usage.<YYYY-MM-DD>` | 当日使用日志（回合数/摘录数/分类标志/问答摘要，问答截断，上限 50 条），保留 7 天后清理 |
 | `sessionId.v4.tab.<tabId>` | **按 tab 隔离且按日轮换**的会话缓存，值为 `{id, day}`：全局单会话时 tab B 的 409-cancel 会截断 tab A 进行中的回合；跨天自动重建新会话（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 
-**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `pixel-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + AI 分类回写的 `category`/`relatedIds`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
+**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + AI 分类回写的 `category`/`relatedIds`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 
 - **读写分离**：background 是唯一写者。所有写操作（`addClip`/`removeClip`/`updateClip`，不分 origin）都走 `runtime.sendMessage`（`clipAdd`/`clipDel`/`clipUpdate`）由 background 经 `*Direct` 系列写库；读操作分 origin——扩展 origin（options）经 `getClipsDirect` 直接读，content script 的按页 item 走 `clipsGetForPage` 消息（`pageUrl` 索引，O(本页) 而非全表扫描）。background `onMessage` 用 `return true` 保持异步通道，并统一回 `{ok:true,data}` / `{ok:false,error}` 信封，避免 direct 操作 reject 时发送方永久挂起。`updateClipDirect` 对来自页面消息与 classify 响应的 patch 做白名单 + 类型校验（id 是 keyPath，不校验可整体覆盖另一条记录）。
 - **变更同步**：写库后 background 双通道广播 `{type:'clipsChanged'}`——`tabs.sendMessage` 到所有 tab 的 content script（watcher 收到后只重拉本页摘录，幂等），`runtime.sendMessage` 到 options 等扩展页（`tabs.sendMessage` 到不了扩展页）。按页 item 保持与 WXT storage item 同形的 `getValue`/`watch`，消费方经 `useStorageValue` 无感切换。
 - **排序稳定**：`addClipDirect` 用 `Math.max(Date.now(), last+1)` 保证 `createdAt` 单调，同毫秒连续摘录的 newest-first 顺序确定。
 - **URL 归一**：`normalizeUrl` 去 hash 并删跟踪参数（`utm_*`/`fbclid`/`gclid` 等常见清单），同文多链归一到一个 key；「本页摘录」匹配与 `pageUrl` 入库都走它。
-- **跨页跳转 URL**：`clipNavUrl` 带 `#pixel-agent-clip=<id>` 而非 text-fragment——原生 `::target-text` 高亮无法编程清除，「关闭高亮时淡出」会失效；目标页 content script 按 id 查库后走 `showClip` 同一条定位/高亮/淡出路径，消费后 `history.replaceState` 清掉 hash。
+- **跨页跳转 URL**：`clipNavUrl` 带 `#tab-agent-clip=<id>` 而非 text-fragment——原生 `::target-text` 高亮无法编程清除，「关闭高亮时淡出」会失效；目标页 content script 按 id 查库后走 `showClip` 同一条定位/高亮/淡出路径，消费后 `history.replaceState` 清掉 hash。
 - **失配兜底**：fragment 失配（页面改动/动态渲染）时按 `clip.text` 在文本节点中直接查找重锚（跳过 script/style 等子树，避免向脚本字符串插 `<mark>`）；裸 URL 摘录保持不高亮；图片摘录按 `src`/`currentSrc` 精确匹配原图，以轮廓高亮。
 
 ## 7. 内容脚本 UI 隔离

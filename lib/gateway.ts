@@ -60,7 +60,7 @@ async function createSession(
       agent: { id: agentId, type: 'agent' },
       environment_id: envId,
       // 标题带日期：云端会话列表里能辨认每天轮换的新会话
-      title: `Pixel Agent ${today()}`,
+      title: `Tab Agent ${today()}`,
       ...(vaultId ? { vault_ids: [vaultId] } : {}),
       ...(memoryStoreId ? {
         resources: [{

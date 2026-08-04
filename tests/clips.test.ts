@@ -18,7 +18,7 @@ import { buildClipUrl, highlightClip, unhighlightClip } from '@/lib/clips-highli
 
 function deleteDB(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase('pixel-agent');
+    const req = indexedDB.deleteDatabase('tab-agent');
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
@@ -269,7 +269,7 @@ describe('clip storage (extension origin)', () => {
   it('migrates a v1 database: rows intact, indexes usable', async () => {
     // build a v1-shaped DB (store only, no indexes), then close it
     await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open('pixel-agent', 1);
+      const req = indexedDB.open('tab-agent', 1);
       req.onupgradeneeded = () => req.result.createObjectStore('clips', { keyPath: 'id' });
       req.onsuccess = () => {
         const db = req.result;

@@ -24,7 +24,7 @@ export const panelHeaderClass = 'flex flex-row items-center justify-between bord
 const UserBubble = memo(function UserBubble({ msg }: { msg: ChatMessage }) {
   return (
     <div className="flex flex-col items-end">
-      <div className="pixel-agent-bubble-user">{msg.text}</div>
+      <div className="tab-agent-bubble-user">{msg.text}</div>
       {msg.at && <span className="mt-1 text-[10px] text-muted-foreground">{new Date(msg.at).toLocaleTimeString()}</span>}
     </div>
   );
@@ -33,7 +33,7 @@ const UserBubble = memo(function UserBubble({ msg }: { msg: ChatMessage }) {
 const AgentBubble = memo(function AgentBubble({ msg, thinking, status }: { msg: ChatMessage; thinking: boolean; status?: string }) {
   return (
     <div>
-      <div className="pixel-agent-md">
+      <div className="tab-agent-md">
         {msg.text
           // streaming bubble renders plain text — one markdown parse per
           // turn, on done (parsing every delta was O(n²) on long replies)
@@ -140,7 +140,7 @@ export function ChatPanel({
       </Button>
     </CardHeader>
 
-    <CardContent ref={scrollRef} className="pixel-agent-messages p-4" aria-live="off">
+    <CardContent ref={scrollRef} className="tab-agent-messages p-4" aria-live="off">
       {/* screen-reader status: the full message area can't be a live region —
           streaming deltas + the 1s thinking ticker would announce every second */}
       <div aria-live="polite" className="sr-only">
@@ -169,12 +169,12 @@ export function ChatPanel({
     {tab === 'chat' && (
     <CardFooter className="flex-col gap-2 p-3">
       <form className="flex w-full gap-2" onSubmit={onSubmit}>
-        <label className="sr-only" htmlFor="pixel-agent-query">
+        <label className="sr-only" htmlFor="tab-agent-query">
           {t('widget.placeholder')}
         </label>
         <Input
           ref={inputRef}
-          id="pixel-agent-query"
+          id="tab-agent-query"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={t('widget.placeholder')}

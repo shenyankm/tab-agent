@@ -183,9 +183,9 @@ export function highlightClip(clip: Clip): Element[] {
     if (!el) return [];
     // cssInjectionMode:'ui' styles only reach the Shadow Root — page imgs need inline
     // styles; stash any pre-existing inline outline so unhighlightClip restores it
-    if (!('pixelAgentOutline' in el.dataset)) {
-      el.dataset.pixelAgentOutline = el.style.outline;
-      el.dataset.pixelAgentOutlineOffset = el.style.outlineOffset;
+    if (!('tabAgentOutline' in el.dataset)) {
+      el.dataset.tabAgentOutline = el.style.outline;
+      el.dataset.tabAgentOutlineOffset = el.style.outlineOffset;
     }
     el.style.outline = '3px solid #f39c12';
     el.style.outlineOffset = '2px';
@@ -220,10 +220,10 @@ export function unhighlightClip(els: Element[]) {
     if (el.tagName === 'IMG') {
       const img = el as HTMLElement;
       // restore the pre-highlight inline outline (highlightClip stashed it), don't clobber
-      img.style.outline = img.dataset.pixelAgentOutline ?? '';
-      img.style.outlineOffset = img.dataset.pixelAgentOutlineOffset ?? '';
-      delete img.dataset.pixelAgentOutline;
-      delete img.dataset.pixelAgentOutlineOffset;
+      img.style.outline = img.dataset.tabAgentOutline ?? '';
+      img.style.outlineOffset = img.dataset.tabAgentOutlineOffset ?? '';
+      delete img.dataset.tabAgentOutline;
+      delete img.dataset.tabAgentOutlineOffset;
     }
   const marks = els.filter((el) => el.tagName !== 'IMG');
   if (marks.length) removeMarks(marks);

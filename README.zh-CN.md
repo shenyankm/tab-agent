@@ -1,4 +1,4 @@
-# Pixel Agent
+# Tab Agent
 
 一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类。
 
@@ -43,7 +43,7 @@ Chrome 加载：
 
 填入方式：
 
-1. 点浏览器工具栏的 Pixel Agent 图标 → 齿轮图标（或右键图标 → 选项），打开设置页。
+1. 点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项），打开设置页。
 2. 依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需）。输入框失焦即保存。
 3. 同页可切换语言与主题（跟随设备 / 深色 / 浅色）。
 

@@ -80,7 +80,7 @@ describe('syncDeployment', () => {
   it('adopts an existing same-name deployment instead of creating a duplicate', async () => {
     apiFetch((path, init) => {
       if (path === '/deployments' && !init?.method)
-        return { ok: true, status: 200, json: { data: [{ id: 'dep-found', name: 'pixel-agent-daily-report' }] } };
+        return { ok: true, status: 200, json: { data: [{ id: 'dep-found', name: 'tab-agent-daily-report' }] } };
       return { ok: true, status: 200 };
     });
     await syncDeployment();

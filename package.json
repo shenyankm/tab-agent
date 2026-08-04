@@ -1,6 +1,6 @@
 {
-  "name": "pixel-agent",
-  "description": "Pixel Agent browser extension",
+  "name": "tab-agent",
+  "description": "Tab Agent browser extension",
   "private": true,
   "license": "MIT",
   "version": "0.4.0",

@@ -8,7 +8,7 @@ export function Mascot({ state, size }: { state: AgentState; size: number }) {
 
   return (
     <span
-      className={`pixel-agent-mascot pixel-agent-mascot--${state}`}
+      className={`tab-agent-mascot tab-agent-mascot--${state}`}
       style={{ width: size, height: 168 * scale }}
       aria-hidden="true"
     >

@@ -1,8 +1,8 @@
-# Pixel Agent 产品需求文档（PRD）
+# Tab Agent 产品需求文档（PRD）
 
 ## 1. 产品概述
 
-Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类。
+Tab Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类。
 
 **目标用户**：拥有 Qoder Cloud Agents 账号、希望在浏览网页时随手向自己的云端 Agent 提问的开发者。
 

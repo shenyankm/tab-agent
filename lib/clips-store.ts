@@ -24,7 +24,7 @@ export type Clip = {
 // where IndexedDB would be per-site isolated — so they proxy over runtime messages.
 // chrome.storage keeps only settings.
 
-const DB_NAME = 'pixel-agent';
+const DB_NAME = 'tab-agent';
 const STORE = 'clips';
 
 // content scripts share the page's origin; extension pages are chrome-extension:
@@ -300,7 +300,7 @@ export function normalizeUrl(raw: string): string {
 /** 跨页跳转用 URL：不带 text fragment（原生 ::target-text 高亮无法编程清除，
  * “摘录高亮关闭时淡出”会失效），改带 clip id，由目标页 content script 走 showClip
  * 同一条定位/高亮/淡出路径。 */
-export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#pixel-agent-clip=${clip.id}`;
+export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#tab-agent-clip=${clip.id}`;
 
 // Writes always go through background (the sole writer) so its fan-out reaches
 // every context regardless of origin; only reads take the direct path in the

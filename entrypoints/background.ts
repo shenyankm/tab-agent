@@ -40,7 +40,7 @@ async function handleClassify(): Promise<{ classified: number }> {
   if (!clips.length) return { classified: 0 };
 
   // one dedicated gateway session for the whole run: force-creating per batch
-  // would litter the user's session list with N/50 throwaway "Pixel Agent" entries
+  // would litter the user's session list with N/50 throwaway "Tab Agent" entries
   const session = { id: '' };
   let classified = 0;
   for (let i = 0; i < clips.length; i += CLASSIFY_BATCH) {
@@ -53,7 +53,7 @@ async function handleClassify(): Promise<{ classified: number }> {
   if (classified) logClassified();
   // 分类写回后镜像到云端记忆(默认关闭);失败只影响镜像,本地 IDB 是事实源
   if (await memorySyncItem.getValue())
-    void syncAllClipsToMemoryStore().catch((e) => console.error('[pixel-agent]', e));
+    void syncAllClipsToMemoryStore().catch((e) => console.error('[tab-agent]', e));
   return { classified };
 }
 
@@ -74,14 +74,14 @@ export default defineBackground(() => {
 
   // 日报是后端默认行为:worker 启动时确保 Deployment 存在(已缓存 → 零网络;
   // 未配置凭证静默跳过,下次启动重试)
-  void syncDeployment().catch((e) => console.error('[pixel-agent]', e));
+  void syncDeployment().catch((e) => console.error('[tab-agent]', e));
 
   // 记忆同步开关打开 → 存量摘录一次性全量补齐(此后新增/更新/删除自动镜像)
   memorySyncItem.watch((on) => {
     if (!on || memorySyncInFlight) return;
     const ping = keepalive();
     memorySyncInFlight = syncAllClipsToMemoryStore()
-      .catch((e) => { console.error('[pixel-agent]', e); return 0; })
+      .catch((e) => { console.error('[tab-agent]', e); return 0; })
       .finally(() => { memorySyncInFlight = null; clearInterval(ping); });
   });
 
@@ -257,7 +257,7 @@ export default defineBackground(() => {
         windowId: port.sender?.tab?.windowId,
       })
         .catch((err) => {
-          console.error('[pixel-agent]', err); // port may be gone; keep a trace in the SW console
+          console.error('[tab-agent]', err); // port may be gone; keep a trace in the SW console
           if (!abort.signal.aborted)
             send({ type: 'error', code: err?.code, message: String(err?.message ?? err) });
         })

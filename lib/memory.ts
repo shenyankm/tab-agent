@@ -17,7 +17,7 @@ import { getUsage, toMarkdown } from '@/lib/usage';
 export const MEMORY_INSTRUCTIONS =
   '这是用户的摘录知识库(Memory Store)。涉及用户保存过的摘录、收藏或历史浏览内容时,先读取 /data/.qoder/awareness/ 下的记忆文件再回答。摘录文件为 Markdown:标题、来源 URL、分类、标签、创建时间、正文与备注。记忆属于用户私有数据,不得在会话外引用或转述全文。';
 
-const STORE_NAME = 'pixel-agent-memory';
+const STORE_NAME = 'tab-agent-memory';
 
 /** 按名查找 Store,无则创建;id 缓存到 memoryStoreIdItem。
  *  ponytail: 创建竞态最坏产生重复 Store(仅缓存的那个被挂载,无害);多端并发时再上锁 */
@@ -31,7 +31,7 @@ export async function ensureMemoryStore(pat: string): Promise<string> {
   if (!store) {
     const created = await api(pat, '/memory_stores', {
       method: 'POST',
-      body: JSON.stringify({ name: STORE_NAME, description: 'Pixel Agent 摘录知识库' }),
+      body: JSON.stringify({ name: STORE_NAME, description: 'Tab Agent 摘录知识库' }),
     });
     if (!created.ok) throw new Error(`create memory store: HTTP ${created.status}`);
     store = (await created.json()) as { id?: string };

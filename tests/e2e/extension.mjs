@@ -1,15 +1,15 @@
-// Real-browser E2E for the Pixel Agent extension (playwright-core + system Chrome).
+// Real-browser E2E for the Tab Agent extension (playwright-core + system Chrome).
 // Usage: node tests/e2e/extension.mjs
-// Env:   PIXEL_EXT_DIR — extension build dir (default .output/chrome-mv3)
-//        PIXEL_CHROME  — Chrome binary (default /usr/bin/google-chrome)
+// Env:   TAB_EXT_DIR — extension build dir (default .output/chrome-mv3)
+//        TAB_CHROME  — Chrome binary (default /usr/bin/google-chrome)
 import { chromium } from 'playwright-core';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const EXT_DIR = path.resolve(process.env.PIXEL_EXT_DIR ?? '.output/chrome-mv3');
-const CHROME = process.env.PIXEL_CHROME ?? '/usr/bin/google-chrome';
+const EXT_DIR = path.resolve(process.env.TAB_EXT_DIR ?? '.output/chrome-mv3');
+const CHROME = process.env.TAB_CHROME ?? '/usr/bin/google-chrome';
 
 // fail fast with an actionable message instead of a 15s service-worker timeout
 if (!fs.existsSync(path.join(EXT_DIR, 'manifest.json'))) {
@@ -34,7 +34,7 @@ const check = (name, ok, detail = '') => {
 };
 
 // --- a test page with selectable text ---
-const PAGE_TEXT = 'Pixel Agent E2E unique selection phrase forty two';
+const PAGE_TEXT = 'Tab Agent E2E unique selection phrase forty two';
 const server = http.createServer((req, res) => {
   res.setHeader('content-type', 'text/html; charset=utf-8');
   res.end(`<!doctype html><html><head><title>E2E Test Page</title></head><body>
@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-agent-e2e-'));
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'tab-agent-e2e-'));
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: CHROME,
   headless: false,
@@ -67,11 +67,11 @@ try {
   // --- content script mounts the shadow UI on a real page ---
   const page = await context.newPage();
   await page.goto(pageUrl, { waitUntil: 'load' });
-  const host = page.locator('pixel-agent-floating-ui');
+  const host = page.locator('tab-agent-floating-ui');
   await host.waitFor({ state: 'attached', timeout: 10_000 });
   check('content script mounts shadow UI host', true);
 
-  const hasLauncher = await host.evaluate((el) => !!el.shadowRoot?.querySelector('.pixel-agent-launcher'));
+  const hasLauncher = await host.evaluate((el) => !!el.shadowRoot?.querySelector('.tab-agent-launcher'));
   check('pet launcher rendered inside shadow root', hasLauncher);
 
   // --- save-a-clip flow: selection → edit card → IDB → in-page mark ---
@@ -112,7 +112,7 @@ try {
   await host.waitFor({ state: 'detached', timeout: 5_000 });
   check('pet toggle off unmounts the UI', true);
   await sw.evaluate(() => chrome.storage.local.set({ petEnabled: true }));
-  await page.locator('pixel-agent-floating-ui').waitFor({ state: 'attached', timeout: 5_000 });
+  await page.locator('tab-agent-floating-ui').waitFor({ state: 'attached', timeout: 5_000 });
   check('pet toggle on remounts the UI', true);
 
   // --- options clips page lists the saved clip (createdAt index read) ---
@@ -128,7 +128,7 @@ try {
   await opt2.goto(optionsUrl, { waitUntil: 'load' });
   const dbInfo = await opt2.evaluate(async () => {
     const db = await new Promise((res, rej) => {
-      const r = indexedDB.open('pixel-agent');
+      const r = indexedDB.open('tab-agent');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });

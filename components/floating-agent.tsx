@@ -288,7 +288,7 @@ export function FloatingAgent() {
   return (
     <div
       ref={shellRef}
-      className={cn('pixel-agent-shell', isDark(theme) ? 'dark' : '')}
+      className={cn('tab-agent-shell', isDark(theme) ? 'dark' : '')}
       style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') (draft ? setDraft(null) : closePanel());
@@ -296,11 +296,11 @@ export function FloatingAgent() {
     >
       {(open || draft) && (
         <Card
-          id="pixel-agent-panel"
-          className={cn('pixel-agent-panel gap-0 py-0', below && 'pixel-agent-panel--below', alignLeft && 'pixel-agent-panel--left')}
+          id="tab-agent-panel"
+          className={cn('tab-agent-panel gap-0 py-0', below && 'tab-agent-panel--below', alignLeft && 'tab-agent-panel--left')}
           style={{ maxHeight: Math.min(480, Math.max(180, below ? pos.bottom - 20 : window.innerHeight - pos.bottom - 98)) }}
           role="dialog"
-          aria-label={draft ? t('clips.editor.heading') : 'Pixel Agent'}
+          aria-label={draft ? t('clips.editor.heading') : 'Tab Agent'}
         >
           {draft ? (
             <ClipDraftEditor t={t} draft={draft} onCancel={() => setDraft(null)} />
@@ -330,7 +330,7 @@ export function FloatingAgent() {
         ref={launcherRef}
         type="button"
         variant="ghost"
-        className="pixel-agent-launcher"
+        className="tab-agent-launcher"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -341,7 +341,7 @@ export function FloatingAgent() {
         }}
         aria-label={open ? t('widget.close') : t('widget.open')}
         aria-expanded={open}
-        aria-controls="pixel-agent-panel"
+        aria-controls="tab-agent-panel"
       >
         <Mascot state={state} size={72} />
       </Button>

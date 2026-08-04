@@ -12,7 +12,7 @@ vi.mock('@/lib/clips-store', () => ({
   clipsItem: { getValue: () => mockClips(), watch: () => () => {} },
   removeClip: (id: string) => mockRemoveClip(id),
   updateClip: vi.fn().mockResolvedValue(undefined),
-  clipNavUrl: (c: { pageUrl: string; id: string }) => `${c.pageUrl}#pixel-agent-clip=${c.id}`,
+  clipNavUrl: (c: { pageUrl: string; id: string }) => `${c.pageUrl}#tab-agent-clip=${c.id}`,
 }));
 
 // t() returns the key: assertions read the raw keys

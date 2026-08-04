@@ -1,4 +1,4 @@
-# Pixel Agent
+# Tab Agent
 
 A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu or `Alt+Shift+S`, text-fragment highlights), and classify them with AI.
 
@@ -43,7 +43,7 @@ The extension talks to your own Qoder Cloud Agent. You need three credentials:
 
 Fill them in:
 
-1. Click the Pixel Agent toolbar icon → gear icon (or right-click the icon → Options) to open Settings.
+1. Click the Tab Agent toolbar icon → gear icon (or right-click the icon → Options) to open Settings.
 2. Paste PAT / Agent ID / Environment ID (and Vault ID if needed). Fields save on blur.
 3. Language and theme (system / dark / light) can also be changed here.
 

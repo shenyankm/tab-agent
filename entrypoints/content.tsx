@@ -90,15 +90,15 @@ export default defineContentScript({
     if (document.body) spaObserver.observe(document.body, { childList: true, subtree: true });
     else document.addEventListener('DOMContentLoaded', () => spaObserver.observe(document.body, { childList: true, subtree: true }), { once: true });
 
-    // 跨页跳转落地（options/面板回退打开的 #pixel-agent-clip=id）：走 showClip 同一条
+    // 跨页跳转落地（options/面板回退打开的 #tab-agent-clip=id）：走 showClip 同一条
     // 定位+滚动路径，高亮开关关闭时照常 3s 淡出；消费后清 hash，刷新不重闪
-    const navClip = location.hash.match(/^#pixel-agent-clip=(.+)/)?.[1];
+    const navClip = location.hash.match(/^#tab-agent-clip=(.+)/)?.[1];
     if (navClip) {
       initial.then((clips) => {
         const clip = clips.find((c) => c.id === navClip);
         if (clip) showClip(clip);
       });
-      // 只剥 #pixel-agent-clip= 段:规范化 URL 会把 utm 等参数从地址栏抹掉(影响复制/书签)
+      // 只剥 #tab-agent-clip= 段:规范化 URL 会把 utm 等参数从地址栏抹掉(影响复制/书签)
       history.replaceState(null, '', location.pathname + location.search);
     }
     // the popup switch takes effect live on open tabs
@@ -132,7 +132,7 @@ export default defineContentScript({
     });
 
     const mountUI = () => createShadowRootUi(ctx, {
-      name: 'pixel-agent-floating-ui',
+      name: 'tab-agent-floating-ui',
       position: 'inline',
       isolateEvents: true,
       onMount(container) {

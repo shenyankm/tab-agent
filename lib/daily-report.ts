@@ -6,16 +6,16 @@ import { api } from '@/lib/gateway';
 import { ensureMemoryStore } from '@/lib/memory';
 import { patItem, agentIdItem, envIdItem, vaultIdItem, deploymentIdItem } from '@/lib/settings';
 
-const DEPLOYMENT_NAME = 'pixel-agent-daily-report';
+const DEPLOYMENT_NAME = 'tab-agent-daily-report';
 
 /** Deployment 的 initial_events 指令：Notion 目标库由 Agent 侧配置决定，指令不内嵌 */
 export function buildInstruction(): string {
   return [
-    '你在为 Pixel Agent 生成每日使用日报。步骤：',
+    '你在为 Tab Agent 生成每日使用日报。步骤：',
     '1. 用 shell 取当天日期（date +%F），在 /data/.qoder/awareness/ 目录下找 usage/<日期>.md 文件；',
     '2. 若该文件不存在，说明当天没有使用记录：只回复"今日无记录"并结束，不要创建任何 Notion 页面；',
     '3. 若存在，读取该文件（内含当日对话摘要与统计），可参考同目录下相关摘录，撰写一份简明的中文日报；',
-    '4. 用 notion MCP 工具在你被配置写入的 Notion 数据库中新建页面，标题为"Pixel Agent 日报 <日期>"，内容为日报正文。',
+    '4. 用 notion MCP 工具在你被配置写入的 Notion 数据库中新建页面，标题为"Tab Agent 日报 <日期>"，内容为日报正文。',
   ].join('\n');
 }
 
@@ -46,7 +46,7 @@ export async function syncDeployment(): Promise<void> {
     method: 'POST',
     body: JSON.stringify({
       name: DEPLOYMENT_NAME,
-      description: 'Pixel Agent 每日使用总结，写入 Notion',
+      description: 'Tab Agent 每日使用总结，写入 Notion',
       agent: { id: agentId, type: 'agent' },
       environment_id: envId,
       schedule: {

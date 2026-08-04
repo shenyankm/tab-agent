@@ -61,7 +61,7 @@ vi.mock('@/lib/clips-store', () => {
     addClip: vi.fn(),
     normalizeUrl: normalize,
     removeClip: (id: string) => mockRemoveClip(id),
-    clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`,
+    clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#tab-agent-clip=${clip.id}`,
   };
 });
 
@@ -78,8 +78,8 @@ vi.mock('@/lib/i18n', () => ({  langItem: { getValue: () => Promise.resolve('en'
     setLang: vi.fn(),
     t: (key: string, vars?: Record<string, string | number>) => {
       const dict: Record<string, string> = {
-        'widget.open': 'Open Pixel Agent',
-        'widget.close': 'Close Pixel Agent',
+        'widget.open': 'Open Tab Agent',
+        'widget.close': 'Close Tab Agent',
         'widget.greeting': 'Hi! What would you like to know about this page?',
         'widget.placeholder': 'Ask about this page…',
         'widget.send': 'Send',
@@ -187,14 +187,14 @@ describe('FloatingAgent', () => {
 
   it('opens panel on launcher click and shows greeting', async () => {
     render(<FloatingAgent />);
-    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const launcher = await screen.findByRole('button', { name: 'Open Tab Agent' });
     fireEvent.click(launcher);
     expect(await screen.findByText('Hi! What would you like to know about this page?')).toBeInTheDocument();
   });
 
   it('sends message via port and shows user bubble', async () => {
     render(<FloatingAgent />);
-    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const launcher = await screen.findByRole('button', { name: 'Open Tab Agent' });
     fireEvent.click(launcher);
 
     const input = await screen.findByPlaceholderText('Ask about this page…');
@@ -210,7 +210,7 @@ describe('FloatingAgent', () => {
   it('sends screenshot flag and no page text in screenshot mode', async () => {
     mockCarryGet.mockResolvedValue('screenshot');
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
 
     const input = await screen.findByPlaceholderText('Ask about this page…');
     fireEvent.change(input, { target: { value: 'what do you see?' } });
@@ -228,7 +228,7 @@ describe('FloatingAgent', () => {
 
   it('appends streamed delta text to agent bubble', async () => {
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
 
     const input = await screen.findByPlaceholderText('Ask about this page…');
     fireEvent.change(input, { target: { value: 'hi' } });
@@ -251,7 +251,7 @@ describe('FloatingAgent', () => {
       { id: '2', url: 'https://other.com/#:~:text=x', pageUrl: 'https://other.com/', title: 'o', text: 'clip elsewhere', createdAt: 2 },
     ]);
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Clips' }));
 
     expect(await screen.findByText('clip on this page')).toBeInTheDocument();
@@ -272,7 +272,7 @@ describe('FloatingAgent', () => {
   it('saveClipDraft pops the edit card; saving commits edited title/notes', async () => {
     vi.mocked(addClip).mockResolvedValue({ id: 'c1', createdAt: 1 } as unknown as Clip);
     render(<FloatingAgent />);
-    await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    await screen.findByRole('button', { name: 'Open Tab Agent' });
 
     // panel closed — the card still pops
     act(() => saveClipDraft({ url: 'http://localhost/', pageUrl: 'http://localhost/', title: 'Page', text: 'selected words' }));
@@ -300,7 +300,7 @@ describe('FloatingAgent', () => {
     sel.addRange(range);
 
     render(<FloatingAgent />);
-    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const launcher = await screen.findByRole('button', { name: 'Open Tab Agent' });
     // selection is captured at pointerdown (the click itself collapses it)
     fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerUp(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
@@ -319,7 +319,7 @@ describe('FloatingAgent', () => {
       { id: '9', url: 'http://localhost:3000/#:~:text=here', pageUrl: 'http://localhost:3000/', title: 't', text: 'flash me', createdAt: 1 },
     ]);
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Clips' }));
     await screen.findByText('flash me');
 
@@ -332,7 +332,7 @@ describe('FloatingAgent', () => {
 
   it('shows unconfigured error message', async () => {
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
 
     const input = await screen.findByPlaceholderText('Ask about this page…');
     fireEvent.change(input, { target: { value: 'hi' } });
@@ -350,7 +350,7 @@ describe('FloatingAgent', () => {
   // the widget hung on "Thinking…" forever because port death was never handled
   it('shows disconnected error when port dies mid-turn, not after done', async () => {
     render(<FloatingAgent />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Pixel Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
 
     const input = await screen.findByPlaceholderText('Ask about this page…');
     fireEvent.change(input, { target: { value: 'hi' } });
@@ -375,7 +375,7 @@ describe('FloatingAgent', () => {
   // pet chased the cursor on plain hover and every later click was swallowed as "a drag"
   it('recovers from pointercancel: no hover drag, click still opens', async () => {
     render(<FloatingAgent />);
-    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const launcher = await screen.findByRole('button', { name: 'Open Tab Agent' });
     const shell = launcher.parentElement!;
 
     fireEvent.pointerDown(launcher, { clientX: 100, clientY: 100, pointerId: 1 });
@@ -403,7 +403,7 @@ describe('FloatingAgent', () => {
   // done bubbles are memoized and must NOT re-run the markdown pipeline per frame
   it('dragging the pet does not re-render done markdown bubbles', async () => {
     render(<FloatingAgent />);
-    const launcher = await screen.findByRole('button', { name: 'Open Pixel Agent' });
+    const launcher = await screen.findByRole('button', { name: 'Open Tab Agent' });
     fireEvent.click(launcher);
     await screen.findByText('Hi! What would you like to know about this page?');
     const renders = mdRenderRef.count;
