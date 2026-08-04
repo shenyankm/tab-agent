@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -7,6 +8,7 @@ import { useStorageValue } from '@/lib/utils';
 import { petEnabledItem, pageCarryItem, clipHighlightItem, type PageCarry } from '@/lib/settings';
 
 const carries: PageCarry[] = ['none', 'article', 'screenshot'];
+const ALL_URLS = { origins: ['<all_urls>'] as string[] };
 
 function App() {
   const { t } = useI18n();
@@ -15,9 +17,23 @@ function App() {
   const carry = useStorageValue(pageCarryItem, 'article');
   const highlight = useStorageValue(clipHighlightItem, true);
 
-  // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep old choice
+  // the <all_urls> grant can be revoked outside the popup (chrome://settings):
+  // don't keep offering a "screenshot" mode the extension can no longer perform
+  useEffect(() => {
+    void browser.permissions.contains(ALL_URLS).then((granted) => {
+      if (granted) return;
+      void pageCarryItem.getValue().then((v) => {
+        if (v === 'screenshot') void pageCarryItem.setValue('article');
+      });
+    });
+  }, []);
+
+  // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep
+  // old choice. Least privilege both ways: switching away releases the grant.
   const onCarryChange = async (v: PageCarry) => {
-    if (v === 'screenshot' && !(await browser.permissions.request({ origins: ['<all_urls>'] }))) return;
+    if (v === 'screenshot' && !(await browser.permissions.request(ALL_URLS))) return;
+    if (v !== 'screenshot' && carry === 'screenshot')
+      await browser.permissions.remove(ALL_URLS).catch(() => {});
     pageCarryItem.setValue(v);
   };
 
