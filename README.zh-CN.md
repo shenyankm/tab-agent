@@ -1,22 +1,27 @@
-# Tab Agent
+<p align="center">
+  <img src="public/icon/128.png" width="96" alt="Tab Agent 吉祥物" />
+</p>
 
-一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类。
+<h1 align="center">Tab Agent</h1>
 
-[English](README.md) | **中文**
+<p align="center">
+  <a href="README.md">English</a> | <b>中文</b>
+</p>
 
-## 技术栈
+一只住在每个网页上的气泡小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。
 
-- **框架**：[WXT](https://wxt.dev)（基于 Vite 的扩展框架，Chrome MV3）
-- **UI**：React 19 + [RetroUI](https://retroui.dev)（新粗野主义 shadcn 注册表）+ Tailwind CSS v4
-- **图标**：[lucide-react](https://lucide.dev)
-- **包管理**：pnpm
+> [!NOTE]
+> 本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建；吉祥物形象因好看复用了 Qoder 的 logo。
 
-## 前置条件
+## 功能
 
-- Node.js ≥ 22.13 与 pnpm
-- 一个 [Qoder](https://qoder.com) 账号，且已开通 [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart)
+- **问页面** —— 点宠物提问，可携带当前页面（正文或截图）一起发问。
+- **摘录** —— 右键菜单或快捷键 `Alt+Shift+S` 保存选中文字，text-fragment 高亮刷新不丢、可跨页跳转。
+- **AI 分类** —— 让你的 Agent 给全部摘录打分类。
 
-## 构建与安装
+## 快速开始
+
+前置条件：Node.js ≥ 22.13 与 pnpm；一个 [Qoder](https://qoder.com) 账号，且已开通 [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart)。
 
 ```bash
 pnpm install
@@ -28,7 +33,7 @@ Chrome 加载：
 1. 打开 `chrome://extensions`，右上角开启「开发者模式」。
 2. 点「加载已解压的扩展程序」，选择 `.output/chrome-mv3/` 目录。
 
-开发调试：`pnpm dev`（自带 HMR，自动拉起浏览器）。Firefox：`pnpm build:firefox` / `pnpm dev:firefox`。
+Firefox：`pnpm build:firefox` / `pnpm dev:firefox`。
 
 ## 配置
 
@@ -47,15 +52,11 @@ Chrome 加载：
 2. 依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需）。输入框失焦即保存。
 3. 同页可切换语言与主题（跟随设备 / 深色 / 浅色）。
 
-## 快捷键
+## 使用
 
-- `Alt+Shift+S` — 将当前选中文字保存为摘录（需先选中文字；可在 `chrome://extensions/shortcuts` 重新绑定）。
-
-## 验证
-
-1. 打开任意网页，右下角应出现像素宠物。
-2. 点宠物展开面板，随便问一句——宠物进入「思考」表情，回答流式出现。
-3. 首次提问会自动创建云端会话，稍慢属正常。
+1. 打开任意网页，右下角出现气泡宠物。
+2. 点它提问——进入「思考」表情，回答流式出现。首次提问会自动创建云端会话，稍慢属正常。
+3. 选中文字按 `Alt+Shift+S`（或右键）保存为摘录。可在 `chrome://extensions/shortcuts` 改键。
 
 ## 常见问题
 
@@ -66,11 +67,20 @@ Chrome 加载：
 | 截图上下文不生效 | 在 Popup 选「截图」时会弹权限申请，需允许访问所有网站 |
 | 想强制开新会话 | 在扩展的 Service Worker 控制台清掉 `local:sessionId.v4.tab.<tabId>`（每个标签页一条），或重装扩展 |
 
-## 打包发布
+## 开发
 
 ```bash
+pnpm dev            # Chrome HMR 开发服务器（自动拉起浏览器）
+pnpm test           # 运行测试（Vitest）
+pnpm compile        # 仅类型检查
 pnpm zip            # Chrome 商店提交包
 pnpm zip:firefox    # Firefox AMO 提交包
+```
+
+添加 UI 组件：
+
+```bash
+pnpm dlx shadcn@latest add @retroui/<name>
 ```
 
 ## 项目结构
@@ -105,19 +115,12 @@ lib/                # 共享模块（gateway、classify、i18n、设置、SSE �
 tests/              # Vitest 测试套件
 ```
 
-## 开发
+## 技术栈
 
-```bash
-pnpm dev            # Chrome HMR 开发服务器
-pnpm test           # 运行测试（Vitest）
-pnpm compile        # 仅类型检查
-```
-
-添加 UI 组件：
-
-```bash
-pnpm dlx shadcn@latest add @retroui/<name>
-```
+- **框架**：[WXT](https://wxt.dev)（基于 Vite 的扩展框架，Chrome MV3）
+- **UI**：React 19 + [RetroUI](https://retroui.dev)（新粗野主义 shadcn 注册表）+ Tailwind CSS v4
+- **图标**：[lucide-react](https://lucide.dev)
+- **包管理**：pnpm
 
 ## 许可证
 

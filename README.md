@@ -1,22 +1,27 @@
-# Tab Agent
+<p align="center">
+  <img src="public/icon/128.png" width="96" alt="Tab Agent mascot" />
+</p>
 
-A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu or `Alt+Shift+S`, text-fragment highlights), and classify them with AI.
+<h1 align="center">Tab Agent</h1>
 
-**English** | [中文](README.zh-CN.md)
+<p align="center">
+  <b>English</b> | <a href="README.zh-CN.md">中文</a>
+</p>
 
-## Tech Stack
+A chat-bubble mascot that lives on every webpage. Click it and ask — your configured Qoder Cloud Agent answers based on the page you're viewing.
 
-- **Framework**: [WXT](https://wxt.dev) (Vite-based extension framework, Chrome MV3)
-- **UI**: React 19 + [RetroUI](https://retroui.dev) (neobrutalist shadcn registry) + Tailwind CSS v4
-- **Icons**: [lucide-react](https://lucide.dev)
-- **Package Manager**: pnpm
+> [!NOTE]
+> Not an official Qoder product. Built on Qoder Cloud Agents, and the mascot borrows the Qoder logo because it's cute.
 
-## Prerequisites
+## Features
 
-- Node.js ≥ 22.13 and pnpm
-- A [Qoder](https://qoder.com) account with [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart) enabled
+- **Ask your page** — click the mascot, type a question; the page can be carried along as article text or a screenshot.
+- **Clips** — save text selections via right-click menu or `Alt+Shift+S`, with text-fragment highlights that survive reloads and jump across pages.
+- **AI classification** — let your Agent categorize all your clips.
 
-## Build & Install
+## Quick Start
+
+Prerequisites: Node.js ≥ 22.13 and pnpm; a [Qoder](https://qoder.com) account with [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart) enabled.
 
 ```bash
 pnpm install
@@ -28,7 +33,7 @@ Load in Chrome:
 1. Open `chrome://extensions`, enable **Developer mode** (top-right).
 2. Click **Load unpacked**, select the `.output/chrome-mv3/` directory.
 
-For development: `pnpm dev` (HMR, auto-opens browser). Firefox: `pnpm build:firefox` / `pnpm dev:firefox`.
+Firefox: `pnpm build:firefox` / `pnpm dev:firefox`.
 
 ## Configuration
 
@@ -47,16 +52,11 @@ Fill them in:
 2. Paste PAT / Agent ID / Environment ID (and Vault ID if needed). Fields save on blur.
 3. Language and theme (system / dark / light) can also be changed here.
 
-## Shortcuts
+## Usage
 
-- `Alt+Shift+S` — save the current selection as a clip (needs text selected first;
-  rebindable under `chrome://extensions/shortcuts`).
-
-## Verify
-
-1. Open any webpage — a pixel pet should appear in the bottom-right corner.
-2. Click the pet, type a question — the pet enters "thinking" state and the answer streams in.
-3. The first question creates a cloud session, which may take a moment.
+1. Open any webpage — the mascot appears in the bottom-right corner.
+2. Click it, type a question — it enters the "thinking" state and the answer streams in. The first question creates a cloud session, which may take a moment.
+3. Select text and press `Alt+Shift+S` (or right-click) to save it as a clip. Rebindable under `chrome://extensions/shortcuts`.
 
 ## Troubleshooting
 
@@ -67,11 +67,20 @@ Fill them in:
 | Screenshot context not working | Approve the site-access permission prompt when selecting "Screenshot" in the popup |
 | Want a fresh session | Clear `local:sessionId.v4.tab.<tabId>` via the extension's Service Worker console, or reinstall |
 
-## Packaging
+## Development
 
 ```bash
-pnpm zip            # Chrome Web Store submission
-pnpm zip:firefox    # Firefox AMO submission
+pnpm dev            # Chrome HMR dev server (auto-opens browser)
+pnpm test           # Run tests (Vitest)
+pnpm compile        # Type-check only
+pnpm zip            # Chrome Web Store submission package
+pnpm zip:firefox    # Firefox AMO submission package
+```
+
+Add UI components:
+
+```bash
+pnpm dlx shadcn@latest add @retroui/<name>
 ```
 
 ## Project Structure
@@ -106,19 +115,12 @@ lib/                # Shared modules (gateway, classify, i18n, settings, SSE par
 tests/              # Vitest test suites
 ```
 
-## Development
+## Tech Stack
 
-```bash
-pnpm dev            # Chrome HMR dev server
-pnpm test           # Run tests (Vitest)
-pnpm compile        # Type-check only
-```
-
-Add UI components:
-
-```bash
-pnpm dlx shadcn@latest add @retroui/<name>
-```
+- **Framework**: [WXT](https://wxt.dev) (Vite-based extension framework, Chrome MV3)
+- **UI**: React 19 + [RetroUI](https://retroui.dev) (neobrutalist shadcn registry) + Tailwind CSS v4
+- **Icons**: [lucide-react](https://lucide.dev)
+- **Package Manager**: pnpm
 
 ## License
 
