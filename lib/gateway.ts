@@ -4,7 +4,7 @@
 // handlers), ChatOut/PageContext for its payload typing; the rest of the API
 // surface (api, createSession, uploadFile, postUserMessage, streamReply) stays
 // module-private.
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
 import { MEMORY_INSTRUCTIONS } from '@/lib/memory';
 import { parseSSE } from '@/lib/sse';
 
@@ -88,7 +88,7 @@ function postUserMessage(
   sessionId: string,
   text: string,
   page?: PageContext,
-  notes: string[] = [],
+  note?: string,
   signal?: AbortSignal,
 ) {
   // context is inlined into the user message: agents with browser tools ignore
@@ -96,7 +96,7 @@ function postUserMessage(
   let body = page
     ? `${text}\n\n---\n[Page context] The page below is already open in the user's LOCAL browser. Answer from this content. Do NOT use your own browser tools — your cloud browser cannot see the user's page.\nURL: ${page.url}\nTitle: ${page.title}\n\n${page.text}`
     : text;
-  for (const note of notes) body += `\n\n${note}`;
+  if (note) body += `\n\n${note}`;
   return api(pat, `/sessions/${sessionId}/events`, {
     method: 'POST',
     signal,
@@ -221,14 +221,13 @@ export async function handleChat(
   const memStoreId = ownSession === undefined && memorySync ? memoryStoreId : '';
 
   // per-tab cloud sessions: with one global session, tab B's 409-cancel would
-  // silently truncate tab A's running turn. Fallback to the legacy global key
-  // when the sender has no tab (shouldn't happen for content-script ports).
-  // Keys of closed tabs are cleaned up in background.ts onRemoved.
+  // silently truncate tab A's running turn. Keys of closed tabs are cleaned up
+  // in background.ts onRemoved.
   const sessionKey: `local:${string}` | null =
     sender?.tabId != null ? `local:sessionId.v3.tab.${sender.tabId}` : null;
   let sessionId = ownSession ?? (sessionKey
     ? (await storage.getItem<string>(sessionKey)) ?? ''
-    : await sessionIdItem.getValue());
+    : '');
 
   // upload happens once; mounting is per-session, so it happens inside tryTurn
   let mount: Mount | null = null;
@@ -246,7 +245,6 @@ export async function handleChat(
       note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
     };
   }
-  const notes = mount ? [mount.note] : [];
 
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
@@ -269,7 +267,7 @@ export async function handleChat(
       // pre-await rejections (dead-session 404, failure-path abort) must not fire
       // unhandledrejection; `await streaming` below still surfaces the error
       streaming.catch(() => {});
-      let res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
+      let res = await postUserMessage(pat, sid, text, page, mount?.note, turnSignal);
       if (res.status === 409) {
         // previous turn still running (e.g. re-submit): cancel it, then wait for
         // its session.status_idle before retrying — cancel→idle is async
@@ -280,7 +278,7 @@ export async function handleChat(
             new Promise<void>((r) => setTimeout(r, 5000)), // 5s safety net
           ]);
           onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
-          res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
+          res = await postUserMessage(pat, sid, text, page, mount?.note, turnSignal);
         }
       }
       if (res.status === 404) return false;
@@ -296,9 +294,7 @@ export async function handleChat(
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
     sessionId = await createSession(pat, agentId, envId, vaultId, memStoreId, signal);
-    if (ownSession === undefined)
-      if (sessionKey) await storage.setItem(sessionKey, sessionId);
-      else await sessionIdItem.setValue(sessionId);
+    if (ownSession === undefined && sessionKey) await storage.setItem(sessionKey, sessionId);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
   return sessionId;

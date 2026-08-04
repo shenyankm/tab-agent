@@ -20,10 +20,6 @@ export const memorySyncItem = storage.defineItem<boolean>('local:memorySync', { 
 export const memoryStoreIdItem = storage.defineItem<string>('local:memoryStoreId', { fallback: '' });
 // clipId → cloud memoryId,保证创建/更新/删除对称;条目极小(每摘录一行)
 export const memoryMapItem = storage.defineItem<Record<string, string>>('local:memoryMap', { fallback: {} });
-// v3: key bumped so a fresh session is created with vault_ids attached (v2: pre-page-context history)
-// now the legacy FALLBACK only: chat ports cache per-tab (local:sessionId.v3.tab.<id>) so
-// concurrent tabs can't 409-cancel each other's turns
-export const sessionIdItem = storage.defineItem<string>('local:sessionId.v3', { fallback: '' });
 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);

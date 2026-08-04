@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
-  mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
+  mockPat, mockAgentId, mockEnvId, mockVaultId,
   connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef, tabRemovedListenerRef,
   mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip, mockUpdateClips,
   mockTabsQuery, mockTabsSend, mockCapture, mockMenuCreate, mockMenuRemoveAll,
@@ -12,8 +12,6 @@ const {
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
   mockEnvId: vi.fn().mockResolvedValue('env-1'),
   mockVaultId: vi.fn().mockResolvedValue(''),
-  mockSessionGet: vi.fn().mockResolvedValue(''),
-  mockSessionSet: vi.fn().mockResolvedValue(undefined),
   connectListenerRef: { current: null as ((...args: any[]) => void) | null },
   messageListenerRef: { current: null as ((...args: any[]) => unknown) | null },
   commandListenerRef: { current: null as ((command: string) => void) | null },
@@ -44,7 +42,6 @@ vi.mock('@/lib/settings', () => ({
   agentIdItem: { getValue: () => mockAgentId() },
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
-  sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
   // 云端记忆默认关闭:既有用例零行为变化
   memorySyncItem: { getValue: () => Promise.resolve(false) },
   memoryStoreIdItem: { getValue: () => Promise.resolve('') },
@@ -181,8 +178,7 @@ describe('background handleChat', () => {
     mockAgentId.mockResolvedValue('agent-1');
     mockEnvId.mockResolvedValue('env-1');
     mockVaultId.mockResolvedValue('');
-    mockSessionGet.mockResolvedValue('');
-    mockSessionSet.mockResolvedValue(undefined);
+    perTabStorage.clear();
   });
 
   it('sends unconfigured error when pat is empty', async () => {
@@ -202,7 +198,7 @@ describe('background handleChat', () => {
   });
 
   it('streams delta and done on happy path', async () => {
-    mockSessionGet.mockResolvedValue('sess-1');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
     // the gateway pushes this turn's events only AFTER the user.message POST
     // returns — events arriving before it (the old turn's replay) must be dropped
     let controller: ReadableStreamDefaultController | null = null;
@@ -239,7 +235,7 @@ describe('background handleChat', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
@@ -250,7 +246,7 @@ describe('background handleChat', () => {
   });
 
   it('recreates session when cached session returns 404', async () => {
-    mockSessionGet.mockResolvedValue('dead-session');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'dead-session');
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
@@ -272,11 +268,11 @@ describe('background handleChat', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
-    expect(mockSessionSet).toHaveBeenCalledWith('new-sess');
+    expect(perTabStorage.get('local:sessionId.v3.tab.7')).toBe('new-sess');
     expect(messages.at(-1)).toEqual({ type: 'done' });
   });
 
@@ -287,7 +283,7 @@ describe('background handleChat', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected abort trace
     try {
       // cached session: the turn fires BOTH the stream and the post fetch
-      mockSessionGet.mockResolvedValue('sess-1');
+      perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
       const signals: (AbortSignal | undefined)[] = [];
       vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         signals.push(init?.signal ?? undefined);
@@ -297,7 +293,7 @@ describe('background handleChat', () => {
         });
       }));
 
-      const { port, messages } = connect();
+      const { port, messages } = connect({ tabId: 7 });
       port.postMessage({ text: 'hello' });
       await until(() => signals.length >= 2);
       for (const s of signals) {
@@ -320,7 +316,7 @@ describe('background handleChat', () => {
   // real protocol timeline: the stream opens first and replays the previous turn's
   // events (user.message event_start, in-flight deltas, idle) BEFORE our POST returns
   it('cancels the in-flight turn, drops the old turn\'s replay, and retries the post on 409', async () => {
-    mockSessionGet.mockResolvedValue('sess-1');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
     let posts = 0;
     let cancels = 0;
     let releaseIdle: (() => void) | null = null;
@@ -368,7 +364,7 @@ describe('background handleChat', () => {
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
     }));
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
 
     await until(() => posts === 1 && cancels === 1 && releaseIdle !== null);
@@ -387,7 +383,7 @@ describe('background handleChat', () => {
   it('gives up after two retries on persistent 409 and surfaces the error', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected failure trace
     try {
-      mockSessionGet.mockResolvedValue('sess-1');
+      perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
       let posts = 0;
       let cancels = 0;
       let releaseIdle: (() => void) | null = null;
@@ -421,7 +417,7 @@ describe('background handleChat', () => {
         return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
       }));
 
-      const { port, messages } = connect();
+      const { port, messages } = connect({ tabId: 7 });
       port.postMessage({ text: 'hello' });
 
       // each 409 round: cancel → wait for idle → retry (2 rounds max)
@@ -444,7 +440,7 @@ describe('background handleChat', () => {
   // a stream that closes without session.status_idle (server close, network drop) must
   // still complete the turn — otherwise the content script hangs in "thinking" forever
   it('sends done when the stream closes without session.status_idle', async () => {
-    mockSessionGet.mockResolvedValue('sess-1');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.includes('/events/stream')) {
@@ -460,7 +456,7 @@ describe('background handleChat', () => {
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
     }));
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
     expect(messages.some((m: any) => m.type === 'error')).toBe(false);
@@ -469,7 +465,7 @@ describe('background handleChat', () => {
   });
 
   it('captures, uploads and mounts a screenshot before posting the message', async () => {
-    mockSessionGet.mockResolvedValue('sess-1');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
     const order: string[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
@@ -500,7 +496,7 @@ describe('background handleChat', () => {
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
     }));
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'what do you see?', screenshot: true });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
@@ -511,7 +507,7 @@ describe('background handleChat', () => {
   });
 
   it('recreates the session and re-mounts the screenshot when mounting returns 404', async () => {
-    mockSessionGet.mockResolvedValue('dead-sess');
+    perTabStorage.set('local:sessionId.v3.tab.7', 'dead-sess');
     let uploads = 0;
     const mounts: string[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
@@ -540,13 +536,13 @@ describe('background handleChat', () => {
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
     }));
 
-    const { port, messages } = connect();
+    const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'what do you see?', screenshot: true });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
     expect(uploads).toBe(1); // upload happens once; only mounting is per-session
     expect(mounts).toEqual(['dead-sess', 'new-sess']);
-    expect(mockSessionSet).toHaveBeenCalledWith('new-sess');
+    expect(perTabStorage.get('local:sessionId.v3.tab.7')).toBe('new-sess');
     expect(messages.at(-1)).toEqual({ type: 'done' });
     vi.unstubAllGlobals();
   });
@@ -558,8 +554,6 @@ describe('background per-tab sessions', () => {
     mockAgentId.mockResolvedValue('agent-1');
     mockEnvId.mockResolvedValue('env-1');
     mockVaultId.mockResolvedValue('');
-    mockSessionGet.mockClear().mockResolvedValue('');
-    mockSessionSet.mockClear().mockResolvedValue(undefined);
     mockStorageGet.mockClear();
     mockStorageSet.mockClear();
     perTabStorage.clear();
@@ -582,7 +576,7 @@ describe('background per-tab sessions', () => {
     }));
   }
 
-  it('gives each tab its own cached session, never touching the legacy global key', async () => {
+  it('gives each tab its own cached session', async () => {
     perTabStorage.set('local:sessionId.v3.tab.7', 'sess-A');
     perTabStorage.set('local:sessionId.v3.tab.9', 'sess-B');
     const sessionsUsed: string[] = [];
@@ -599,8 +593,6 @@ describe('background per-tab sessions', () => {
     expect(sessionsUsed).toContain('sess-A');
     expect(sessionsUsed).toContain('sess-B');
     expect(sessionsUsed).not.toContain('new-sess');
-    expect(mockSessionGet).not.toHaveBeenCalled();
-    expect(mockSessionSet).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
@@ -627,7 +619,6 @@ describe('background per-tab sessions', () => {
     await until(() => messages.some((m: any) => m.type === 'done'));
 
     expect(mockStorageSet).toHaveBeenCalledWith('local:sessionId.v3.tab.7', 'new-sess');
-    expect(mockSessionSet).not.toHaveBeenCalled(); // legacy item untouched
     expect(messages.at(-1)).toEqual({ type: 'done' });
     vi.unstubAllGlobals();
   });
@@ -653,20 +644,6 @@ describe('background per-tab sessions', () => {
     await until(() => messages.some((m: any) => m.type === 'done'));
 
     expect(mockCapture).toHaveBeenCalledWith(42, { format: 'jpeg', quality: 80 });
-    vi.unstubAllGlobals();
-  });
-
-  it('falls back to the legacy global session when the sender has no tab', async () => {
-    mockSessionGet.mockResolvedValue('sess-legacy');
-    const sessionsUsed: string[] = [];
-    stubChatFetch(sessionsUsed);
-
-    const { port, messages } = connect(); // no sender
-    port.postMessage({ text: 'hello' });
-    await until(() => messages.some((m: any) => m.type === 'done'));
-
-    expect(sessionsUsed).toContain('sess-legacy');
-    expect(mockStorageGet).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
