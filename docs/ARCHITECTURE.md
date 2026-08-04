@@ -26,7 +26,7 @@ lib/
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   clips.ts         # 摘录：IndexedDB 存储 + text-fragment URL 生成/解析/高亮（text-fragments-polyfill）
-  i18n.tsx         # 多语言
+  i18n.tsx         # 多语言（不用 browser.i18n：需设置页运行时切语言 + 菜单标题实时跟随，_locales 只跟随浏览器语言）
   utils.ts         # cn()（clsx + tailwind-merge）+ useStorageValue hook
 assets/
   style.css        # 主题 token（CSS 变量 + @theme inline），popup/options 直接引入
