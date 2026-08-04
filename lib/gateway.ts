@@ -7,13 +7,11 @@
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
 import { MEMORY_INSTRUCTIONS } from '@/lib/memory';
 import { parseSSE } from '@/lib/sse';
+import { today } from '@/lib/usage'; // 会话缓存按日轮换与日报指令共用
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
 // while a turn or batch classify streams nothing for that long
 export const keepalive = () => setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), 20_000);
-
-// 本地时区 YYYY-MM-DD：会话缓存按日轮换与日报指令共用
-const today = () => new Date().toLocaleDateString('en-CA');
 
 export type ChatOut =
   | { type: 'delta'; text: string }
