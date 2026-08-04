@@ -6,7 +6,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Tab Agent',
-    description: 'A pixel-art pet that answers your page questions and saves knowledge clips.',
+    description: 'A chat-bubble mascot that answers your page questions and saves knowledge clips.',
     // AbortSignal.any (background turns) requires Chrome 116+
     minimum_chrome_version: '116',
     permissions: ['storage', 'contextMenus'],
