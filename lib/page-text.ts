@@ -1,17 +1,23 @@
 import { Readability } from '@mozilla/readability';
 
-// ponytail: everything ships eagerly — WXT bundles content scripts as one IIFE and
-// inlines dynamic imports (verified: lazy-loading grew the bundle); revisit if WXT
-// ever supports content-script code splitting
-
 // Readability mutates its input, so it gets a clone; null/throw (non-article pages,
 // framesets) falls back to raw innerText. article.textContent is plain text — the
 // page context goes into an LLM prompt, no markdown conversion needed.
-// ponytail: keyed by URL — same-URL DOM changes (SPA-loaded content) go stale;
-// invalidate on mutation reports if summaries ever lag the page
+// keyed by URL with a mutation generation: same-URL DOM changes (SPA-loaded content)
+// invalidate the cache via a debounced MutationObserver so LLM prompts see fresh text
 let pageTextCache: { url: string; text: string } | null = null;
+let textGen = 0, textGenAt = 0;
+if (typeof document !== 'undefined') {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const obs = new MutationObserver(() => {
+    if (timer) return;
+    timer = setTimeout(() => { textGen++; timer = null; }, 1000);
+  });
+  if (document.body) obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+  else document.addEventListener('DOMContentLoaded', () => obs.observe(document.body, { childList: true, subtree: true, characterData: true }), { once: true });
+}
 export function pageText() {
-  if (pageTextCache?.url === location.href) return pageTextCache.text;
+  if (pageTextCache?.url === location.href && textGen === textGenAt) return pageTextCache.text;
   let text: string | undefined;
   try {
     const article = new Readability(document.cloneNode(true) as Document).parse();
@@ -23,5 +29,6 @@ export function pageText() {
   // full text would sit in this module-level cache forever
   const capped = text.slice(0, 20000);
   pageTextCache = { url: location.href, text: capped };
+  textGenAt = textGen;
   return capped;
 }

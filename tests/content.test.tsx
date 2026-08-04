@@ -277,7 +277,7 @@ describe('FloatingAgent', () => {
     await waitFor(() => expect(screen.queryByText('Edit before saving')).not.toBeInTheDocument());
   });
 
-  it('pre-fills a translate prompt from the page selection, capped at 2k chars', async () => {
+  it('pre-fills a translate prompt from the page selection', async () => {
     const node = document.body.appendChild(document.createTextNode('x'.repeat(3000)));
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -293,7 +293,7 @@ describe('FloatingAgent', () => {
     fireEvent.click(launcher);
 
     const input = await screen.findByPlaceholderText('Ask about this page…') as HTMLInputElement;
-    expect(input.value).toBe(`Translate into English: ${'x'.repeat(2000)}`);
+    expect(input.value).toBe(`Translate into English: ${'x'.repeat(3000)}`);
 
     sel.removeAllRanges();
     node.remove();

@@ -239,8 +239,7 @@ export function FloatingAgent() {
   if (!enabled) return null;
 
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    // ponytail: 2k cap keeps the single-line input sane; raise if long-form translation matters
-    selRef.current = window.getSelection()?.toString().trim().slice(0, 2000) ?? '';
+    selRef.current = window.getSelection()?.toString().trim() ?? '';
     dragRef.current = { x: event.clientX, y: event.clientY, ...pos, moved: false };
     movedRef.current = false; // a dropped pointerup must not swallow this click too
     event.currentTarget.setPointerCapture(event.pointerId);
