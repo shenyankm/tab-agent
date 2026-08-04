@@ -1,6 +1,6 @@
 import { addClip, type Clip } from '@/lib/clips-store';
 import { highlightClip, unhighlightClip } from '@/lib/clips-highlight';
-import { clipHighlightItem } from '@/lib/settings';
+import { clipHighlightItem, highlightColorItem, HIGHLIGHT_COLORS, type HighlightColor } from '@/lib/settings';
 
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
 // new ones; isConnected drops SPA-navigation leftovers and re-highlights on demand
@@ -8,6 +8,16 @@ const markByClip = new Map<string, Element[]>();
 // clip id → pending fade timer: a re-click re-arms the fade instead of stacking
 // independent timers — the first one would delete the freshly re-shown marks early
 const fadeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const paint = (marks: Element[], color: HighlightColor) => {
+  const bg = HIGHLIGHT_COLORS[color] ?? HIGHLIGHT_COLORS.yellow; // storage 可能被手改成非法值
+  for (const m of marks) if (m.tagName !== 'IMG') (m as HTMLElement).style.backgroundColor = bg;
+};
+
+/** 高亮色变更后给在页 mark 补色(content.tsx watch 调用) */
+export function restyleMarks(color: HighlightColor) {
+  for (const marks of markByClip.values()) paint(marks, color);
+}
 
 export function showClip(clip: Clip, scroll = true): boolean {
   let marks = markByClip.get(clip.id);
@@ -17,6 +27,8 @@ export function showClip(clip: Clip, scroll = true): boolean {
     marks = highlightClip(clip);
     if (!marks.length) return false;
     markByClip.set(clip.id, marks);
+    // 新建 mark 补上选中的高亮色;读取失败(上下文失效)保持浏览器默认黄
+    highlightColorItem.getValue().then((c) => paint(marks!, c)).catch(() => {});
   }
   if (scroll) {
     marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });

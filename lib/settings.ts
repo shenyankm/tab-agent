@@ -1,5 +1,14 @@
 export type Theme = 'system' | 'dark' | 'light';
 export type PageCarry = 'none' | 'article' | 'screenshot';
+export type HighlightColor = 'yellow' | 'purple' | 'green' | 'blue';
+
+// 页面 DOM 里的 <mark> 吃不到 Shadow UI 的样式(cssInjectionMode:'ui'),只能内联
+export const HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
+  yellow: '#fef08a',
+  purple: '#e9d5ff',
+  green: '#bbf7d0',
+  blue: '#bfdbfe',
+};
 
 // matches host_permissions in wxt.config.ts
 export const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
@@ -7,6 +16,7 @@ export const GATEWAY = 'https://api.qoder.com/api/v1/cloud';
 export const themeItem = storage.defineItem<Theme>('local:theme', { fallback: 'system' });
 export const petEnabledItem = storage.defineItem<boolean>('local:petEnabled', { fallback: true });
 export const clipHighlightItem = storage.defineItem<boolean>('local:clipHighlight', { fallback: true });
+export const highlightColorItem = storage.defineItem<HighlightColor>('local:highlightColor', { fallback: 'yellow' });
 export const petPosItem = storage.defineItem<{ right: number; bottom: number }>('local:petPos', {
   fallback: { right: 20, bottom: 20 },
 });
