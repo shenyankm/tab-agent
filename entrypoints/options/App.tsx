@@ -35,13 +35,13 @@ function App() {
         </TabsList>
 
         <TabsContent value="settings" className="w-full">
-          <Suspense fallback={null}><SettingsPage /></Suspense>
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><SettingsPage /></Suspense>
         </TabsContent>
         <TabsContent value="clips" className="w-full">
-          <Suspense fallback={null}><ClipsPage /></Suspense>
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><ClipsPage /></Suspense>
         </TabsContent>
         <TabsContent value="privacy" className="w-full">
-          <Suspense fallback={null}><PrivacyPage /></Suspense>
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><PrivacyPage /></Suspense>
         </TabsContent>
       </Tabs>
     </div>

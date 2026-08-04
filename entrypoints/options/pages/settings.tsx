@@ -82,7 +82,7 @@ export default function SettingsPage() {
           <span className="shrink-0 text-sm font-medium">{t('settings.memorySync')}</span>
           <Switch
             checked={memorySync}
-            onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => {})}
+            onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => { /* storage 写失败:下次读回旧值,UI 已 watch 同步 */ })}
           />
         </div>
 
@@ -92,7 +92,7 @@ export default function SettingsPage() {
             <Input
               value={conn[key] ?? ''}
               onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
-              onBlur={() => item.setValue((conn[key] ?? '').trim()).catch(() => {})}
+              onBlur={() => item.setValue((conn[key] ?? '').trim()).catch(() => { /* storage 写失败:内存中的输入值保留,下次 blur 重试 */ })}
               placeholder={placeholder}
               type="password"
               className="max-w-60"

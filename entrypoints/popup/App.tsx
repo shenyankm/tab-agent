@@ -33,7 +33,7 @@ function App() {
   const onCarryChange = async (v: PageCarry) => {
     if (v === 'screenshot' && !(await browser.permissions.request(ALL_URLS))) return;
     if (v !== 'screenshot' && carry === 'screenshot')
-      await browser.permissions.remove(ALL_URLS).catch(() => {});
+      await browser.permissions.remove(ALL_URLS).catch(() => { /* 权限已被外部移除:幂等 */ });
     pageCarryItem.setValue(v);
   };
 
