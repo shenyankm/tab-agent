@@ -37,6 +37,7 @@ export default function ClipsPage() {
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [deleting, setDeleting] = useState<Clip | null>(null);
+  const [opError, setOpError] = useState('');
 
   const cats = useMemo(
     () => [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort(),
@@ -121,17 +122,21 @@ export default function ClipsPage() {
           rows={3}
           placeholder={t('clips.notePlaceholder')}
         />
-        <div className="mt-2 flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditingNote(null)}>
+        <div className="mt-2 flex items-center justify-end gap-2">
+          {opError && editingNote === clip.id && (
+            <span className="mr-auto text-xs text-destructive">{opError}</span>
+          )}
+          <Button variant="outline" size="sm" onClick={() => { setEditingNote(null); setOpError(''); }}>
             {t('clips.cancel')}
           </Button>
           <Button
             variant="default"
             size="sm"
             onClick={() => {
+              setOpError('');
               updateClip(clip.id, { notes: parseNoteLines(noteText) })
                 .then(() => setEditingNote(null))
-                .catch(() => { /* 保存失败:编辑器保持打开,可重试 */ });
+                .catch(() => setOpError(t('clips.opFailed')));
             }}
           >
             {t('clips.save')}
@@ -226,15 +231,19 @@ export default function ClipsPage() {
             <AlertDialogDescription className="line-clamp-2">{deleting?.text}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('clips.cancel')}</AlertDialogCancel>
+            {opError && deleting && (
+              <span className="mr-auto text-xs text-destructive">{opError}</span>
+            )}
+            <AlertDialogCancel onClick={() => setOpError('')}>{t('clips.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={(e) => {
                 if (!deleting) return;
                 e.preventDefault(); // 手动控制关闭时机:失败时对话框保持打开
+                setOpError('');
                 removeClip(deleting.id)
-                  .then(() => setDeleting(null))
-                  .catch(() => { /* 删除失败:对话框保持打开,可重试 */ });
+                  .then(() => { setDeleting(null); })
+                  .catch(() => setOpError(t('clips.opFailed')));
               }}
             >
               {t('clips.delete')}

@@ -153,6 +153,17 @@ flowchart LR
 | MV3 worker 30s 无 API 活动被回收 | 回合/分类期间每 20s `runtime.getPlatformInfo()` 保活；仍被杀则前端 `port.onDisconnect` 渲染「连接中断」 |
 | 用户重新提交 | 前端 disconnect Port → 后台 abort → 新回合 |
 
+### 错误码
+
+消息层（`lib/messages.ts`）的 `Reply<T>` 信封与聊天层（`lib/gateway.ts`）的 `ChatOut` 共用一套错误码，调用方可按码区分处理：
+
+| 错误码 | 来源 | 含义 | UI 表现 |
+|---|---|---|---|
+| `unconfigured` | `handleChat` | PAT/Agent ID/Env ID 未配置 | 聊天气泡提示「请到设置页填写」 |
+| `auth` | `api()` 统一出口 | 401/403，PAT 无效或过期 | 聊天气泡提示「检查 PAT」 |
+| `invalid` | background `onMessage` | 消息载荷校验失败（客户端 bug） | 无 UI（调用方不应发送非法载荷） |
+| 无码（undefined） | 网络/超时/IDB 等运行时错误 | 通用失败 | 聊天气泡提示「请求失败，请重试」 |
+
 ### AI 分类（classifyClips）
 
 由 `{type:'classifyClips'}` 消息触发（UI 入口已移除，目前仅 background 处理该消息，无前端触发方），目标是「不污染用户聊天会话」：

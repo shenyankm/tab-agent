@@ -18,12 +18,13 @@ export type Request =
   | { type: 'classifyClips' };
 
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},
-// they don't reject, so the sender never hangs
-export type Reply<T> = { ok: true; data: T } | { ok: false; error?: string };
+// they don't reject, so the sender never hangs. code lets the caller distinguish
+// client bugs (invalid payload) from runtime failures (IDB error, network).
+export type Reply<T> = { ok: true; data: T } | { ok: false; error?: string; code?: string };
 
 /** Send a request through the background proxy and unwrap the reply envelope. */
 export async function sendRequest<T>(msg: Request): Promise<T> {
   const res = (await browser.runtime.sendMessage(msg)) as Reply<T>;
-  if (!res?.ok) throw new Error(res?.error ?? 'request failed');
+  if (!res?.ok) throw Object.assign(new Error(res?.error ?? 'request failed'), { code: res?.code });
   return res.data;
 }

@@ -187,7 +187,7 @@ export function FloatingAgent() {
           ? t('widget.error.auth')
           : msg.code === 'unconfigured'
             ? t('widget.error.unconfigured')
-            : t('widget.error.generic', { message: msg.message ?? '' });
+            : t('widget.error.generic');
         patchLast(errText, true);
         flushPending(); // the replace lands synchronously, before the stamp
         stampLast();

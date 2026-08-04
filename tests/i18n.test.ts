@@ -44,7 +44,7 @@ describe('useI18n t()', () => {
   it('interpolates variables', async () => {
     const { result } = renderHook(() => useI18n());
     await waitFor(() =>
-      expect(result.current.t('widget.error.generic', { message: 'oops' })).toBe('Request failed: oops'),
+      expect(result.current.t('widget.translate', { text: 'hello' })).toBe('Translate into English: hello'),
     );
   });
 
