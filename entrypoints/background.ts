@@ -1,17 +1,21 @@
-import { dict, langItem } from '@/lib/i18n';
+import { dict, langItem, DEFAULT_LANG, type Lang, type I18nKey } from '@/lib/i18n';
 import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, type Clip } from '@/lib/clips-store';
+import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
-// (options) which tabs.sendMessage can't reach.
-function fanOutClipsChanged() {
+// (options) which tabs.sendMessage can't reach. page (the changed clip's
+// normalized pageUrl) lets page watchers skip other pages' changes; omitted when
+// a change spans pages (classify), so every watcher refreshes.
+function fanOutClipsChanged(page?: string) {
+  const msg = { type: CLIPS_CHANGED, page };
   browser.tabs
     .query({})
     .then((tabs) => {
       for (const tab of tabs)
         if (tab.id)
-          browser.tabs.sendMessage(tab.id, { type: 'clipsChanged' }).catch(() => {
+          browser.tabs.sendMessage(tab.id, msg).catch(() => {
             /* no content script on this tab */
           });
     })
@@ -20,7 +24,7 @@ function fanOutClipsChanged() {
     });
   // runtime.sendMessage reaches extension pages (options) but not content scripts;
   // background itself has no watcher, so no echo to worry about here.
-  void browser.runtime.sendMessage({ type: 'clipsChanged' }).catch(() => {
+  void browser.runtime.sendMessage(msg).catch(() => {
     /* no extension page listening */
   });
 }
@@ -31,10 +35,13 @@ async function handleClassify(): Promise<{ classified: number }> {
   const clips = await getClipsDirect();
   if (!clips.length) return { classified: 0 };
 
+  // one dedicated gateway session for the whole run: force-creating per batch
+  // would litter the user's session list with N/50 throwaway "Pixel Agent" entries
+  const session = { id: '' };
   let classified = 0;
   for (let i = 0; i < clips.length; i += CLASSIFY_BATCH) {
     // write each batch back as it lands: a later batch's failure keeps earlier progress
-    const patches = await classifyBatch(clips.slice(i, i + CLASSIFY_BATCH));
+    const patches = await classifyBatch(clips.slice(i, i + CLASSIFY_BATCH), session);
     await updateClipsDirect(patches);
     classified += patches.length;
   }
@@ -58,19 +65,24 @@ export default defineBackground(() => {
     'save-clip-page': 'clips.menu.page',
     'save-clip-image': 'clips.menu.image',
   } as const;
+  // storage can hold a stale/invalid lang (old version, manual edit) — an
+  // undefined dict row here would crash onInstalled and no menu would ever be
+  // created; same fallback chain as t()
+  const menuText = (lang: Lang, key: string) =>
+    (dict[lang] as Record<string, string> | undefined)?.[key] ?? dict[DEFAULT_LANG][key as I18nKey];
   browser.runtime.onInstalled.addListener(async () => {
     const lang = await langItem.getValue();
     // removeAll first: onInstalled also fires on update, create() with an existing id errors;
     // must await — create() racing ahead of removeAll hits the same duplicate-id error
     await browser.contextMenus.removeAll();
-    browser.contextMenus.create({ id: 'save-clip', title: dict[lang]['clips.menu'], contexts: ['selection'] });
-    browser.contextMenus.create({ id: 'save-clip-page', title: dict[lang]['clips.menu.page'], contexts: ['page'] });
-    browser.contextMenus.create({ id: 'save-clip-image', title: dict[lang]['clips.menu.image'], contexts: ['image'] });
+    browser.contextMenus.create({ id: 'save-clip', title: menuText(lang, 'clips.menu'), contexts: ['selection'] });
+    browser.contextMenus.create({ id: 'save-clip-page', title: menuText(lang, 'clips.menu.page'), contexts: ['page'] });
+    browser.contextMenus.create({ id: 'save-clip-image', title: menuText(lang, 'clips.menu.image'), contexts: ['image'] });
   });
   langItem.watch((lang) => {
     for (const [id, key] of Object.entries(MENU_TITLES))
       // update() rejects if the menu id is gone (e.g. before onInstalled ran) — non-fatal
-      browser.contextMenus.update(id, { title: dict[lang][key] }).catch(() => {});
+      browser.contextMenus.update(id, { title: menuText(lang, key) }).catch(() => {});
   });
   // the content script owns selection/page saves: it has the live Selection and DOM
   const saveClipToTab = (tabId: number, type: 'saveClip' | 'saveClipPage' = 'saveClip') =>
@@ -92,7 +104,7 @@ export default defineBackground(() => {
         addClipDirect({
           kind: 'image', url: srcUrl, pageUrl: srcUrl, title: '',
           text: altText || srcUrl, imageSrc: srcUrl,
-        }).then(() => fanOutClipsChanged()).catch(() => {
+        }).then((clip) => fanOutClipsChanged(clip.pageUrl)).catch(() => {
           /* write failed; menu click has no surface to report on */
         }),
       );
@@ -118,17 +130,23 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const ok = (data: unknown) => sendResponse({ ok: true, data });
     const fail = (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) });
-    if (msg?.type === 'clipsGet') {
+    const req = msg as Request;
+    if (req?.type === 'clipsGet') {
       getClipsDirect().then(ok, fail);
       return true;
     }
     // 只回本页摘录:content 端每次 clipsChanged 刷新不再搬全量表过消息通道;
     // pageUrl 索引让读取本身也是 O(本页) 而非全表扫描
-    if (msg?.type === 'clipsGetForPage') {
-      getClipsForPageDirect(msg.page as string).then(ok, fail);
+    if (req?.type === 'clipsGetForPage') {
+      // 无 page 时 index.getAll(undefined) 按 WebIDL 语义等于无查询——会回全表
+      if (typeof req.page !== 'string' || !req.page) {
+        fail(new Error('invalid page'));
+        return true;
+      }
+      getClipsForPageDirect(req.page).then(ok, fail);
       return true;
     }
-    if (msg?.type === 'clipAdd') {
+    if (req?.type === 'clipAdd') {
       // page messages are untrusted — same defense-in-depth as sanitizePatch: a dirty
       // type (e.g. text: {}) in the DB crashes React rendering downstream. Lenient:
       // text required, every other field validated only when present.
@@ -144,26 +162,26 @@ export default defineBackground(() => {
         return true;
       }
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
-        fanOutClipsChanged();
+        fanOutClipsChanged(clip.pageUrl);
         ok(clip);
       }, fail);
       return true;
     }
-    if (msg?.type === 'clipDel') {
-      removeClipDirect(msg.id as string).then(() => {
-        fanOutClipsChanged();
+    if (req?.type === 'clipDel') {
+      removeClipDirect(req.id).then((page) => {
+        fanOutClipsChanged(page);
         ok(undefined);
       }, fail);
       return true;
     }
-    if (msg?.type === 'clipUpdate') {
-      updateClipDirect(msg.id as string, msg.patch).then(() => {
-        fanOutClipsChanged();
+    if (req?.type === 'clipUpdate') {
+      updateClipDirect(req.id, req.patch).then((page) => {
+        fanOutClipsChanged(page);
         ok(undefined);
       }, fail);
       return true;
     }
-    if (msg?.type === 'classifyClips') {
+    if (req?.type === 'classifyClips') {
       // classify (LLM generation + N IDB writes) easily exceeds the 30s worker cap
       const ping = keepalive();
       classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
