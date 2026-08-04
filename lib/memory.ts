@@ -9,7 +9,7 @@
 //   - 该目录属用户私有数据:不得把摘录原文写入其他文件,不得输出与问题无关的摘录全文。
 //   - 你被授予 read_write:用户明确说"记住 X"时可在 awareness/ 下新建记忆文件,但不要修改 clips/ 前缀的文件(由扩展自动维护)。
 import { api } from '@/lib/gateway';
-import { patItem, memoryStoreIdItem, memoryMapItem } from '@/lib/settings';
+import { patItem, memoryStoreIdItem, memoryMapItem, memorySyncItem } from '@/lib/settings';
 import { getClipsDirect, type Clip } from '@/lib/clips-store';
 import { getUsage, toMarkdown } from '@/lib/usage';
 
@@ -92,6 +92,14 @@ export async function deleteClipFromMemoryStore(clipId: string): Promise<void> {
   if (!res.ok) throw new Error(`delete memory: HTTP ${res.status}`);
   const { [clipId]: _gone, ...rest } = map;
   await memoryMapItem.setValue(rest);
+}
+
+/** 写入后自动镜像单条摘录(新增/更新钩子用):开关关或无 PAT 时 no-op,失败由调用方静默。 */
+export async function mirrorClip(clip: Clip): Promise<void> {
+  if (!(await memorySyncItem.getValue())) return;
+  const pat = await patItem.getValue();
+  if (!pat) return;
+  await syncClipToMemoryStore(pat, await ensureMemoryStore(pat), clip);
 }
 
 /** 全量镜像:无 PAT → 0;逐条同步,单条失败不阻断其余(部分成功 = 返回值)。 */
