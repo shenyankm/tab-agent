@@ -51,7 +51,7 @@ function parseClassifyPatches(full: string, ids: Set<string>) {
  *  session entry instead of N/50 throwaways.
  *  ponytail: relations never cross batches — the model only sees its own batch,
  *  so relatedIds stay batch-local. */
-export async function classifyBatch(clips: Clip[], session: { id: string } = { id: '' }) {
+export async function classifyBatch(clips: Clip[], session: { id: string }) {
   const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
