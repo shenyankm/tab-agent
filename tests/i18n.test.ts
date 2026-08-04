@@ -16,16 +16,10 @@ vi.mock('wxt/utils/storage', () => ({
 
 import { useI18n, dict, type I18nKey } from '@/lib/i18n';
 
-describe('dict parity', () => {
-  const base = Object.keys(dict.en).sort();
-
-  it('every language has exactly the same keys as en', () => {
-    for (const lang of ['zh-CN', 'zh-TW', 'ja'] as const) {
-      expect(Object.keys(dict[lang]).sort()).toEqual(base);
-    }
-  });
-
+// key 缺失由 lib/i18n.ts 的 _parity 类型在 tsc 阶段报错,这里只查 tsc 管不到的占位符
+describe('dict placeholders', () => {
   it('placeholders survive translation', () => {
+    const base = Object.keys(dict.en).sort();
     const enDict: Record<string, string> = dict.en;
     for (const key of base) {
       const holders = (enDict[key].match(/\{\w+\}/g) ?? []).sort();
