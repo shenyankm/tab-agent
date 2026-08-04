@@ -16,7 +16,6 @@ export type Request =
   | { type: 'clipDel'; id: string }
   | { type: 'clipUpdate'; id: string; patch: ClipPatch }
   | { type: 'classifyClips' }
-  | { type: 'memorySync' }
   | { type: 'dailyReportNow' };
 
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},

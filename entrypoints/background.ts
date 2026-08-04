@@ -3,7 +3,7 @@ import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect,
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
-import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore } from '@/lib/memory';
+import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore, mirrorClip } from '@/lib/memory';
 import { syncDeployment, buildInstruction } from '@/lib/daily-report';
 import { logChat, logClipAdded, logClassified, purgeOld, today } from '@/lib/usage';
 import { memorySyncItem, notionDbIdItem, dailyReportItem, patItem } from '@/lib/settings';
@@ -61,8 +61,8 @@ async function handleClassify(): Promise<{ classified: number }> {
 // would double the LLM cost and race the write-back
 let classifyInFlight: Promise<{ classified: number }> | null = null;
 
-// 手动"立即同步"同样共享单次运行:并行同步会重复写云端 Store
-let memorySyncInFlight: Promise<{ synced: number }> | null = null;
+// 云端记忆改为写入即自动镜像;开关打开时对存量摘录库补一次全量,共享单次运行避免并发重复写
+let memorySyncInFlight: Promise<number> | null = null;
 
 // "立即生成日报"共享单次运行:一次性专用会话(ownSession=''),同 classify 模式
 let reportInFlight: Promise<{ day: string }> | null = null;
@@ -87,6 +87,15 @@ export default defineBackground(() => {
   const resync = () => void syncDeployment().catch((e) => console.error('[pixel-agent]', e));
   dailyReportItem.watch(resync);
   notionDbIdItem.watch(resync);
+
+  // 记忆同步开关打开 → 存量摘录一次性全量补齐(此后新增/更新/删除自动镜像)
+  memorySyncItem.watch((on) => {
+    if (!on || memorySyncInFlight) return;
+    const ping = keepalive();
+    memorySyncInFlight = syncAllClipsToMemoryStore()
+      .catch((e) => { console.error('[pixel-agent]', e); return 0; })
+      .finally(() => { memorySyncInFlight = null; clearInterval(ping); });
+  });
 
   // "save clip" context menus; titles follow the UI language
   const MENU_TITLES = {
@@ -193,6 +202,7 @@ export default defineBackground(() => {
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
         fanOutClipsChanged(clip.pageUrl);
         logClipAdded();
+        void mirrorClip(clip).catch(() => {}); // 自动镜像(开关关时内部 no-op),失败不影响本地
         ok(clip);
       }, fail);
       return true;
@@ -212,6 +222,12 @@ export default defineBackground(() => {
       updateClipDirect(req.id, req.patch).then((page) => {
         fanOutClipsChanged(page);
         ok(undefined);
+        // 更新后把合并结果重推镜像:updateClipDirect 不回传合并行,回读查找
+        // (摘录更新低频,O(n) 无碍);镜像失败静默,本地是事实源
+        void getClipsDirect()
+          .then((clips) => clips.find((c) => c.id === req.id))
+          .then((clip) => clip && mirrorClip(clip))
+          .catch(() => {});
       }, fail);
       return true;
     }
@@ -220,15 +236,6 @@ export default defineBackground(() => {
       const ping = keepalive();
       classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
       classifyInFlight.then(ok, fail).finally(() => clearInterval(ping));
-      return true;
-    }
-    if (req?.type === 'memorySync') {
-      // 全量镜像同步(摘录量大时同样超出 30s worker cap):keepalive + 共享单次运行
-      const ping = keepalive();
-      memorySyncInFlight ??= syncAllClipsToMemoryStore()
-        .then((synced) => ({ synced }))
-        .finally(() => { memorySyncInFlight = null; });
-      memorySyncInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
     if (req?.type === 'dailyReportNow') {
