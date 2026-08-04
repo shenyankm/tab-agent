@@ -13,7 +13,7 @@
 
 ## 前置条件
 
-- Node.js ≥ 20.11 与 pnpm
+- Node.js ≥ 22.13 与 pnpm
 - 一个 [Qoder](https://qoder.com) 账号，且已开通 [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart)
 
 ## 构建与安装
@@ -64,7 +64,7 @@ Chrome 加载：
 | 提示「尚未配置」 | PAT / Agent ID / Environment ID 三项有缺，回设置页补全 |
 | 提示「鉴权失败」 | PAT 失效或填错，重新生成一个 |
 | 截图上下文不生效 | 在 Popup 选「截图」时会弹权限申请，需允许访问所有网站 |
-| 想强制开新会话 | 在扩展的 Service Worker 控制台清掉 `local:sessionId.v3` 与 `local:sessionId.v3.tab.*`，或重装扩展 |
+| 想强制开新会话 | 在扩展的 Service Worker 控制台清掉 `local:sessionId.v4.tab.<tabId>`（每个标签页一条），或重装扩展 |
 
 ## 打包发布
 
@@ -74,6 +74,22 @@ pnpm zip:firefox    # Firefox AMO 提交包
 ```
 
 ## 项目结构
+
+```mermaid
+flowchart TD
+    Page["任意网页"] --- Content
+    subgraph Ext["浏览器扩展（MV3）"]
+        Content["content.tsx — 浮动宠物 / 聊天面板 / 摘录高亮（Shadow DOM）"]
+        BG["background.ts（Service Worker）— 会话管理 / SSE 流 / 摘录写入"]
+        Popup["popup 与 options — 设置 / 摘录 / 隐私"]
+    end
+    Cloud["Qoder 云端 API（api.qoder.com，SSE）"]
+    IDB[("IndexedDB — 摘录数据")]
+    Content <--> |"Port：聊天文本 + 页面/截图 ⇄ delta / done / error"| BG
+    Popup --> |runtime 消息| BG
+    BG --> |"fetch，Bearer PAT"| Cloud
+    BG <--> IDB
+```
 
 ```
 entrypoints/

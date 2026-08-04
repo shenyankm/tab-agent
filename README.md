@@ -13,7 +13,7 @@ A pixel-art pet that lives on every webpage. Click it, ask a question, and your 
 
 ## Prerequisites
 
-- Node.js ≥ 20.11 and pnpm
+- Node.js ≥ 22.13 and pnpm
 - A [Qoder](https://qoder.com) account with [Cloud Agents](https://docs.qoder.com/zh/cloud-agents/quickstart) enabled
 
 ## Build & Install
@@ -65,7 +65,7 @@ Fill them in:
 | "Not configured" error | PAT / Agent ID / Environment ID incomplete — fill all three in Settings |
 | "Auth failed" error | PAT expired or wrong — regenerate one |
 | Screenshot context not working | Approve the site-access permission prompt when selecting "Screenshot" in the popup |
-| Want a fresh session | Clear `local:sessionId.v3` and `local:sessionId.v3.tab.*` via the extension's Service Worker console, or reinstall |
+| Want a fresh session | Clear `local:sessionId.v4.tab.<tabId>` via the extension's Service Worker console, or reinstall |
 
 ## Packaging
 
@@ -75,6 +75,22 @@ pnpm zip:firefox    # Firefox AMO submission
 ```
 
 ## Project Structure
+
+```mermaid
+flowchart TD
+    Page["Web page"] --- Content
+    subgraph Ext["Browser Extension (MV3)"]
+        Content["content.tsx — floating pet / chat panel / clip highlights (Shadow DOM)"]
+        BG["background.ts (Service Worker) — sessions / SSE stream / clip writes"]
+        Popup["popup & options — Settings / Clips / Privacy"]
+    end
+    Cloud["Qoder Cloud API (api.qoder.com, SSE)"]
+    IDB[("IndexedDB — clips")]
+    Content <--> |"Port: chat text + page/screenshot ⇄ delta / done / error"| BG
+    Popup --> |runtime messages| BG
+    BG --> |"fetch, Bearer PAT"| Cloud
+    BG <--> IDB
+```
 
 ```
 entrypoints/
