@@ -1,6 +1,7 @@
 // Clip storage: IndexedDB layer + message facade + URL utils. No DOM/polyfill
 // imports — background bundles this module; the highlight half lives in
 // clips-highlight.ts (content script only).
+import { CLIPS_CHANGED, sendRequest } from '@/lib/messages';
 
 export type Clip = {
   id: string;
@@ -25,7 +26,6 @@ export type Clip = {
 
 const DB_NAME = 'pixel-agent';
 const STORE = 'clips';
-const CHANGED = 'clipsChanged';
 
 // content scripts share the page's origin; extension pages are chrome-extension:
 // (moz-extension: on Firefox). Computed lazily — at build time (vite-node)
@@ -97,15 +97,10 @@ export async function closeClipsDB() {
   dbPromise = null;
 }
 
-// extension-origin local writes don't cross contexts via tabs.sendMessage, so fan
-// out locally for background/options' own watchers; tabs get the broadcast instead
-const localChanges = new EventTarget();
-
-function broadcastClipsChanged() {
-  localChanges.dispatchEvent(new Event(CHANGED));
-}
-
 // ---- extension-origin direct access (background writer, options reader) ----
+// This layer never broadcasts changes itself: the background handler fans out
+// once per user action (classify: once per whole run), so per-write notification
+// here would multiply traffic. Options pages only read through this path.
 
 export async function getClipsDirect(): Promise<Clip[]> {
   const db = await openDB();
@@ -123,9 +118,14 @@ export async function getClipsForPageDirect(page: string): Promise<Clip[]> {
   return clips.sort((a, b) => b.createdAt - a.createdAt); // newest first
 }
 
+// a selection can be the whole page (Ctrl+A): cap it so megabytes don't land in
+// IDB and ride every clipsGetForPage reply afterwards
+const TEXT_CAP = 20_000;
+
 export async function addClipDirect(clip: Omit<Clip, 'id' | 'createdAt'>): Promise<Clip> {
   const full = {
     ...clip,
+    text: clip.text.slice(0, TEXT_CAP),
     pageUrl: normalizeUrl(clip.pageUrl),
     id: crypto.randomUUID(),
     createdAt: (lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1)),
@@ -134,16 +134,22 @@ export async function addClipDirect(clip: Omit<Clip, 'id' | 'createdAt'>): Promi
   const tx = db.transaction(STORE, 'readwrite');
   tx.objectStore(STORE).put(full);
   await txDone(tx);
-  broadcastClipsChanged();
   return full;
 }
 
-export async function removeClipDirect(id: string): Promise<void> {
+/** Delete one clip; resolves its pageUrl (for the caller's fan-out payload). */
+export async function removeClipDirect(id: string): Promise<string | undefined> {
   const db = await openDB();
   const tx = db.transaction(STORE, 'readwrite');
-  tx.objectStore(STORE).delete(id);
+  const store = tx.objectStore(STORE);
+  // issued back-to-back with the delete so the tx stays active; the read only
+  // feeds the broadcast payload
+  let pageUrl: string | undefined;
+  const get = store.get(id);
+  get.onsuccess = () => { pageUrl = (get.result as Clip | undefined)?.pageUrl; };
+  store.delete(id);
   await txDone(tx);
-  broadcastClipsChanged();
+  return pageUrl;
 }
 
 // patch 来自页面消息(不可信)与 classify 响应:白名单 + 类型校验。id 是 keyPath,
@@ -165,33 +171,54 @@ function sanitizePatch(patch: ClipPatch): Partial<Clip> {
   return safe;
 }
 
-export async function updateClipDirect(id: string, patch: ClipPatch): Promise<void> {
-  return updateClipsDirect([{ id, patch }]);
+/** Single patch; resolves the clip's pageUrl (for the caller's fan-out payload). */
+export async function updateClipDirect(id: string, patch: ClipPatch): Promise<string | undefined> {
+  return (await updateClipsDirect([{ id, patch }]))[0];
 }
 
-/** Batch patch in one readwrite transaction (classify writes hundreds); broadcasts once. */
-export async function updateClipsDirect(patches: { id: string; patch: ClipPatch }[]): Promise<void> {
-  if (!patches.length) return;
+/** Batch patch in one readwrite transaction (classify writes hundreds); resolves
+ *  the pageUrls of the clips actually patched. */
+export async function updateClipsDirect(patches: { id: string; patch: ClipPatch }[]): Promise<string[]> {
+  if (!patches.length) return [];
   const db = await openDB();
   const tx = db.transaction(STORE, 'readwrite');
   const store = tx.objectStore(STORE);
-  // one getAll + in-memory merge, then all puts issued synchronously: awaiting
-  // individual get→put pairs inside the transaction lets it go inactive at the
-  // microtask boundary (Firefox throws TransactionInactiveError)
-  const all = (await req2p(store.getAll())) as Clip[];
-  const byId = new Map(all.map((c) => [c.id, c]));
   const done = txDone(tx);
-  for (const { id, patch } of patches) {
-    const safe = sanitizePatch(patch);
-    if (!Object.keys(safe).length) continue;
-    const clip = byId.get(id);
-    if (!clip) continue;
-    const merged = { ...clip, ...safe };
-    byId.set(id, merged); // two patches to one id accumulate instead of clobbering
-    store.put(merged);
-  }
+  done.catch(() => {}); // pre-handled: an early reject below must not leave this dangling
+  // per-id gets issued synchronously in one task, puts fired from inside the last
+  // get's onsuccess. Crossing an await between get→put lets the tx go inactive at
+  // the task boundary (Firefox throws TransactionInactiveError), and a getAll
+  // would read the whole store to patch a handful of records.
+  const pages = new Set<string>();
+  await new Promise<void>((resolve, reject) => {
+    const rows = new Map<string, Clip>();
+    let pending = patches.length;
+    for (const { id } of patches) {
+      const req = store.get(id);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        try {
+          if (req.result) rows.set(id, req.result as Clip);
+          if (--pending > 0) return;
+          for (const { id, patch } of patches) {
+            const safe = sanitizePatch(patch);
+            if (!Object.keys(safe).length) continue;
+            const clip = rows.get(id);
+            if (!clip) continue;
+            const merged = { ...clip, ...safe };
+            rows.set(id, merged); // two patches to one id accumulate instead of clobbering
+            pages.add(clip.pageUrl);
+            store.put(merged);
+          }
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      };
+    }
+  });
   await done;
-  broadcastClipsChanged();
+  return [...pages];
 }
 
 // ---- unified facade: direct in the extension origin, message proxy in content scripts ----
@@ -199,11 +226,11 @@ export async function updateClipsDirect(patches: { id: string; patch: ClipPatch 
 /** Same shape as a WXT storage item, so useStorageValue keeps working unchanged. */
 export const clipsItem = {
   getValue: (): Promise<Clip[]> =>
-    isContentScript() ? write<Clip[]>({ type: 'clipsGet' }) : getClipsDirect(),
+    isContentScript() ? sendRequest<Clip[]>({ type: 'clipsGet' }) : getClipsDirect(),
   // refresh rejections (invalidated context after reload/update) are non-fatal:
   // swallow them instead of flooding the page console with unhandled rejections
   watch: (cb: (clips: Clip[]) => void) =>
-    watchChanges(() => void clipsItem.getValue().then(cb).catch(() => {})),
+    watchChanges(() => clipsItem.getValue().then(cb).catch(() => {})),
 };
 
 // content script 的每次 clipsChanged 只关心本页:background 过滤后回传,payload
@@ -213,32 +240,41 @@ const pageItems = new Map<string, { getValue: () => Promise<Clip[]>; watch: type
 export function clipsPageItem(page: string) {
   let item = pageItems.get(page);
   if (!item) {
+    // 广播携带的 page 是写入时规范化后的 pageUrl,这里按同一规则预规范化再比对
+    const np = normalizeUrl(page);
     const getValue = (): Promise<Clip[]> =>
       isContentScript()
-        ? write<Clip[]>({ type: 'clipsGetForPage', page })
+        ? sendRequest<Clip[]>({ type: 'clipsGetForPage', page })
         : getClipsForPageDirect(page);
-    item = { getValue, watch: (cb) => watchChanges(() => void getValue().then(cb).catch(() => {})) };
+    item = { getValue, watch: (cb) => watchChanges(() => getValue().then(cb).catch(() => {}), np) };
     pageItems.set(page, item);
   }
   return item;
 }
 
-// extension-origin local writes don't cross contexts via tabs.sendMessage, so fan
-// out locally for background/options' own watchers; tabs get the broadcast instead
-function watchChanges(refresh: () => void): () => void {
-  const onMessage = (msg: { type?: string }) => {
-    if (msg?.type === CHANGED) refresh();
+// refresh is coalesced: a broadcast landing while a re-read is in flight sets a
+// dirty flag for exactly one follow-up read — rapid consecutive writes must not
+// resolve out of order and leave the UI on a stale snapshot. page (normalized on
+// both sides) lets page watchers skip other pages' changes; a bare broadcast
+// (classify) refreshes everyone.
+function watchChanges(refresh: () => Promise<unknown>, page?: string): () => void {
+  let inFlight = false;
+  let dirty = false;
+  const run = () => {
+    if (inFlight) { dirty = true; return; }
+    inFlight = true;
+    void refresh().finally(() => {
+      inFlight = false;
+      if (dirty) { dirty = false; run(); }
+    });
+  };
+  const onMessage = (msg: { type?: string; page?: string }) => {
+    if (msg?.type !== CLIPS_CHANGED) return;
+    if (page && msg.page && msg.page !== page) return; // another page's change
+    run();
   };
   browser.runtime.onMessage.addListener(onMessage);
-  if (isContentScript()) {
-    // content writes go through messages; background's broadcast covers this page
-    return () => browser.runtime.onMessage.removeListener(onMessage);
-  }
-  localChanges.addEventListener(CHANGED, refresh);
-  return () => {
-    localChanges.removeEventListener(CHANGED, refresh);
-    browser.runtime.onMessage.removeListener(onMessage);
-  };
+  return () => browser.runtime.onMessage.removeListener(onMessage);
 }
 
 export const stripHash = (url: string) => url.split('#')[0];
@@ -268,23 +304,16 @@ export const clipNavUrl = (clip: Clip) => `${stripHash(clip.pageUrl)}#pixel-agen
 
 // Writes always go through background (the sole writer) so its fan-out reaches
 // every context regardless of origin; only reads take the direct path in the
-// extension origin. Background replies {ok:true,data} / {ok:false,error}.
-type Reply<T> = { ok: true; data: T } | { ok: false; error?: string };
-
-async function write<T>(msg: unknown): Promise<T> {
-  const res = (await browser.runtime.sendMessage(msg)) as Reply<T>;
-  if (!res?.ok) throw new Error(res?.error ?? 'clip write failed');
-  return res.data;
-}
-
+// extension origin. Background replies {ok:true,data} / {ok:false,error} —
+// sendRequest (lib/messages) unwraps the envelope and rejects on failure.
 export function addClip(clip: Omit<Clip, 'id' | 'createdAt'>): Promise<Clip> {
-  return write<Clip>({ type: 'clipAdd', clip });
+  return sendRequest<Clip>({ type: 'clipAdd', clip });
 }
 
 export function removeClip(id: string): Promise<void> {
-  return write<void>({ type: 'clipDel', id });
+  return sendRequest<void>({ type: 'clipDel', id });
 }
 
 export function updateClip(id: string, patch: ClipPatch): Promise<void> {
-  return write<void>({ type: 'clipUpdate', id, patch });
+  return sendRequest<void>({ type: 'clipUpdate', id, patch });
 }
