@@ -4,7 +4,8 @@
 // handlers), ChatOut/PageContext for its payload typing; the rest of the API
 // surface (api, createSession, uploadFile, postUserMessage, streamReply) stays
 // module-private.
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, sessionIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
+import { MEMORY_INSTRUCTIONS } from '@/lib/memory';
 import { parseSSE } from '@/lib/sse';
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
@@ -20,7 +21,7 @@ export type ChatOut =
 // handleChat unsettled forever — that would leak the keepalive interval and pin
 // the worker alive permanently. Streams opt out (timeout: false) and rely on
 // their own 90s read watchdog instead.
-async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
+export async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
   const { timeout, ...rest } = init ?? {};
   const signals = [rest.signal, timeout === false ? undefined : AbortSignal.timeout(timeout ?? 30_000)]
     .filter((s): s is AbortSignal => !!s);
@@ -40,7 +41,15 @@ async function api(pat: string, path: string, init?: RequestInit & { timeout?: n
   return res;
 }
 
-async function createSession(pat: string, agentId: string, envId: string, vaultId: string, signal?: AbortSignal) {
+async function createSession(
+  pat: string,
+  agentId: string,
+  envId: string,
+  vaultId: string,
+  /** 云端记忆 Store id,非空时作为 resources 挂载(仅用户聊天会话传值) */
+  memoryStoreId: string,
+  signal?: AbortSignal,
+) {
   const res = await api(pat, '/sessions', {
     method: 'POST',
     signal,
@@ -49,6 +58,14 @@ async function createSession(pat: string, agentId: string, envId: string, vaultI
       environment_id: envId,
       title: 'Pixel Agent',
       ...(vaultId ? { vault_ids: [vaultId] } : {}),
+      ...(memoryStoreId ? {
+        resources: [{
+          type: 'memory_store',
+          memory_store_id: memoryStoreId,
+          access: 'read_write',
+          instructions: MEMORY_INSTRUCTIONS,
+        }],
+      } : {}),
     }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
@@ -175,21 +192,27 @@ export async function handleChat(
   // resolves the session id used (a fresh one when created) — classify feeds it
   // back into the next batch so one run reuses a single dedicated session
 ): Promise<string | undefined> {
-  const [pat, agentId, envId, vaultId] = await Promise.all([
+  const [pat, agentId, envId, vaultId, memorySync, memoryStoreId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
     envIdItem.getValue(),
     vaultIdItem.getValue(),
+    memorySyncItem.getValue(),
+    memoryStoreIdItem.getValue(),
   ]);
   if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
     return;
   }
 
+  // 分类/专用会话(ownSession 非 undefined)不挂载 Store:严格 JSON prompt 不受记忆干扰。
+  // Store 在首次同步时才懒创建,开启同步但尚未同步过的聊天不挂载(同步是显式用户动作)
+  const memStoreId = ownSession === undefined && memorySync ? memoryStoreId : '';
+
   // per-tab cloud sessions: with one global session, tab B's 409-cancel would
   // silently truncate tab A's running turn. Fallback to the legacy global key
   // when the sender has no tab (shouldn't happen for content-script ports).
-  // ponytail: keys of closed tabs linger in storage (a few bytes each); prune if it ever matters
+  // Keys of closed tabs are cleaned up in background.ts onRemoved.
   const sessionKey: `local:${string}` | null =
     sender?.tabId != null ? `local:sessionId.v3.tab.${sender.tabId}` : null;
   let sessionId = ownSession ?? (sessionKey
@@ -255,7 +278,7 @@ export async function handleChat(
 
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
-    sessionId = await createSession(pat, agentId, envId, vaultId, signal);
+    sessionId = await createSession(pat, agentId, envId, vaultId, memStoreId, signal);
     if (ownSession === undefined)
       if (sessionKey) await storage.setItem(sessionKey, sessionId);
       else await sessionIdItem.setValue(sessionId);

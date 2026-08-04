@@ -3,6 +3,8 @@ import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect,
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
+import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore } from '@/lib/memory';
+import { memorySyncItem } from '@/lib/settings';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
@@ -46,12 +48,18 @@ async function handleClassify(): Promise<{ classified: number }> {
     classified += patches.length;
   }
   fanOutClipsChanged();
+  // 分类写回后镜像到云端记忆(默认关闭);失败只影响镜像,本地 IDB 是事实源
+  if (await memorySyncItem.getValue())
+    void syncAllClipsToMemoryStore().catch((e) => console.error('[pixel-agent]', e));
   return { classified };
 }
 
 // concurrent classify triggers (two options tabs) share one run — parallel runs
 // would double the LLM cost and race the write-back
 let classifyInFlight: Promise<{ classified: number }> | null = null;
+
+// 手动"立即同步"同样共享单次运行:并行同步会重复写云端 Store
+let memorySyncInFlight: Promise<{ synced: number }> | null = null;
 
 export default defineBackground(() => {
   // warm the extension-origin DB at startup
@@ -170,6 +178,10 @@ export default defineBackground(() => {
     if (req?.type === 'clipDel') {
       removeClipDirect(req.id).then((page) => {
         fanOutClipsChanged(page);
+        // 云端镜像同步删除(默认关闭):本地已删,镜像残留会误导 Agent,尽力清理
+        void memorySyncItem.getValue().then((on) => {
+          if (on) deleteClipFromMemoryStore(req.id).catch(() => { /* 镜像删除失败静默 */ });
+        });
         ok(undefined);
       }, fail);
       return true;
@@ -186,6 +198,15 @@ export default defineBackground(() => {
       const ping = keepalive();
       classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
       classifyInFlight.then(ok, fail).finally(() => clearInterval(ping));
+      return true;
+    }
+    if (req?.type === 'memorySync') {
+      // 全量镜像同步(摘录量大时同样超出 30s worker cap):keepalive + 共享单次运行
+      const ping = keepalive();
+      memorySyncInFlight ??= syncAllClipsToMemoryStore()
+        .then((synced) => ({ synced }))
+        .finally(() => { memorySyncInFlight = null; });
+      memorySyncInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
   });

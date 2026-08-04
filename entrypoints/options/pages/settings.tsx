@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem } from '@/lib/settings';
+import { sendRequest } from '@/lib/messages';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
@@ -16,8 +19,20 @@ const connFields = [
 
 export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
+  const memorySync = useStorageValue(memorySyncItem, false);
+  const [syncing, setSyncing] = useState(false);
+  const [synced, setSynced] = useState<number | null>(null);
   const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
+
+  // 同步走 background(唯一写方 + keepalive);失败(如未配置 PAT)按 0 条展示
+  const syncNow = () => {
+    setSyncing(true);
+    sendRequest<{ synced: number }>({ type: 'memorySync' })
+      .then((r) => setSynced(r.synced))
+      .catch(() => setSynced(0))
+      .finally(() => setSyncing(false));
+  };
 
   useEffect(() => {
     connFields.forEach(([key, item]) => {
@@ -59,6 +74,24 @@ export default function SettingsPage() {
       <Separator className="my-6" />
 
       <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <span className="shrink-0 text-sm font-medium">{t('settings.memorySync')}</span>
+          <div className="flex items-center gap-3">
+            {synced !== null && (
+              <span className="text-xs text-muted-foreground">
+                {t('settings.memorySyncResult', { n: synced })}
+              </span>
+            )}
+            <Button size="sm" variant="outline" disabled={syncing} onClick={syncNow}>
+              {t('settings.memorySyncNow')}
+            </Button>
+            <Switch
+              checked={memorySync}
+              onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => {})}
+            />
+          </div>
+        </div>
+
         {connFields.map(([key, item, placeholder]) => (
           <div key={key} className="flex items-center justify-between gap-4">
             <span className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</span>

@@ -43,6 +43,10 @@ vi.mock('@/lib/settings', () => ({
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
   sessionIdItem: { getValue: () => mockSessionGet(), setValue: (v: string) => mockSessionSet(v) },
+  // 云端记忆默认关闭:既有用例零行为变化
+  memorySyncItem: { getValue: () => Promise.resolve(false) },
+  memoryStoreIdItem: { getValue: () => Promise.resolve('') },
+  memoryMapItem: { getValue: () => Promise.resolve({}), setValue: () => Promise.resolve() },
 }));
 
 vi.mock('@/lib/i18n', () => ({

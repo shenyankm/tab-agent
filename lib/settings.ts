@@ -15,6 +15,11 @@ export const patItem = storage.defineItem<string>('local:pat', { fallback: '' })
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
 export const vaultIdItem = storage.defineItem<string>('local:vaultId', { fallback: '' });
+// 云端记忆同步(摘录 → Qoder Memory Store 镜像):默认关闭,开启后才有网络行为
+export const memorySyncItem = storage.defineItem<boolean>('local:memorySync', { fallback: false });
+export const memoryStoreIdItem = storage.defineItem<string>('local:memoryStoreId', { fallback: '' });
+// clipId → cloud memoryId,保证创建/更新/删除对称;条目极小(每摘录一行)
+export const memoryMapItem = storage.defineItem<Record<string, string>>('local:memoryMap', { fallback: {} });
 // v3: key bumped so a fresh session is created with vault_ids attached (v2: pre-page-context history)
 // now the legacy FALLBACK only: chat ports cache per-tab (local:sessionId.v3.tab.<id>) so
 // concurrent tabs can't 409-cancel each other's turns
