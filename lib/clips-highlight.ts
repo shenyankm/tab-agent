@@ -171,9 +171,15 @@ function findTextRange(text: string, prefix?: string, suffix?: string): Range | 
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
 export function highlightClip(clip: Clip): Element[] {
   if (clip.kind === 'image' && clip.imageSrc) {
-    // ponytail: exact src/currentSrc match — lazy-load/srcset variants miss silently
-    // (same as a stale text fragment); upgrade to normalized matching if reports come in
-    const el = [...document.images].find((img) => img.src === clip.imageSrc || img.currentSrc === clip.imageSrc);
+    // exact src match first (lazy-load/srcset variants miss on the exact path,
+    // so fall back to hostname+pathname normalization for those)
+    const imgs = [...document.images];
+    let el = imgs.find((img) => img.src === clip.imageSrc || img.currentSrc === clip.imageSrc);
+    if (!el) {
+      const norm = (u: string) => { try { const a = new URL(u, location.href); return a.hostname + a.pathname; } catch { return u; } };
+      const ns = norm(clip.imageSrc);
+      el = imgs.find((img) => norm(img.src) === ns || norm(img.currentSrc) === ns);
+    }
     if (!el) return [];
     // cssInjectionMode:'ui' styles only reach the Shadow Root — page imgs need inline
     // styles; stash any pre-existing inline outline so unhighlightClip restores it

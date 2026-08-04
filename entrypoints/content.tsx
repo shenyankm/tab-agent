@@ -52,7 +52,7 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(onMessage);
 
     // re-apply saved highlights: text fragments only fire on navigation, not on reload
-    // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
+    // MutationObserver catches SPA content rendered after document_idle so it gets marked too
     let page = normalizeUrl(location.href);
     let pageClips = clipsPageItem(page); // background 只回本页摘录,不再全量过通道
     // 开关每切换一次，在途的 idle 重放回调作废（否则关闭后残留回调会重新加 mark）
@@ -68,9 +68,24 @@ export default defineContentScript({
     // 启动时高亮重放与 #clip=id 落地共用同一次读取;扩展更新后旧上下文里的
     // sendMessage 会 reject,吞掉而不是在页面控制台刷 unhandled rejection
     const initial = pageClips.getValue().catch(() => [] as Clip[]);
+    let highlightOn = false; // 内存镜像开关:observer 回调短路,不必每次读 storage
     clipHighlightItem.getValue()
-      .then((on) => { if (on) initial.then(replay); })
+      .then((on) => { highlightOn = on; if (on) initial.then(replay); })
       .catch(() => { /* invalidated context */ });
+
+    // SPA DOM 变化后重试高亮:页面内容异步渲染后重新定位
+    let spaTimer: ReturnType<typeof setTimeout> | null = null;
+    const spaObserver = new MutationObserver(() => {
+      if (spaTimer || !highlightOn) return;
+      spaTimer = setTimeout(() => {
+        spaTimer = null;
+        if (!highlightOn) return;
+        clipGen++; // 作废旧 mark,重新定位(持续变化的页面以 2s 窗口收敛)
+        pageClips.getValue().then(replay).catch(() => {});
+      }, 2000);
+    });
+    if (document.body) spaObserver.observe(document.body, { childList: true, subtree: true });
+    else document.addEventListener('DOMContentLoaded', () => spaObserver.observe(document.body, { childList: true, subtree: true }), { once: true });
 
     // 跨页跳转落地（options/面板回退打开的 #pixel-agent-clip=id）：走 showClip 同一条
     // 定位+滚动路径，高亮开关关闭时照常 3s 淡出；消费后清 hash，刷新不重闪
@@ -86,6 +101,7 @@ export default defineContentScript({
     // the popup switch takes effect live on open tabs
     const unwatchHighlight = clipHighlightItem.watch((on) => {
       clipGen++;
+      highlightOn = on;
       if (on) return void pageClips.getValue().then(replay).catch(() => { /* invalidated context */ });
       clearAllMarks();
     });
@@ -105,6 +121,8 @@ export default defineContentScript({
       browser.runtime.onMessage.removeListener(onMessage);
       unwatchHighlight();
       unsubNav();
+      spaObserver.disconnect();
+      if (spaTimer) clearTimeout(spaTimer);
     });
 
     const mountUI = () => createShadowRootUi(ctx, {
