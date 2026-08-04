@@ -30,9 +30,9 @@ const {
   mockMenuCreate: vi.fn(),
   mockMenuRemoveAll: vi.fn().mockResolvedValue(undefined),
   // backing map for the per-tab session cache (WXT storage auto-import)
-  perTabStorage: new Map<string, string>(),
+  perTabStorage: new Map<string, unknown>(),
   mockStorageGet: vi.fn((key: string) => Promise.resolve(perTabStorage.get(key) ?? null)),
-  mockStorageSet: vi.fn((key: string, value: string) => { perTabStorage.set(key, value); return Promise.resolve(); }),
+  mockStorageSet: vi.fn((key: string, value: unknown) => { perTabStorage.set(key, value); return Promise.resolve(); }),
   mockStorageRemove: vi.fn((key: string) => { perTabStorage.delete(key); return Promise.resolve(); }),
 }));
 
@@ -46,6 +46,10 @@ vi.mock('@/lib/settings', () => ({
   memorySyncItem: { getValue: () => Promise.resolve(false) },
   memoryStoreIdItem: { getValue: () => Promise.resolve('') },
   memoryMapItem: { getValue: () => Promise.resolve({}), setValue: () => Promise.resolve() },
+  // 日报默认关闭:watch 必须存在(background 注册收敛监听),既有零行为变化
+  dailyReportItem: { getValue: () => Promise.resolve(false), watch: () => () => {} },
+  notionDbIdItem: { getValue: () => Promise.resolve(''), watch: () => () => {} },
+  deploymentIdItem: { getValue: () => Promise.resolve('') },
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -112,6 +116,10 @@ vi.mock('wxt/browser', () => ({
 
 // import after mocks — triggers defineBackground callback
 await import('@/entrypoints/background');
+
+// 会话缓存 v4:值为 {id, day},跨天轮换
+const TODAY = new Date().toLocaleDateString('en-CA');
+const sess = (id: string) => ({ id, day: TODAY });
 
 // --- port pair wiring ---
 type Listener = (...args: any[]) => void;
@@ -198,7 +206,7 @@ describe('background handleChat', () => {
   });
 
   it('streams delta and done on happy path', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
     // the gateway pushes this turn's events only AFTER the user.message POST
     // returns — events arriving before it (the old turn's replay) must be dropped
     let controller: ReadableStreamDefaultController | null = null;
@@ -246,7 +254,7 @@ describe('background handleChat', () => {
   });
 
   it('recreates session when cached session returns 404', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'dead-session');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('dead-session'));
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
@@ -272,7 +280,7 @@ describe('background handleChat', () => {
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
-    expect(perTabStorage.get('local:sessionId.v3.tab.7')).toBe('new-sess');
+    expect(perTabStorage.get('local:sessionId.v4.tab.7')).toEqual(sess('new-sess'));
     expect(messages.at(-1)).toEqual({ type: 'done' });
   });
 
@@ -283,7 +291,7 @@ describe('background handleChat', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected abort trace
     try {
       // cached session: the turn fires BOTH the stream and the post fetch
-      perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+      perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
       const signals: (AbortSignal | undefined)[] = [];
       vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         signals.push(init?.signal ?? undefined);
@@ -316,7 +324,7 @@ describe('background handleChat', () => {
   // real protocol timeline: the stream opens first and replays the previous turn's
   // events (user.message event_start, in-flight deltas, idle) BEFORE our POST returns
   it('cancels the in-flight turn, drops the old turn\'s replay, and retries the post on 409', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
     let posts = 0;
     let cancels = 0;
     let releaseIdle: (() => void) | null = null;
@@ -383,7 +391,7 @@ describe('background handleChat', () => {
   it('gives up after two retries on persistent 409 and surfaces the error', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected failure trace
     try {
-      perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+      perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
       let posts = 0;
       let cancels = 0;
       let releaseIdle: (() => void) | null = null;
@@ -440,7 +448,7 @@ describe('background handleChat', () => {
   // a stream that closes without session.status_idle (server close, network drop) must
   // still complete the turn — otherwise the content script hangs in "thinking" forever
   it('sends done when the stream closes without session.status_idle', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.includes('/events/stream')) {
@@ -465,7 +473,7 @@ describe('background handleChat', () => {
   });
 
   it('captures, uploads and mounts a screenshot before posting the message', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-1');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-1'));
     const order: string[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
@@ -507,7 +515,7 @@ describe('background handleChat', () => {
   });
 
   it('recreates the session and re-mounts the screenshot when mounting returns 404', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'dead-sess');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('dead-sess'));
     let uploads = 0;
     const mounts: string[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
@@ -542,7 +550,7 @@ describe('background handleChat', () => {
 
     expect(uploads).toBe(1); // upload happens once; only mounting is per-session
     expect(mounts).toEqual(['dead-sess', 'new-sess']);
-    expect(perTabStorage.get('local:sessionId.v3.tab.7')).toBe('new-sess');
+    expect(perTabStorage.get('local:sessionId.v4.tab.7')).toEqual(sess('new-sess'));
     expect(messages.at(-1)).toEqual({ type: 'done' });
     vi.unstubAllGlobals();
   });
@@ -577,8 +585,8 @@ describe('background per-tab sessions', () => {
   }
 
   it('gives each tab its own cached session', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-A');
-    perTabStorage.set('local:sessionId.v3.tab.9', 'sess-B');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-A'));
+    perTabStorage.set('local:sessionId.v4.tab.9', sess('sess-B'));
     const sessionsUsed: string[] = [];
     stubChatFetch(sessionsUsed);
 
@@ -597,7 +605,7 @@ describe('background per-tab sessions', () => {
   });
 
   it('recreates a dead per-tab session and writes it back to the per-tab key', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'dead-sess');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('dead-sess'));
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
@@ -618,13 +626,13 @@ describe('background per-tab sessions', () => {
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
 
-    expect(mockStorageSet).toHaveBeenCalledWith('local:sessionId.v3.tab.7', 'new-sess');
+    expect(mockStorageSet).toHaveBeenCalledWith('local:sessionId.v4.tab.7', sess('new-sess'));
     expect(messages.at(-1)).toEqual({ type: 'done' });
     vi.unstubAllGlobals();
   });
 
   it('screenshots the sender window rather than the focused one', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-A');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-A'));
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.startsWith('data:')) {
@@ -648,13 +656,13 @@ describe('background per-tab sessions', () => {
   });
 
   it('prunes the per-tab session key when the tab is closed', async () => {
-    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-A');
+    perTabStorage.set('local:sessionId.v4.tab.7', sess('sess-A'));
     mockStorageRemove.mockClear();
 
     tabRemovedListenerRef.current?.(7);
 
-    expect(mockStorageRemove).toHaveBeenCalledWith('local:sessionId.v3.tab.7');
-    expect(perTabStorage.has('local:sessionId.v3.tab.7')).toBe(false);
+    expect(mockStorageRemove).toHaveBeenCalledWith('local:sessionId.v4.tab.7');
+    expect(perTabStorage.has('local:sessionId.v4.tab.7')).toBe(false);
   });
 });
 
@@ -733,6 +741,18 @@ describe('background clips message handler', () => {
     expect(keptOpen).toBe(true);
     await until(() => respond.mock.calls.length > 0);
     expect(respond).toHaveBeenCalledWith({ ok: false, error: 'idb down' });
+  });
+
+  it('dailyReportNow fails fast when unconfigured (no PAT / no Notion DB ID)', async () => {
+    mockPat.mockResolvedValue('');
+    try {
+      const { respond, keptOpen } = dispatch({ type: 'dailyReportNow' });
+      expect(keptOpen).toBe(true);
+      await until(() => respond.mock.calls.length > 0);
+      expect(respond).toHaveBeenCalledWith({ ok: false, error: 'daily report not configured' });
+    } finally {
+      mockPat.mockResolvedValue('test-pat'); // 不恢复会污染后续 describe
+    }
   });
 
   it('ignores unrelated message types', () => {
