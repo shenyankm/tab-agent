@@ -3,8 +3,10 @@ import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect,
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
-import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore } from '@/lib/memory';
-import { memorySyncItem } from '@/lib/settings';
+import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore } from '@/lib/memory';
+import { syncDeployment, buildInstruction } from '@/lib/daily-report';
+import { logChat, logClipAdded, logClassified, purgeOld, today } from '@/lib/usage';
+import { memorySyncItem, notionDbIdItem, dailyReportItem, patItem } from '@/lib/settings';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
@@ -48,6 +50,7 @@ async function handleClassify(): Promise<{ classified: number }> {
     classified += patches.length;
   }
   fanOutClipsChanged();
+  if (classified) logClassified();
   // 分类写回后镜像到云端记忆(默认关闭);失败只影响镜像,本地 IDB 是事实源
   if (await memorySyncItem.getValue())
     void syncAllClipsToMemoryStore().catch((e) => console.error('[pixel-agent]', e));
@@ -61,11 +64,29 @@ let classifyInFlight: Promise<{ classified: number }> | null = null;
 // 手动"立即同步"同样共享单次运行:并行同步会重复写云端 Store
 let memorySyncInFlight: Promise<{ synced: number }> | null = null;
 
+// "立即生成日报"共享单次运行:一次性专用会话(ownSession=''),同 classify 模式
+let reportInFlight: Promise<{ day: string }> | null = null;
+
+async function runDailyReportNow(): Promise<{ day: string }> {
+  const [pat, dbId] = await Promise.all([patItem.getValue(), notionDbIdItem.getValue()]);
+  if (!pat || !dbId) throw new Error('daily report not configured');
+  // 手动触发总结截至此刻的当日记录;回复经 send 丢弃,只要回合正常结束即视为完成
+  await handleChat(buildInstruction(dbId), undefined, false, new AbortController().signal, () => {}, '');
+  return { day: today() };
+}
+
 export default defineBackground(() => {
   // warm the extension-origin DB at startup
   void getClipsDirect().catch(() => {
     /* open failed; next access retries */
   });
+  // 清理过期使用日志(保留 7 天);失败下次启动重试
+  void purgeOld();
+
+  // 日报 Deployment 收敛:开关/Notion DB ID 变更时把云端状态拉回一致
+  const resync = () => void syncDeployment().catch((e) => console.error('[pixel-agent]', e));
+  dailyReportItem.watch(resync);
+  notionDbIdItem.watch(resync);
 
   // "save clip" context menus; titles follow the UI language
   const MENU_TITLES = {
@@ -171,6 +192,7 @@ export default defineBackground(() => {
       }
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
         fanOutClipsChanged(clip.pageUrl);
+        logClipAdded();
         ok(clip);
       }, fail);
       return true;
@@ -209,6 +231,13 @@ export default defineBackground(() => {
       memorySyncInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
+    if (req?.type === 'dailyReportNow') {
+      // 手动生成是一个完整 Agent 回合(总结 + 写 Notion):keepalive + 共享单次运行
+      const ping = keepalive();
+      reportInFlight ??= runDailyReportNow().finally(() => { reportInFlight = null; });
+      reportInFlight.then(ok, fail).finally(() => clearInterval(ping));
+      return true;
+    }
   });
 
   browser.runtime.onConnect.addListener((port) => {
@@ -219,7 +248,14 @@ export default defineBackground(() => {
       // port payloads are untrusted-ish (own content scripts today, but cheap to
       // guard): a non-string text would crash handleChat far from the cause
       if (typeof msg?.text !== 'string' || !msg.text) return;
+      let reply = '';
       const send = (out: ChatOut) => {
+        // 回合成功结束时记一笔使用日志并 best-effort 镜像到云端(日报数据源)
+        if (out.type === 'delta') reply += out.text;
+        if (out.type === 'done') {
+          logChat(msg.text, reply);
+          void syncUsageToMemoryStore(today()).catch(() => {});
+        }
         try {
           port.postMessage(out);
         } catch {
@@ -243,6 +279,6 @@ export default defineBackground(() => {
 
   // cleanup session keys for closed tabs
   browser.tabs.onRemoved.addListener((tabId) => {
-    storage.removeItem(`local:sessionId.v3.tab.${tabId}`).catch(() => {});
+    storage.removeItem(`local:sessionId.v4.tab.${tabId}`).catch(() => {});
   });
 });
