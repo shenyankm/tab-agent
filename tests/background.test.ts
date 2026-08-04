@@ -48,6 +48,7 @@ vi.mock('@/lib/settings', () => ({
 vi.mock('@/lib/i18n', () => ({
   dict: { 'zh-CN': { 'clips.menu': '保存选中内容为摘录', 'clips.menu.page': '保存整页为摘录', 'clips.menu.image': '保存图片为摘录' } },
   langItem: { getValue: () => Promise.resolve('zh-CN'), watch: () => () => {} },
+  DEFAULT_LANG: 'zh-CN',
 }));
 
 vi.mock('wxt/utils/define-background', () => ({
@@ -663,7 +664,7 @@ describe('background clips message handler', () => {
     expect(respond).toHaveBeenCalledWith({ ok: true, data: clips });
   });
 
-  it('clipAdd writes via addClipDirect, fans out excluding the source tab, responds with the clip', async () => {
+  it('clipAdd writes via addClipDirect, fans out, and responds with the clip', async () => {
     const full = { id: 'n', text: 's', createdAt: 1 };
     mockAddClip.mockResolvedValue(full);
     const { respond, keptOpen } = dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
@@ -875,7 +876,7 @@ describe('background classify', () => {
     const { respond } = dispatch({ type: 'classifyClips' });
     await until(() => respond.mock.calls.length > 0);
 
-    expect(sessions).toBe(3); // 120 clips / 50 per batch
+    expect(sessions).toBe(1); // 120 clips / 50 per batch = 3 batches sharing one per-run session
     expect(mockUpdateClips).toHaveBeenCalledTimes(3);
     expect(mockUpdateClips.mock.calls[0][0]).toHaveLength(50);
     expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 120 } });
@@ -885,11 +886,12 @@ describe('background classify', () => {
   it('retries once on an unparseable reply, then surfaces the failure', async () => {
     mockGetClips.mockResolvedValue([clip('a')]);
     let sessions = 0;
+    let streams = 0;
     vi.stubGlobal('fetch', classifyFetch({
       onSession: () => sessions++,
-      reply: (attempt) => [
-        // the retry runs in a fresh session; only it gets a parseable reply
-        attempt === 1
+      // the retry reuses the run's session; only the second stream gets a parseable reply
+      reply: () => [
+        ++streams === 1
           ? JSON.stringify({ type: 'event_delta', delta: { content: { text: 'sorry, cannot do that' } } })
           : JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[]}]}' } } }),
         JSON.stringify({ type: 'session.status_idle' }),
@@ -898,7 +900,7 @@ describe('background classify', () => {
 
     const { respond } = dispatch({ type: 'classifyClips' });
     await until(() => respond.mock.calls.length > 0);
-    expect(sessions).toBe(2); // one retry
+    expect(sessions).toBe(1); // the retry reuses the same per-run session
     expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
 
     // both attempts garbage → {ok:false}, and the in-flight lock is released
@@ -912,7 +914,7 @@ describe('background classify', () => {
     }));
     const second = dispatch({ type: 'classifyClips' });
     await until(() => second.respond.mock.calls.length > 0);
-    expect(sessions).toBe(2);
+    expect(sessions).toBe(1); // one run = one session, both attempts reuse it
     expect(second.respond).toHaveBeenCalledWith({ ok: false, error: 'no JSON in agent reply' });
     vi.unstubAllGlobals();
   });
