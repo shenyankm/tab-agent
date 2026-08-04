@@ -24,10 +24,10 @@ Chrome MV3 browser extension built with **WXT** (Vite-based framework) + **React
 ### Entrypoints (`entrypoints/`)
 
 WXT auto-registers entrypoints by file convention:
-- `background.ts` — service worker entry (listeners/wiring only), uses `defineBackground()`; network layer in `lib/gateway.ts`, AI classify in `lib/classify.ts`
+- `background.ts` — service worker entry (listeners/wiring only), uses `defineBackground()`; network layer in `lib/gateway.ts`, AI classify in `lib/classify.ts`, runtime-message protocol (typed Request/Reply + `sendRequest`) in `lib/messages.ts`
 - `content.tsx` — content script, uses `defineContentScript()` with `matches`; its UI composition layer lives in `components/floating-agent.tsx` with presentational parts in `components/agent/`
 - `popup/` — browser action popup (React SPA: `index.html` → `main.tsx` → `App.tsx`)
-- `options/` — options page (same SPA layout; tab pages in `options/pages/`, the d3 graph tab is lazy-loaded)
+- `options/` — options page (same SPA layout; tab pages in `options/pages/`, lazy-loaded)
 
 ### UI Layer
 

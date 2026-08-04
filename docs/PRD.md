@@ -2,7 +2,7 @@
 
 ## 1. 产品概述
 
-Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类、生成知识图谱。
+Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬浮一个像素风格宠物，点击展开聊天面板，将当前页面内容 + 用户提问发送给用户自己的 [Qoder Cloud Agent](https://docs.qoder.com/zh/cloud-agents/quickstart)，流式返回回答。另提供页内工具：右键或快捷键保存选中文字为摘录（text-fragment 高亮、可跨页跳转），并可一键 AI 分类。
 
 **目标用户**：拥有 Qoder Cloud Agents 账号、希望在浏览网页时随手向自己的云端 Agent 提问的开发者。
 
@@ -40,12 +40,11 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 | 高亮 | 页面加载时重新标记本页摘录；开关可关（关闭时点击仅定位，3s 后淡出）；fragment 失配（页面改动）时按原文兜底重锚 |
 | 管理 | 面板内列本页摘录（点击页内跳转）；Options 页全量列表：搜索（含标签）/ 按时间或站点分组 / 按分类筛选 / 分页 / 备注（多行）/ 删除（二次确认）/ 跨页跳转（带 clip id 的 hash，目标页定位后清除） |
 
-### 2.4 知识图谱（Options Graph 页签）
+### 2.4 AI 分类
 
 | 需求 | 说明 |
 |---|---|
 | AI 分类 | 一键把全部摘录文本分批（每批 50 条）发给云端 Agent 分类，回写 category + relatedIds + tags（标签由 AI 生成，用户不可手动编辑）；分类用独立专用 session，不占用/取消用户聊天会话；类别由 Agent 自拟（每次全量重分类，自洽；关联仅限同批内摘录） |
-| 图谱 | d3-force 力导向图：节点按分类着色、按关联数定大小；可缩放、按分类筛选；点击节点打开原页并定位到摘录 |
 
 ### 2.5 设置（Options 页 + Popup）
 
@@ -54,7 +53,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 | 凭证 | PAT / Agent ID / Environment ID / Vault ID（可选），密码型输入框、禁止复制剪切、失焦保存 |
 | 外观 | 主题 system / dark / light；多语言（en / 简 / 繁 / 日） |
 | 携带页面 | Popup 下拉选择 无 / 正文 / 截图；选截图时在点击手势内申请 `<all_urls>` 可选权限，拒绝则保持原选项 |
-| 页签 | Settings / Clips / Graph / Privacy，页签状态持久化在 URL hash |
+| 页签 | Settings / Clips / Privacy，页签状态持久化在 URL hash |
 | 隐私声明 | 列出本地存储项、网络访问范围、AI 分类数据说明、权限用途、不共享承诺 |
 
 ### 2.6 会话管理
@@ -68,7 +67,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 - **隐私**：配置存 `storage.local`，摘录存扩展 origin 的 IndexedDB；网络请求仅发往 `api.qoder.com`；AI 分类仅在用户点击时发送摘录文本（不含 URL/标题）；凭证不落任何第三方。
 - **权限最小化**：`storage` + `contextMenus` 权限 + `api.qoder.com` host 权限；截图所需的 `<all_urls>` 为可选权限，用户选择截图时才申请；保存摘录快捷键走 `commands` 声明，无需额外权限。
-- **性能**：内容脚本注入所有页面，UI 保持轻量；宠物关闭时不挂载 React；摘录高亮空闲时切片重放；流式渲染不阻塞页面；d3 图谱按需懒加载。
+- **性能**：内容脚本注入所有页面，UI 保持轻量；宠物关闭时不挂载 React；摘录高亮空闲时切片重放；流式渲染不阻塞页面。
 - **浏览器**：Chrome MV3（`AbortSignal.any` 要求 Chrome 116+）；Firefox 构建可用。
 
 ## 4. 边界与不做的事（Out of Scope）
@@ -82,7 +81,7 @@ Pixel Agent 是一个 Chrome MV3 浏览器扩展：在任意网页右下角悬�
 
 - 配置三项凭证后首次提问即可收到流式回复。
 - 会话过期、并发提问等异常路径对用户透明（自动恢复，无需手动操作）。
-- 点击「Classify」后摘录获得分类并出现在知识图谱中。
+- 点击「Classify」后摘录获得分类。
 
 ## 6. 暂缓功能（Backlog）
 

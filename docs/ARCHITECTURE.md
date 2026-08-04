@@ -11,7 +11,6 @@
 | Markdown | 自写极简渲染器（`lib/markdown.tsx`，直接产出 React 元素，天然转义） |
 | 正文提取 | @mozilla/readability（页面正文 → 纯文本） |
 | 摘录高亮 | text-fragments-polyfill（fragment 生成/解析 + `<mark>` 包裹） |
-| 知识图谱 | d3-force / d3-zoom / d3-selection（仅 options Graph 页，React.lazy 懒加载） |
 | 包管理 | pnpm |
 
 ## 2. 模块结构
@@ -21,7 +20,7 @@ entrypoints/
   background.ts    # Service worker 入口注册：右键菜单 + 快捷键 + clips 消息/Port 编排（网络层在 lib/gateway.ts）
   content.tsx      # 内容脚本：悬浮宠物 + 聊天面板（Shadow DOM）+ 摘录高亮
   popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
-  options/         # 设置页（独立标签页）：Settings / Clips / Graph / Privacy 四页签（pages/，均 React.lazy 懒加载）
+  options/         # 设置页（独立标签页）：Settings / Clips / Privacy 三页签（pages/，均 React.lazy 懒加载）
 lib/
   gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（含 per-tab session）
   classify.ts      # AI 分类本体：分批 prompt + JSON 信封解包（编排/广播留在 background）
@@ -70,7 +69,7 @@ tests/             # vitest 单元测试（pnpm test）
 另有两条轻量消息路径（`runtime.sendMessage`）：
 
 - **摘录** —— background 的三个右键菜单（选区 / 整页 / 图片）或 `Alt+Shift+S` 快捷键：选区与整页走 content（`{type:'saveClip'}`/`{type:'saveClipPage'}`，content 有 Selection 与 DOM）生成后 `{type:'clipAdd'}` 回传；图片同样走 content（`{type:'saveClipImage'}`，页面侧读 `location.href`/`document.title` 零权限——background 读 `tab.url` 需要带安装警告的 `tabs` 权限），仅无 content script 的页面（chrome:// 等）由 background 降级直写。写入均落扩展 origin 的 IndexedDB（见 §6）。
-- **AI 分类** —— options Graph 页 → `{type:'classifyClips'}` → background 用专用 session 让云端 Agent 分批给全部摘录打分类，回写 `category`/`relatedIds`/`tags`（见 §5「AI 分类」）。
+- **AI 分类** —— `{type:'classifyClips'}` 消息 → background 用专用 session 让云端 Agent 分批给全部摘录打分类，回写 `category`/`relatedIds`/`tags`（见 §5「AI 分类」）。
 
 ## 4. 云端架构（Qoder Cloud Agents）
 
@@ -155,7 +154,7 @@ user.message → session.status_running → agent.thinking
 
 ### AI 分类（classifyClips）
 
-options Graph 页一键触发，目标是「不污染用户聊天会话」：
+由 `{type:'classifyClips'}` 消息触发（原 options Graph 页「Classify」按钮），目标是「不污染用户聊天会话」：
 
 1. background 把全部摘录按 `CLASSIFY_BATCH = 50` 分批（每条截 500 字符）拼成 prompt，类别由 Agent 自拟（只要求名称跨摘录一致），要求只回 JSON：`{"clips":[{id, category, relatedIds, tags}]}`。
 2. 复用 `handleChat`，传 `ownSession=''` 强制新建**专用 session**——不读、也不写入 `sessionId.v3` 缓存，不会 409 取消用户正在进行的回合。
@@ -185,11 +184,6 @@ options Graph 页一键触发，目标是「不污染用户聊天会话」：
 - **URL 归一**：`normalizeUrl` 去 hash 并删跟踪参数（`utm_*`/`fbclid`/`gclid` 等常见清单），同文多链归一到一个 key；「本页摘录」匹配与 `pageUrl` 入库都走它。
 - **跨页跳转 URL**：`clipNavUrl` 带 `#pixel-agent-clip=<id>` 而非 text-fragment——原生 `::target-text` 高亮无法编程清除，「关闭高亮时淡出」会失效；目标页 content script 按 id 查库后走 `showClip` 同一条定位/高亮/淡出路径，消费后 `history.replaceState` 清掉 hash。
 - **失配兜底**：fragment 失配（页面改动/动态渲染）时按 `clip.text` 在文本节点中直接查找重锚（跳过 script/style 等子树，避免向脚本字符串插 `<mark>`）；裸 URL 摘录保持不高亮；图片摘录按 `src`/`currentSrc` 精确匹配原图，以轮廓高亮。
-
-### 知识图谱（options Graph 页）
-
-- d3-force 力导向图：节点按 `category` 着色、按关联度数定半径，`relatedIds` 去重成无向边；d3-zoom 缩放，分类 chip 筛选；点击节点 `clipNavUrl` 开新页定位。d3 约 30KB gz，`React.lazy` 只在进入 Graph 页签时加载。
-- 不再提供 Obsidian 导出（曾通过 Local REST API 插件推送笔记，已整体移除）；扩展为纯浏览器应用，所有 AI 能力均基于 Qoder Cloud Agent。
 
 ## 7. 内容脚本 UI 隔离
 

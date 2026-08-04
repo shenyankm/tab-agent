@@ -1,6 +1,6 @@
 # Pixel Agent
 
-一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类、生成知识图谱。
+一只住在每个网页上的像素小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。还支持右键或快捷键 `Alt+Shift+S` 保存选中文字为摘录（text-fragment 高亮），并可一键 AI 分类。
 
 [English](README.md) | **中文**
 
@@ -80,7 +80,7 @@ entrypoints/
   background.ts     # Service Worker 入口（菜单、快捷键、消息/Port 接线）
   content.tsx       # 内容脚本（浮动宠物 + 聊天面板 + 摘录高亮）
   popup/            # 工具栏弹窗
-  options/          # Options 页（设置 / 摘录 / 图谱 / 隐私）
+  options/          # Options 页（设置 / 摘录 / 隐私）
 components/
   floating-agent.tsx  # 浮动宠物组合层（状态、port 流式、拖拽）
   agent/            # 展示组件：Mascot / ChatPanel / ClipDraftEditor

@@ -1,6 +1,6 @@
 # Pixel Agent
 
-A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu or `Alt+Shift+S`, text-fragment highlights), classify them with AI, and browse them as a knowledge graph.
+A pixel-art pet that lives on every webpage. Click it, ask a question, and your configured Qoder Cloud Agent answers based on the page you're viewing. Also: save text selections as clips (right-click menu or `Alt+Shift+S`, text-fragment highlights), and classify them with AI.
 
 **English** | [中文](README.zh-CN.md)
 
@@ -81,7 +81,7 @@ entrypoints/
   background.ts     # Service worker entry (menus, commands, message/port wiring)
   content.tsx       # Content script (floating pet + chat panel + clip highlights)
   popup/            # Browser action popup
-  options/          # Options page (Settings / Clips / Graph / Privacy)
+  options/          # Options page (Settings / Clips / Privacy)
 components/
   floating-agent.tsx  # Floating pet composition layer (state, port streaming, drag)
   agent/            # Presentational parts: Mascot / ChatPanel / ClipDraftEditor
