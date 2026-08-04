@@ -51,7 +51,7 @@ function parseClassifyPatches(full: string, ids: Set<string>) {
  *  session entry instead of N/50 throwaways.
  *  ponytail: relations never cross batches — the model only sees its own batch,
  *  so relatedIds stay batch-local. */
-export async function classifyBatch(clips: Clip[], session: { id: string }) {
+export async function classifyBatch(clips: Clip[], session: { id: string }, signal?: AbortSignal) {
   const ids = new Set(clips.map((c) => c.id)); // O(1) membership below (was O(N) per id)
   const clipList = clips
     .map((c) => `- id: ${c.id}\n  text: ${c.text.slice(0, 500)}`)
@@ -82,7 +82,7 @@ ${clipList}`;
         else if (msg.type === 'done') resolve();
         else if (msg.type === 'error') reject(new Error(msg.message ?? msg.code ?? 'classify error'));
       };
-      chat = handleChat(prompt, undefined, false, new AbortController().signal, send, session.id);
+      chat = handleChat(prompt, undefined, false, signal ?? new AbortController().signal, send, session.id);
       chat.catch(reject); // network/session failure rejects without a terminal message
     });
     await done;

@@ -14,12 +14,13 @@ import { memorySyncItem } from '@/lib/settings';
 // a change spans pages (classify), so every watcher refreshes.
 function fanOutClipsChanged(page?: string) {
   const msg = { type: CLIPS_CHANGED, page };
+  let delivered = 0;
   browser.tabs
     .query({})
     .then((tabs) => {
       for (const tab of tabs)
         if (tab.id)
-          browser.tabs.sendMessage(tab.id, msg).catch(() => {
+          browser.tabs.sendMessage(tab.id, msg).then(() => { delivered++; }).catch(() => {
             /* no content script on this tab */
           });
     })
@@ -28,9 +29,12 @@ function fanOutClipsChanged(page?: string) {
     });
   // runtime.sendMessage reaches extension pages (options) but not content scripts;
   // background itself has no watcher, so no echo to worry about here.
-  void browser.runtime.sendMessage(msg).catch(() => {
+  void browser.runtime.sendMessage(msg).then(() => { delivered++; }).catch(() => {
     /* no extension page listening */
   });
+  // all-silent = every context lost (e.g. post-update with no re-injected scripts);
+  // options would show stale data with no clue why
+  setTimeout(() => { if (!delivered) console.warn('[tab-agent] clipsChanged reached no listener'); }, 1000);
 }
 
 /** Send all clips to the cloud agent for knowledge-type classification, parse the
@@ -65,6 +69,10 @@ let classifyInFlight: Promise<{ classified: number }> | null = null;
 let memorySyncInFlight: Promise<number> | null = null;
 
 export default defineBackground(() => {
+  // last-resort logger: individual .catch() calls are the primary defense, but a
+  // missed one must not go silently — SW console is the only surface we have
+  self.addEventListener('unhandledrejection', (e) => console.error('[tab-agent] unhandled:', e.reason));
+
   // warm the extension-origin DB at startup
   void getClipsDirect().catch(() => {
     /* open failed; next access retries */
@@ -155,7 +163,7 @@ export default defineBackground(() => {
   // branch resolves {ok:true,data} or {ok:false,error} so the sender never hangs.
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const ok = (data: unknown) => sendResponse({ ok: true, data });
-    const fail = (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) });
+    const fail = (e: unknown, code?: string) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e), code });
     const req = msg as Request;
     if (req?.type === 'clipsGet') {
       getClipsDirect().then(ok, fail);
@@ -166,7 +174,7 @@ export default defineBackground(() => {
     if (req?.type === 'clipsGetForPage') {
       // 无 page 时 index.getAll(undefined) 按 WebIDL 语义等于无查询——会回全表
       if (typeof req.page !== 'string' || !req.page) {
-        fail(new Error('invalid page'));
+        fail(new Error('invalid page'), 'invalid');
         return true;
       }
       getClipsForPageDirect(req.page).then(ok, fail);
@@ -184,7 +192,7 @@ export default defineBackground(() => {
         && (c.kind === undefined || c.kind === 'page' || c.kind === 'image')
         && optStrArr(c.tags) && optStrArr(c.notes) && optStrArr(c.relatedIds);
       if (!valid) {
-        fail(new Error('invalid clip payload'));
+        fail(new Error('invalid clip payload'), 'invalid');
         return true;
       }
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
@@ -242,7 +250,7 @@ export default defineBackground(() => {
         if (out.type === 'delta') reply += out.text;
         if (out.type === 'done') {
           logChat(msg.text, reply);
-          void syncUsageToMemoryStore(today()).catch(() => {});
+          void syncUsageToMemoryStore(today()).catch(() => { /* 镜像失败:本地日志是事实源,下回合重写自愈 */ });
         }
         try {
           port.postMessage(out);
@@ -267,6 +275,6 @@ export default defineBackground(() => {
 
   // cleanup session keys for closed tabs
   browser.tabs.onRemoved.addListener((tabId) => {
-    storage.removeItem(`local:sessionId.v4.tab.${tabId}`).catch(() => {});
+    storage.removeItem(`local:sessionId.v4.tab.${tabId}`).catch(() => { /* key 不存在或上下文失效:幂等清理 */ });
   });
 });
