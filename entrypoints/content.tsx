@@ -1,16 +1,18 @@
 import ReactDOM from 'react-dom/client';
 import { FloatingAgent, showClip, clearAllMarks, pageText, saveClipDraft } from '@/components/floating-agent';
 import { addClip, buildClipUrl, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips';
+import { onPageNav } from '@/lib/utils';
 import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
 import '@/assets/content.css';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   cssInjectionMode: 'ui',
+  runAt: 'document_idle', // explicit: the replay/landing flow below assumes DOM ready
   async main(ctx) {
     // "save clip" from the background context menu: selection → text-fragment URL →
     // 编辑卡片（宠物 UI 在挂载时）→ storage；fragment 必须在选区还活着时生成
-    browser.runtime.onMessage.addListener((msg: { type?: string }) => {
+    const onMessage = (msg: { type?: string; srcUrl?: string; altText?: string }) => {
       if (msg?.type === 'saveClip') {
         const sel = window.getSelection();
         const text = sel?.toString().trim();
@@ -33,12 +35,26 @@ export default defineContentScript({
           text: pageText().slice(0, 500),
         });
       }
-    });
+      // 图片剪藏也走页面侧:location.href/document.title 无需权限——background 读
+      // tab.url/title 需要 broad "tabs" 权限(带"浏览历史"安装警告),least privilege
+      if (msg?.type === 'saveClipImage' && typeof msg.srcUrl === 'string') {
+        const img = [...document.images].find((i) => i.src === msg.srcUrl || i.currentSrc === msg.srcUrl);
+        addClip({
+          kind: 'image',
+          url: msg.srcUrl,
+          pageUrl: location.href,
+          title: document.title,
+          text: (typeof msg.altText === 'string' && msg.altText) || img?.alt || msg.srcUrl,
+          imageSrc: msg.srcUrl,
+        });
+      }
+    };
+    browser.runtime.onMessage.addListener(onMessage);
 
     // re-apply saved highlights: text fragments only fire on navigation, not on reload
     // ponytail: one shot at document_idle; SPA content rendered later stays unmarked until clicked
-    const page = normalizeUrl(location.href);
-    const pageClips = clipsPageItem(page); // background 只回本页摘录,不再全量过通道
+    let page = normalizeUrl(location.href);
+    let pageClips = clipsPageItem(page); // background 只回本页摘录,不再全量过通道
     // 开关每切换一次，在途的 idle 重放回调作废（否则关闭后残留回调会重新加 mark）
     let clipGen = 0;
     const replay = (clips: Clip[]) => {
@@ -61,13 +77,29 @@ export default defineContentScript({
         const clip = clips.find((c) => c.id === navClip);
         if (clip) showClip(clip);
       });
-      history.replaceState(null, '', page);
+      // 只剥 #pixel-agent-clip= 段:规范化 URL 会把 utm 等参数从地址栏抹掉(影响复制/书签)
+      history.replaceState(null, '', location.pathname + location.search);
     }
     // the popup switch takes effect live on open tabs
-    clipHighlightItem.watch((on) => {
+    const unwatchHighlight = clipHighlightItem.watch((on) => {
       clipGen++;
       if (on) return void pageClips.getValue().then(replay);
       clearAllMarks();
+    });
+
+    // SPA 同文档导航:重锚本页摘录、清掉旧页 mark、按新 URL 重放高亮
+    const unsubNav = onPageNav(() => {
+      page = normalizeUrl(location.href);
+      pageClips = clipsPageItem(page);
+      clipGen++; // 作废旧页在途的 idle 重放
+      clearAllMarks();
+      clipHighlightItem.getValue().then((on) => { if (on) pageClips.getValue().then(replay); });
+    });
+    // dev HMR 下脚本失效重跑会叠加监听;生产与页面同生命周期,注销是 no-op
+    ctx.onInvalidated(() => {
+      browser.runtime.onMessage.removeListener(onMessage);
+      unwatchHighlight();
+      unsubNav();
     });
 
     const mountUI = () => createShadowRootUi(ctx, {
@@ -101,7 +133,8 @@ export default defineContentScript({
         }
       });
     };
-    petEnabledItem.watch(sync);
+    const unwatchPet = petEnabledItem.watch(sync);
+    ctx.onInvalidated(unwatchPet);
     // 初始挂载走同一条链：与切换互斥，避免双挂载或禁用状态下挂载
     sync(await petEnabledItem.getValue());
     await mountChain;
