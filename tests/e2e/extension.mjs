@@ -12,6 +12,12 @@ const EXT_DIR = path.resolve(process.env.PIXEL_EXT_DIR ?? '.output/chrome-mv3');
 const CHROME = process.env.PIXEL_CHROME ?? '/usr/bin/google-chrome';
 const GRAPH_ONLY = process.argv.includes('--graph-only');
 
+// fail fast with an actionable message instead of a 15s service-worker timeout
+if (!fs.existsSync(path.join(EXT_DIR, 'manifest.json'))) {
+  console.error(`extension build not found at ${EXT_DIR} — run \`pnpm build\` first`);
+  process.exit(1);
+}
+
 // Chrome 136+: --load-extension/--disable-extensions-except are gated behind a
 // (double-negative) feature flag that must be disabled for the switches to work
 const CHROME_ARGS = [
