@@ -2,6 +2,8 @@ import { useStorageValue } from '@/lib/utils';
 
 export type Lang = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
 
+export const DEFAULT_LANG: Lang = 'zh-CN';
+
 export const langLabels: Record<Lang, string> = {
   en: 'English',
   'zh-CN': '简体中文',
@@ -10,10 +12,10 @@ export const langLabels: Record<Lang, string> = {
 };
 
 // exported so the background can localize the context menu title
-export const langItem = storage.defineItem<Lang>('local:lang', { fallback: 'zh-CN' });
+export const langItem = storage.defineItem<Lang>('local:lang', { fallback: DEFAULT_LANG });
 
-// exported for the key-parity test only
-export const dict: Record<Lang, Record<string, string>> = {
+// exported for the background (menu titles) and the key-parity test
+export const dict = {
   en: {
     'app.title': 'Pixel Agent',
     'widget.open': 'Open Pixel Agent',
@@ -302,14 +304,20 @@ export const dict: Record<Lang, Record<string, string>> = {
     'privacy.share.body': 'アナリティクスもトラッカーもありません。データはあなたが設定した Qoder Agent にのみ送られ、販売・共有されることはありません。',
     'privacy.promise': '質問しない限り、データがデバイスを離れることはありません。',
   },
-};
+} satisfies Record<Lang, Record<string, string>>;
+
+export type I18nKey = keyof (typeof dict)['en'];
 
 export function useI18n() {
-  const lang = useStorageValue(langItem, 'zh-CN');
+  const lang = useStorageValue(langItem, DEFAULT_LANG);
 
-  const t = (key: string, vars?: Record<string, string | number>) => {
-    let s = dict[lang][key] ?? key;
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+  const t = (key: I18nKey, vars?: Record<string, string | number>) => {
+    // storage can hold a stale/invalid lang (old version, manual edit) — fall
+    // back instead of crashing the whole React tree on dict[lang][key]
+    let s = (dict[lang] as Record<string, string> | undefined)?.[key]
+      ?? dict[DEFAULT_LANG][key as I18nKey]
+      ?? key;
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
     return s;
   };
 

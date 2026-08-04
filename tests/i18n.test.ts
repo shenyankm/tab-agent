@@ -14,7 +14,7 @@ vi.mock('wxt/utils/storage', () => ({
   },
 }));
 
-import { useI18n, dict } from '@/lib/i18n';
+import { useI18n, dict, type I18nKey } from '@/lib/i18n';
 
 describe('dict parity', () => {
   const base = Object.keys(dict.en).sort();
@@ -26,10 +26,12 @@ describe('dict parity', () => {
   });
 
   it('placeholders survive translation', () => {
+    const enDict: Record<string, string> = dict.en;
     for (const key of base) {
-      const holders = (dict.en[key].match(/\{\w+\}/g) ?? []).sort();
+      const holders = (enDict[key].match(/\{\w+\}/g) ?? []).sort();
       for (const lang of ['zh-CN', 'zh-TW', 'ja'] as const) {
-        expect((dict[lang][key].match(/\{\w+\}/g) ?? []).sort(), `${lang} ${key}`).toEqual(holders);
+        const langDict: Record<string, string> = dict[lang];
+        expect((langDict[key].match(/\{\w+\}/g) ?? []).sort(), `${lang} ${key}`).toEqual(holders);
       }
     }
   });
@@ -54,7 +56,8 @@ describe('useI18n t()', () => {
 
   it('falls back to the key itself for missing entries', async () => {
     const { result } = renderHook(() => useI18n());
-    await waitFor(() => expect(result.current.t('nonexistent.key')).toBe('nonexistent.key'));
+    // cast: intentionally probes an out-of-dictionary key
+    await waitFor(() => expect(result.current.t('nonexistent.key' as I18nKey)).toBe('nonexistent.key'));
   });
 
   it('returns zh-CN translations when lang is zh-CN', async () => {
