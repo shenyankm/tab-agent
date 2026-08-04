@@ -30,6 +30,12 @@ export const memorySyncItem = storage.defineItem<boolean>('local:memorySync', { 
 export const memoryStoreIdItem = storage.defineItem<string>('local:memoryStoreId', { fallback: '' });
 // clipId → cloud memoryId,保证创建/更新/删除对称;条目极小(每摘录一行)
 export const memoryMapItem = storage.defineItem<Record<string, string>>('local:memoryMap', { fallback: {} });
+// 每日日报(使用日志总结 → Notion,云端 Deployment cron 执行):默认关闭,开启才有网络行为
+export const dailyReportItem = storage.defineItem<boolean>('local:dailyReport', { fallback: false });
+// Notion 数据库 ID(数据库 URL 中的 32 位十六进制串);日报写入的目标
+export const notionDbIdItem = storage.defineItem<string>('local:notionDbId', { fallback: '' });
+// 日报 Deployment 的 dep_ id 缓存(同 memoryStoreIdItem 模式)
+export const deploymentIdItem = storage.defineItem<string>('local:dailyReportDeploymentId', { fallback: '' });
 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
