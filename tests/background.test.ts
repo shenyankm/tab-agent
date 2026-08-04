@@ -42,8 +42,8 @@ vi.mock('@/lib/settings', () => ({
   agentIdItem: { getValue: () => mockAgentId() },
   envIdItem: { getValue: () => mockEnvId() },
   vaultIdItem: { getValue: () => mockVaultId() },
-  // 云端记忆默认关闭:既有用例零行为变化
-  memorySyncItem: { getValue: () => Promise.resolve(false) },
+  // 云端记忆默认关闭:既有用例零行为变化;watch 供开关全量补齐钩子注册
+  memorySyncItem: { getValue: () => Promise.resolve(false), watch: () => () => {} },
   memoryStoreIdItem: { getValue: () => Promise.resolve('') },
   memoryMapItem: { getValue: () => Promise.resolve({}), setValue: () => Promise.resolve() },
   // 日报默认关闭:watch 必须存在(background 注册收敛监听),既有零行为变化
