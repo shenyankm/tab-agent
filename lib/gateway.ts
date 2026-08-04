@@ -12,6 +12,9 @@ import { parseSSE } from '@/lib/sse';
 // while a turn or batch classify streams nothing for that long
 export const keepalive = () => setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), 20_000);
 
+// 本地时区 YYYY-MM-DD：会话缓存按日轮换与日报指令共用
+const today = () => new Date().toLocaleDateString('en-CA');
+
 export type ChatOut =
   | { type: 'delta'; text: string }
   | { type: 'done' }
@@ -56,7 +59,8 @@ async function createSession(
     body: JSON.stringify({
       agent: { id: agentId, type: 'agent' },
       environment_id: envId,
-      title: 'Pixel Agent',
+      // 标题带日期：云端会话列表里能辨认每天轮换的新会话
+      title: `Pixel Agent ${today()}`,
       ...(vaultId ? { vault_ids: [vaultId] } : {}),
       ...(memoryStoreId ? {
         resources: [{
@@ -224,10 +228,13 @@ export async function handleChat(
   // silently truncate tab A's running turn. Keys of closed tabs are cleaned up
   // in background.ts onRemoved.
   const sessionKey: `local:${string}` | null =
-    sender?.tabId != null ? `local:sessionId.v3.tab.${sender.tabId}` : null;
-  let sessionId = ownSession ?? (sessionKey
-    ? (await storage.getItem<string>(sessionKey)) ?? ''
-    : '');
+    sender?.tabId != null ? `local:sessionId.v4.tab.${sender.tabId}` : null;
+  let sessionId = ownSession ?? '';
+  if (!sessionId && sessionKey) {
+    // 每日轮换：缓存值是 {id, day}，跨天后日期不符视同无缓存，走下方重建路径
+    const cached = await storage.getItem<{ id: string; day: string }>(sessionKey);
+    if (cached?.day === today()) sessionId = cached.id;
+  }
 
   // upload happens once; mounting is per-session, so it happens inside tryTurn
   let mount: Mount | null = null;
@@ -294,7 +301,7 @@ export async function handleChat(
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
     sessionId = await createSession(pat, agentId, envId, vaultId, memStoreId, signal);
-    if (ownSession === undefined && sessionKey) await storage.setItem(sessionKey, sessionId);
+    if (ownSession === undefined && sessionKey) await storage.setItem(sessionKey, { id: sessionId, day: today() });
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
   return sessionId;
