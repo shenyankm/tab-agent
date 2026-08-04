@@ -1,5 +1,19 @@
 import ReactDOM from 'react-dom/client';
+import { Component, type ReactNode } from 'react';
 import { FloatingAgent } from '@/components/floating-agent';
+
+// render-error boundary: a crash inside FloatingAgent (markdown parser, etc.) must
+// not white-screen the Shadow UI — show a minimal fallback instead of nothing
+class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(err: unknown) { console.error('[tab-agent] render:', err); }
+  render() {
+    if (this.state.crashed)
+      return <div style={{ padding: 16, fontSize: 13 }}>Tab Agent encountered an error. Reload the page to retry.</div>;
+    return this.props.children;
+  }
+}
 import { showClip, clearAllMarks, saveClipDraft, restyleMarks } from '@/lib/marks';
 import { pageText } from '@/lib/page-text';
 import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-store';
@@ -137,7 +151,11 @@ export default defineContentScript({
       isolateEvents: true,
       onMount(container) {
         const root = ReactDOM.createRoot(container);
-        root.render(<FloatingAgent />);
+        root.render(
+          <ErrorBoundary>
+            <FloatingAgent />
+          </ErrorBoundary>
+        );
         return root;
       },
       onRemove(root) {
