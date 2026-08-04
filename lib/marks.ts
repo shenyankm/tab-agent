@@ -4,6 +4,9 @@ import { clipHighlightItem } from '@/lib/settings';
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
 // new ones; isConnected drops SPA-navigation leftovers and re-highlights on demand
 const markByClip = new Map<string, Element[]>();
+// clip id → pending fade timer: a re-click re-arms the fade instead of stacking
+// independent timers — the first one would delete the freshly re-shown marks early
+const fadeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function showClip(clip: Clip, scroll = true): boolean {
   let marks = markByClip.get(clip.id);
@@ -19,10 +22,12 @@ export function showClip(clip: Clip, scroll = true): boolean {
     // highlighting off = locate-only: flash the marks, then fade them out
     clipHighlightItem.getValue().then((on) => {
       if (on) return;
-      setTimeout(() => {
+      clearTimeout(fadeTimers.get(clip.id));
+      fadeTimers.set(clip.id, setTimeout(() => {
+        fadeTimers.delete(clip.id);
         if (markByClip.delete(clip.id)) unhighlightClip(marks); // already-gone marks no-op
-      }, 3000);
-    });
+      }, 3000));
+    }).catch(() => { /* invalidated context */ });
   }
   return true;
 }
@@ -50,11 +55,14 @@ export const commitDraft = async (draft: ClipDraft) => {
  *  否则（宠物关闭、UI 未挂载）直接保存，保持旧行为。 */
 export function saveClipDraft(draft: ClipDraft) {
   if (editorMounted) draftEvents.dispatchEvent(new CustomEvent('draft', { detail: draft }));
-  else void commitDraft(draft);
+  // 无 UI 反馈面的直存路径:写入失败(上下文失效/IDB 错误)只能静默
+  else void commitDraft(draft).catch(() => {});
 }
 
 /** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */
 export function clearAllMarks() {
+  for (const timer of fadeTimers.values()) clearTimeout(timer);
+  fadeTimers.clear();
   for (const marks of markByClip.values()) unhighlightClip(marks);
   markByClip.clear();
 }

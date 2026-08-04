@@ -21,7 +21,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     connFields.forEach(([key, item]) => {
-      item.getValue().then((v) => setConn((c) => ({ ...c, [key]: v })));
+      // 不 watch 是有意的:另一个标签页的改动不应覆盖这里正在输入的值;
+      // invalidated-context 的 rejection 非致命,吞掉即可(与 useStorageValue 同款)
+      item.getValue()
+        .then((v) => setConn((c) => ({ ...c, [key]: v })))
+        .catch(() => {});
     });
   }, []);
 
@@ -61,7 +65,7 @@ export default function SettingsPage() {
             <Input
               value={conn[key] ?? ''}
               onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
-              onBlur={() => item.setValue((conn[key] ?? '').trim())}
+              onBlur={() => item.setValue((conn[key] ?? '').trim()).catch(() => {})}
               placeholder={placeholder}
               type="password"
               className="max-w-60"

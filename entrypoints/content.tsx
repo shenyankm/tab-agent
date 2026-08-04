@@ -33,7 +33,7 @@ export default defineContentScript({
           pageUrl: location.href,
           title: document.title,
           text: pageText().slice(0, 500),
-        });
+        }).catch(() => { /* 写入失败(上下文失效/IDB 错误):菜单动作无反馈面 */ });
       }
       // 图片剪藏也走页面侧:location.href/document.title 无需权限——background 读
       // tab.url/title 需要 broad "tabs" 权限(带"浏览历史"安装警告),least privilege
@@ -46,7 +46,7 @@ export default defineContentScript({
           title: document.title,
           text: (typeof msg.altText === 'string' && msg.altText) || img?.alt || msg.srcUrl,
           imageSrc: msg.srcUrl,
-        });
+        }).catch(() => { /* 同上:无反馈面,静默失败 */ });
       }
     };
     browser.runtime.onMessage.addListener(onMessage);
@@ -65,9 +65,12 @@ export default defineContentScript({
           if (gen === clipGen) showClip(clip, false);
         }, { timeout: 2000 });
     };
-    // 启动时高亮重放与 #clip=id 落地共用同一次读取
-    const initial = pageClips.getValue();
-    clipHighlightItem.getValue().then((on) => { if (on) initial.then(replay); });
+    // 启动时高亮重放与 #clip=id 落地共用同一次读取;扩展更新后旧上下文里的
+    // sendMessage 会 reject,吞掉而不是在页面控制台刷 unhandled rejection
+    const initial = pageClips.getValue().catch(() => [] as Clip[]);
+    clipHighlightItem.getValue()
+      .then((on) => { if (on) initial.then(replay); })
+      .catch(() => { /* invalidated context */ });
 
     // 跨页跳转落地（options/面板回退打开的 #pixel-agent-clip=id）：走 showClip 同一条
     // 定位+滚动路径，高亮开关关闭时照常 3s 淡出；消费后清 hash，刷新不重闪
@@ -83,7 +86,7 @@ export default defineContentScript({
     // the popup switch takes effect live on open tabs
     const unwatchHighlight = clipHighlightItem.watch((on) => {
       clipGen++;
-      if (on) return void pageClips.getValue().then(replay);
+      if (on) return void pageClips.getValue().then(replay).catch(() => { /* invalidated context */ });
       clearAllMarks();
     });
 
@@ -93,7 +96,9 @@ export default defineContentScript({
       pageClips = clipsPageItem(page);
       clipGen++; // 作废旧页在途的 idle 重放
       clearAllMarks();
-      clipHighlightItem.getValue().then((on) => { if (on) pageClips.getValue().then(replay); });
+      clipHighlightItem.getValue()
+        .then((on) => { if (on) pageClips.getValue().then(replay).catch(() => {}); })
+        .catch(() => { /* invalidated context */ });
     });
     // dev HMR 下脚本失效重跑会叠加监听;生产与页面同生命周期,注销是 no-op
     ctx.onInvalidated(() => {
