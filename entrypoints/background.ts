@@ -240,4 +240,9 @@ export default defineBackground(() => {
         .finally(() => clearInterval(ping));
     });
   });
+
+  // cleanup session keys for closed tabs
+  browser.tabs.onRemoved.addListener((tabId) => {
+    storage.removeItem(`local:sessionId.v3.tab.${tabId}`).catch(() => {});
+  });
 });

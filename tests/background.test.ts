@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId, mockSessionGet, mockSessionSet,
-  connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef,
+  connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef, tabRemovedListenerRef,
   mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip, mockUpdateClips,
   mockTabsQuery, mockTabsSend, mockCapture, mockMenuCreate, mockMenuRemoveAll,
-  perTabStorage, mockStorageGet, mockStorageSet,
+  perTabStorage, mockStorageGet, mockStorageSet, mockStorageRemove,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
@@ -19,6 +19,7 @@ const {
   commandListenerRef: { current: null as ((command: string) => void) | null },
   menuListenerRef: { current: null as ((info: any, tab: any) => void) | null },
   installedListenerRef: { current: null as (() => void) | null },
+  tabRemovedListenerRef: { current: null as ((tabId: number) => void) | null },
   mockGetClips: vi.fn().mockResolvedValue([]),
   mockGetClipsForPage: vi.fn().mockResolvedValue([]),
   mockAddClip: vi.fn(),
@@ -34,6 +35,7 @@ const {
   perTabStorage: new Map<string, string>(),
   mockStorageGet: vi.fn((key: string) => Promise.resolve(perTabStorage.get(key) ?? null)),
   mockStorageSet: vi.fn((key: string, value: string) => { perTabStorage.set(key, value); return Promise.resolve(); }),
+  mockStorageRemove: vi.fn((key: string) => { perTabStorage.delete(key); return Promise.resolve(); }),
 }));
 
 vi.mock('@/lib/settings', () => ({
@@ -64,6 +66,7 @@ vi.mock('wxt/utils/storage', () => ({
   storage: {
     getItem: (key: string) => mockStorageGet(key),
     setItem: (key: string, value: string) => mockStorageSet(key, value),
+    removeItem: (key: string) => mockStorageRemove(key),
   },
 }));
 
@@ -105,6 +108,7 @@ vi.mock('wxt/browser', () => ({
       query: (info: unknown) => mockTabsQuery(info),
       sendMessage: (tabId: number, msg: unknown) => mockTabsSend(tabId, msg),
       captureVisibleTab: (...args: unknown[]) => mockCapture(...args),
+      onRemoved: { addListener: (fn: (tabId: number) => void) => { tabRemovedListenerRef.current = fn; } },
     },
   },
 }));
@@ -199,20 +203,36 @@ describe('background handleChat', () => {
 
   it('streams delta and done on happy path', async () => {
     mockSessionGet.mockResolvedValue('sess-1');
+    // the gateway pushes this turn's events only AFTER the user.message POST
+    // returns — events arriving before it (the old turn's replay) must be dropped
+    let controller: ReadableStreamDefaultController | null = null;
+    let posts = 0;
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.includes('/events/stream')) {
         return Promise.resolve({
           status: 200,
           ok: true,
-          body: sseStream([
-            JSON.stringify({ type: 'event_delta', delta: { content: { text: 'Hi ' } } }),
-            JSON.stringify({ type: 'event_delta', delta: { content: { text: 'there' } } }),
-            JSON.stringify({ type: 'session.status_idle' }),
-          ]),
+          body: new ReadableStream({ start(c) { controller = c; } }),
         });
       }
       if (url.includes('/events') && init?.method === 'POST') {
+        posts++;
+        // this turn's events flow only after the post resolves (posted flips
+        // true in the caller) — a macrotask guarantees that microtask chain ran
+        if (posts === 1) {
+          const frames = [
+            { type: 'event_start', event: { id: 'evt_1', type: 'user.message' } },
+            { type: 'event_start', event: { id: 'evt_2', type: 'agent.message' } },
+            { type: 'event_delta', delta: { content: { text: 'Hi ' } } },
+            { type: 'event_delta', delta: { content: { text: 'there' } } },
+            { type: 'session.status_idle' },
+          ];
+          setTimeout(() => {
+            controller?.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('')));
+            controller?.close();
+          }, 0);
+        }
         return Promise.resolve({ status: 200, ok: true });
       }
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
@@ -297,73 +317,98 @@ describe('background handleChat', () => {
     }
   });
 
-  // fake timers drive the real 1s retry delay; total advance stays under 6s so the
-  // 20s keepalive interval and the stream's 90s read watchdog never fire
-  it('cancels the in-flight turn and retries the post on 409', async () => {
-    vi.useFakeTimers();
+  // real protocol timeline: the stream opens first and replays the previous turn's
+  // events (user.message event_start, in-flight deltas, idle) BEFORE our POST returns
+  it('cancels the in-flight turn, drops the old turn\'s replay, and retries the post on 409', async () => {
+    mockSessionGet.mockResolvedValue('sess-1');
+    let posts = 0;
+    let cancels = 0;
+    let releaseIdle: (() => void) | null = null;
+    let sendNewTurn: (() => void) | null = null;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const url = String(_url);
+      if (url.includes('/events/stream')) {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          body: new ReadableStream({
+            start(c) {
+              // old turn's replay arrives immediately, before the first POST returns
+              c.enqueue(new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_1', type: 'user.message' } })}\n\n` +
+                `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_2', type: 'agent.message' } })}\n\n`
+              ));
+              releaseIdle = () => {
+                c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`));
+              };
+              sendNewTurn = () => {
+                c.enqueue(new TextEncoder().encode(
+                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_new_1', type: 'user.message' } })}\n\n` +
+                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_new_2', type: 'agent.message' } })}\n\n` +
+                  `data: ${JSON.stringify({ type: 'event_delta', delta: { content: { text: 'New reply' } } })}\n\n` +
+                  `data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`
+                ));
+                c.close();
+              };
+            },
+          }),
+        });
+      }
+      if (url.endsWith('/cancel') && init?.method === 'POST') {
+        cancels++;
+        return Promise.resolve({ status: 200, ok: true });
+      }
+      if (url.includes('/events') && init?.method === 'POST') {
+        posts++;
+        // events flow only AFTER the post resolves (posted flips true) — a
+        // macrotask guarantees this microtask chain (incl. posted=true) finished
+        if (posts === 2) setTimeout(() => sendNewTurn?.(), 0);
+        return Promise.resolve(posts === 1 ? { status: 409, ok: false } : { status: 200, ok: true });
+      }
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
+    }));
+
+    const { port, messages } = connect();
+    port.postMessage({ text: 'hello' });
+
+    await until(() => posts === 1 && cancels === 1 && releaseIdle !== null);
+    expect(messages).toEqual([]); // replay + cancel are silent: no deltas, no done yet
+
+    releaseIdle!(); // the cancelled turn reaches idle → onIdle resolves → retry
+    await until(() => posts === 2);
+    await until(() => messages.some((m: any) => m.type === 'done'));
+    expect(cancels).toBe(1);
+    // only the new turn's text reaches the UI; the old turn's replay never leaks
+    expect(messages.filter((m: any) => m.type === 'delta')).toEqual([{ type: 'delta', text: 'New reply' }]);
+    expect(messages.at(-1)).toEqual({ type: 'done' });
+    vi.unstubAllGlobals();
+  });
+
+  it('gives up after two retries on persistent 409 and surfaces the error', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected failure trace
     try {
       mockSessionGet.mockResolvedValue('sess-1');
       let posts = 0;
       let cancels = 0;
-      let release: (() => void) | null = null;
+      let releaseIdle: (() => void) | null = null;
       vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         const url = String(_url);
         if (url.includes('/events/stream')) {
-          // the test holds the stream open until the retried post has landed
+          // old turn's replay arrives first; idle frames are released per retry round
           return Promise.resolve({
             status: 200,
             ok: true,
             body: new ReadableStream({
               start(c) {
-                release = () => {
+                c.enqueue(new TextEncoder().encode(
+                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_1', type: 'user.message' } })}\n\n`
+                ));
+                releaseIdle = () => {
                   c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`));
-                  c.close();
                 };
               },
             }),
           });
-        }
-        if (url.endsWith('/cancel') && init?.method === 'POST') {
-          cancels++;
-          return Promise.resolve({ status: 200, ok: true });
-        }
-        if (url.includes('/events') && init?.method === 'POST') {
-          posts++;
-          return Promise.resolve(posts === 1 ? { status: 409, ok: false } : { status: 200, ok: true });
-        }
-        return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
-      }));
-
-      const { port, messages } = connect();
-      port.postMessage({ text: 'hello' });
-
-      await untilFake(() => posts === 1 && cancels === 1 && release !== null);
-      expect(messages).toEqual([]); // still mid-turn: the retry hasn't happened yet
-
-      await vi.advanceTimersByTimeAsync(1000); // the bounded poll waits 1s between posts
-      await untilFake(() => posts === 2);
-
-      release!();
-      await untilFake(() => messages.some((m: any) => m.type === 'done'));
-      expect(cancels).toBe(1); // one cancel, then plain retries
-      expect(messages.at(-1)).toEqual({ type: 'done' }); // the turn completes normally
-    } finally {
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('gives up after five 409 retries and surfaces the error', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // expected failure trace
-    vi.useFakeTimers();
-    try {
-      mockSessionGet.mockResolvedValue('sess-1');
-      let posts = 0;
-      let cancels = 0;
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-        const url = String(_url);
-        if (url.includes('/events/stream')) {
-          return Promise.resolve({ status: 200, ok: true, body: sseStream([JSON.stringify({ type: 'session.status_idle' })]) });
         }
         if (url.endsWith('/cancel') && init?.method === 'POST') {
           cancels++;
@@ -379,17 +424,18 @@ describe('background handleChat', () => {
       const { port, messages } = connect();
       port.postMessage({ text: 'hello' });
 
-      for (let i = 1; i <= 5; i++) {
-        await untilFake(() => posts === i);
-        await vi.advanceTimersByTimeAsync(1000); // fire the next retry delay
+      // each 409 round: cancel → wait for idle → retry (2 rounds max)
+      for (let i = 1; i <= 2; i++) {
+        await until(() => posts === i && cancels === i);
+        releaseIdle!();
+        await until(() => posts === i + 1);
       }
-      await untilFake(() => messages.some((m: any) => m.type === 'error'));
+      await until(() => messages.some((m: any) => m.type === 'error'));
 
-      expect(posts).toBe(6); // initial post + 5 bounded retries, then it stops
-      expect(cancels).toBe(1);
+      expect(posts).toBe(3); // initial + 2 retries, then error
+      expect(cancels).toBe(2);
       expect(messages.at(-1)).toMatchObject({ type: 'error', message: 'send message: HTTP 409' });
     } finally {
-      vi.useRealTimers();
       errSpy.mockRestore();
       vi.unstubAllGlobals();
     }
@@ -623,6 +669,16 @@ describe('background per-tab sessions', () => {
     expect(mockStorageGet).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  it('prunes the per-tab session key when the tab is closed', async () => {
+    perTabStorage.set('local:sessionId.v3.tab.7', 'sess-A');
+    mockStorageRemove.mockClear();
+
+    tabRemovedListenerRef.current?.(7);
+
+    expect(mockStorageRemove).toHaveBeenCalledWith('local:sessionId.v3.tab.7');
+    expect(perTabStorage.has('local:sessionId.v3.tab.7')).toBe(false);
+  });
 });
 
 // invoke the registered onMessage listener and capture the async sendResponse
@@ -796,6 +852,8 @@ describe('background classify', () => {
     onSession?: () => void;
   }) => {
     let attempts = 0;
+    // the gateway pushes this turn's events only after the user.message POST returns
+    const streams: ReadableStreamDefaultController[] = [];
     return vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
@@ -804,10 +862,20 @@ describe('background classify', () => {
         return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ id }) });
       }
       if (url.includes('/events/stream')) {
-        const attempt = Number(url.match(/cls-sess-(\d+)/)?.[1] ?? 0);
-        return Promise.resolve({ status: 200, ok: true, body: sseStream(opts.reply(attempt)) });
+        return Promise.resolve({
+          status: 200, ok: true,
+          body: new ReadableStream({ start(c) { streams.push(c); } }),
+        });
       }
       if (url.includes('/events') && init?.method === 'POST') {
+        // events flow only AFTER the post resolves (posted flips true in the
+        // caller) — a macrotask guarantees that microtask chain finished
+        const c = streams.shift(); // the stream opened for this turn
+        const frames = opts.reply(attempts);
+        setTimeout(() => {
+          c?.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${f}\n\n`).join('')));
+          c?.close();
+        }, 0);
         return Promise.resolve({ status: 200, ok: true });
       }
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
@@ -823,6 +891,8 @@ describe('background classify', () => {
     mockGetClips.mockResolvedValue([clip('a')]);
     vi.stubGlobal('fetch', classifyFetch({
       reply: () => [
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
         JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[],"tags":["ai","x"]}]}' } } }),
         JSON.stringify({ type: 'session.status_idle' }),
       ],
@@ -844,6 +914,8 @@ describe('background classify', () => {
     mockGetClips.mockResolvedValue([clip('a')]);
     vi.stubGlobal('fetch', classifyFetch({
       reply: () => [
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
         JSON.stringify({
           type: 'event_delta',
           delta: { content: { text: 'Here is the result:\n```json\n{"clips":[{"id":"a","category":"concept","relatedIds":[],"tags":["x"]}]}\n```' } },
@@ -869,6 +941,8 @@ describe('background classify', () => {
       onSession: () => sessions++,
       // each batch filters the reply to its own ids, so replying with all ids is fine
       reply: () => [
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
         JSON.stringify({
           type: 'event_delta',
           delta: { content: { text: JSON.stringify({ clips: clips.map((c) => ({ id: c.id, category: 'x', relatedIds: [] })) }) } },
@@ -895,6 +969,8 @@ describe('background classify', () => {
       onSession: () => sessions++,
       // the retry reuses the run's session; only the second stream gets a parseable reply
       reply: () => [
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
         ++streams === 1
           ? JSON.stringify({ type: 'event_delta', delta: { content: { text: 'sorry, cannot do that' } } })
           : JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[]}]}' } } }),
@@ -912,6 +988,8 @@ describe('background classify', () => {
     vi.stubGlobal('fetch', classifyFetch({
       onSession: () => sessions++,
       reply: () => [
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
         JSON.stringify({ type: 'event_delta', delta: { content: { text: 'no json at all' } } }),
         JSON.stringify({ type: 'session.status_idle' }),
       ],
@@ -926,8 +1004,11 @@ describe('background classify', () => {
   it('shares one in-flight run across concurrent classify triggers', async () => {
     mockGetClips.mockResolvedValue([clip('a')]);
     let sessions = 0;
+    let posts = 0;
     let release: (() => void) | null = null;
     const frames = [
+      JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
+      JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
       JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"x","relatedIds":[]}]}' } } }),
       JSON.stringify({ type: 'session.status_idle' }),
     ];
@@ -951,13 +1032,16 @@ describe('background classify', () => {
           }),
         });
       }
-      if (url.includes('/events') && init?.method === 'POST') return Promise.resolve({ status: 200, ok: true });
+      if (url.includes('/events') && init?.method === 'POST') {
+        posts++;
+        return Promise.resolve({ status: 200, ok: true });
+      }
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
     });
     vi.stubGlobal('fetch', fetchMock);
 
     const first = dispatch({ type: 'classifyClips' });
-    await until(() => release !== null); // the run reached its stream
+    await until(() => release !== null && posts === 1); // stream open AND our POST landed
     const second = dispatch({ type: 'classifyClips' }); // joins the in-flight run
     release!();
     await until(() => first.respond.mock.calls.length > 0 && second.respond.mock.calls.length > 0);
@@ -969,7 +1053,7 @@ describe('background classify', () => {
     // after completion the lock is released: a new trigger starts a fresh run
     release = null;
     const third = dispatch({ type: 'classifyClips' });
-    await until(() => release !== null);
+    await until(() => release !== null && posts === 2);
     release!();
     await until(() => third.respond.mock.calls.length > 0);
     expect(sessions).toBe(2);

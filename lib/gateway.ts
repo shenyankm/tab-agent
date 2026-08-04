@@ -112,7 +112,9 @@ async function streamReply(
   sessionId: string,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
+  /** true once our user.message POST has succeeded — gates the turn's event_start */
   isPosted: () => boolean,
+  onIdle?: () => void,
 ) {
   const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas[]=agent.message`, {
     headers: { Accept: 'text/event-stream' },
@@ -125,11 +127,8 @@ async function streamReply(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  // ponytail: 90s read timeout — covers silent connection drops where TCP never
-  // signals closure (MV3 worker suspension, proxy idle-kill). Agent tool calls
-  // (WebFetch, Bash) can take 30-60s; heartbeats arrive every ~15s, so 90s of
-  // silence means the connection is dead. Upgrade to a heartbeat-aware watchdog
-  // if false positives appear.
+  // 90s read timeout reset on every read — heartbeats (every ~15s) keep it alive;
+  // 90s of silence means the connection is dead (MV3 worker suspension, proxy idle-kill).
   let timer: ReturnType<typeof setTimeout> = 0 as any;
   let rejectTimeout: (e: Error) => void;
   const timeout = new Promise<never>((_, reject) => { rejectTimeout = reject; });
@@ -137,6 +136,12 @@ async function streamReply(
   const onAbort = () => rejectTimeout(signal.reason ?? new Error('aborted'));
   signal.addEventListener('abort', onAbort, { once: true });
   armTimeout();
+
+  // stream opens BEFORE our POST: everything that arrives while isPosted() is
+  // false is the old turn's replay (in-flight deltas, stale idle) and must be
+  // dropped — the first user.message event_start after POST is our turn's, and
+  // only events after it belong to this reply
+  let userMsgId = '';
 
   try {
     while (true) {
@@ -155,13 +160,19 @@ async function streamReply(
         } catch {
           continue;
         }
-        // isPosted also gates deltas: a fresh stream replays the old turn's in-flight deltas
-        // ponytail: only agent.message emits deltas today; if that changes, filter via event_start's event.id→type map
-        if (payload.type === 'event_delta' && isPosted() && payload.delta?.content?.text) {
+        // only the user.message event_start arriving after our POST is this turn's;
+        // the stream replays the previous turn's events (incl. its event_start) before
+        // the POST returns — without this gate, replay leaks into this reply
+        if (payload.type === 'event_start' && payload.event?.id && payload.event.type === 'user.message' && isPosted()) {
+          userMsgId = payload.event.id;
+        }
+        // fire onIdle on any session.status_idle (used by tryTurn after cancel)
+        if (payload.type === 'session.status_idle') onIdle?.();
+        // userMsgId gates deltas: only process events from after our user.message,
+        // preventing replay of the old turn's in-flight deltas after our POST returns
+        if (payload.type === 'event_delta' && userMsgId && payload.delta?.content?.text) {
           text += payload.delta.content.text;
-        } else if (payload.type === 'session.status_idle' && isPosted()) {
-          // ponytail: isPosted filters idle events replayed before our POST returns; if long
-          // histories ever race past it, key off our user.message event id instead
+        } else if (payload.type === 'session.status_idle' && userMsgId) {
           if (text) send({ type: 'delta', text });
           send({ type: 'done' });
           return;
@@ -252,17 +263,23 @@ export async function handleChat(
         if (mounted.status === 404) return false; // dead session: recreate and re-mount
         if (!mounted.ok) throw new Error(`mount file: HTTP ${mounted.status}`);
       }
-      const streaming = streamReply(pat, sid, turnSignal, send, () => posted);
+      let idleResolve!: () => void;
+      let onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
+      const streaming = streamReply(pat, sid, turnSignal, send, () => posted, () => idleResolve());
       // pre-await rejections (dead-session 404, failure-path abort) must not fire
       // unhandledrejection; `await streaming` below still surfaces the error
       streaming.catch(() => {});
       let res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
       if (res.status === 409) {
-        // previous turn still running (e.g. re-submit): cancel it, then retry the post
-        await api(pat, `/sessions/${sid}/cancel`, { method: 'POST', signal: turnSignal });
-        // ponytail: cancel→idle is async; bounded poll, swap for an onIdle hook if flaky
-        for (let i = 0; i < 5 && res.status === 409; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
+        // previous turn still running (e.g. re-submit): cancel it, then wait for
+        // its session.status_idle before retrying — cancel→idle is async
+        for (let i = 0; i < 2 && res.status === 409; i++) {
+          await api(pat, `/sessions/${sid}/cancel`, { method: 'POST', signal: turnSignal });
+          await Promise.race([
+            onIdle,
+            new Promise<void>((r) => setTimeout(r, 5000)), // 5s safety net
+          ]);
+          onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
           res = await postUserMessage(pat, sid, text, page, notes, turnSignal);
         }
       }
