@@ -80,6 +80,17 @@ describe('highlightClip', () => {
     expect(document.querySelector('mark')?.textContent).toBe('bravo');
   });
 
+  // regression: a hit spanning inline elements (<p>hello <b>world</b></p>) must map
+  // start/end to separate nodes — packing both into one node made setEnd throw
+  // IndexSizeError, crashing the click handler (unprotected fallback path)
+  it('marks a hit spanning multiple text nodes in the fallback', () => {
+    document.body.innerHTML = '<p>hello <b>world</b></p>';
+    const clip = { id: 'x', url: 'https://e.com/p#:~:text=stale', pageUrl: 'https://e.com/p', title: '', text: 'hello world', createdAt: 0 };
+    const marks = highlightClip(clip);
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.map((m) => m.textContent).join('')).toBe('hello world');
+  });
+
   it('returns null when neither the fragment nor the text is on the page', () => {
     document.body.innerHTML = '<p>nothing to see</p>';
     const clip = { id: 'x', url: 'https://e.com/p#:~:text=gone', pageUrl: 'https://e.com/p', title: '', text: 'vanished', createdAt: 0 };
