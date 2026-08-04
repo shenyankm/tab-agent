@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useI18n } from '@/lib/i18n';
 import { cn, useStorageValue } from '@/lib/utils';
-import { themeItem, petEnabledItem, petPosItem, pageCarryItem } from '@/lib/settings';
+import { themeItem, petEnabledItem, petPosItem, pageCarryItem, isDark } from '@/lib/settings';
 import { pageText } from '@/lib/page-text';
 import { draftEvents, setEditorMounted, type ClipDraft } from '@/lib/marks';
 import { Mascot, type AgentState } from '@/components/agent/Mascot';
@@ -27,8 +27,9 @@ export function FloatingAgent() {
   // compact screen-reader status (thinking / errors) — the message area itself
   // is aria-live="off" so streaming deltas don't announce every frame
   const [srStatus, setSrStatus] = useState('');
-  // live OS light/dark, so theme:"system" follows OS flips without a page reload
-  const [osDark, setOsDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  // re-render trigger only: isDark(theme) reads matchMedia live at render time,
+  // so theme:"system" follows OS flips without a page reload
+  const [, setOsDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
   useEffect(() => {
     const mq = matchMedia('(prefers-color-scheme: dark)');
     const onChange = () => setOsDark(mq.matches);
@@ -45,17 +46,22 @@ export function FloatingAgent() {
   const [draft, setDraft] = useState<ClipDraft | null>(null);
   const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
+  const shellRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const dragRef = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
+  // latest clamped position during a drag, committed to state once on pointerup
+  const dragPosRef = useRef<{ right: number; bottom: number } | null>(null);
   const movedRef = useRef(false);
   const selRef = useRef(''); // page selection captured at pointerdown (click collapses it)
   const { t } = useI18n();
 
   useEffect(() => {
-    petPosItem.getValue().then((p) => setPos(clampPos(p)));
+    // invalidated context (reload/update) rejects the read: keep the default
+    // position instead of an unhandled rejection in the page console
+    petPosItem.getValue().then((p) => setPos(clampPos(p))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -71,7 +77,12 @@ export function FloatingAgent() {
   // devtools, split screen and window resizes shrink the viewport; without this the
   // pet stays parked outside it and looks like it vanished
   useEffect(() => {
-    const onResize = () => setPos(clampPos);
+    // same-value bailout: clampPos allocates a fresh object per call, and an
+    // unchanged position must not re-render the tree on every resize tick
+    const onResize = () => setPos((p) => {
+      const c = clampPos(p);
+      return c.right === p.right && c.bottom === p.bottom ? p : c;
+    });
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -208,8 +219,8 @@ export function FloatingAgent() {
       page: {
         url: location.href,
         title: document.title,
-        // ponytail: 20k char cap; per-section chunking if long articles get truncated
-        text: carry === 'article' ? pageText().slice(0, 20000) : '',
+        // pageText() 缓存的已是 20k 截断形态(page-text.ts),无需再切
+        text: carry === 'article' ? pageText() : '',
       },
     });
   };
@@ -247,7 +258,16 @@ export function FloatingAgent() {
     const dy = event.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 4) return; // below threshold: still a click
     d.moved = true;
-    setPos(clampPos({ right: d.right - dx, bottom: d.bottom - dy }));
+    const c = clampPos({ right: d.right - dx, bottom: d.bottom - dy });
+    dragPosRef.current = c;
+    // write straight to the shell during the drag: a setPos per pointermove would
+    // re-render the whole tree (panel + message list) at pointer rate; state and
+    // storage commit once on pointerup
+    const shell = shellRef.current;
+    if (shell) {
+      shell.style.right = `${c.right}px`;
+      shell.style.bottom = `${c.bottom}px`;
+    }
   };
 
   // also handles pointercancel (window blur while held, native drag, Esc): leaving
@@ -257,10 +277,13 @@ export function FloatingAgent() {
     dragRef.current = null;
     movedRef.current = !!d?.moved;
     if (!d?.moved) return;
-    petPosItem.setValue(clampPos({
+    const c = dragPosRef.current ?? clampPos({
       right: d.right - (event.clientX - d.x),
       bottom: d.bottom - (event.clientY - d.y),
-    }));
+    });
+    dragPosRef.current = null;
+    setPos(c); // one commit: panel side/maxHeight recompute on this render
+    petPosItem.setValue(c);
   };
 
   // open the panel toward the roomier half of the viewport so it never gets clipped
@@ -269,7 +292,8 @@ export function FloatingAgent() {
 
   return (
     <div
-      className={cn('pixel-agent-shell', theme === 'dark' || (theme === 'system' && osDark) ? 'dark' : '')}
+      ref={shellRef}
+      className={cn('pixel-agent-shell', isDark(theme) ? 'dark' : '')}
       style={{ right: pos.right, bottom: pos.bottom }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') (draft ? setDraft(null) : closePanel());

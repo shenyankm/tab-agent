@@ -76,9 +76,15 @@ const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
  * (textQuote 式重锚思路的简化版);多实例用 fragment 的
  * prefix/suffix 上下文消解,无吻合再退回第一个命中。
  * ponytail: 全文拼接 indexOf,命中可能跨元素边界;上下文仅空白归一后精确匹配——兜底路径,模糊匹配等失配报告再说 */
-function findTextRange(text: string, prefix?: string, suffix?: string): Range | null {
-  const q = text.trim();
-  if (!q || !document.body) return null; // all_urls 匹配的 XML/SVG 页可能无 body
+
+// (nodes, full) 文本索引缓存:一批 fragment 失效的 clip 重放集中在 ~2s 的空闲切片内,
+// 逐条重建等于每条一次全树 TreeWalker。TTL + 首节点连通性界定失效(SPA 导航后旧节点
+// 失连即重建);动态 DOM 的最坏情况是一次兜底失配,与逐条快照同量级
+let textIndex: { nodes: Text[]; full: string; at: number } | null = null;
+
+function getTextIndex(): { nodes: Text[]; full: string } {
+  if (textIndex && Date.now() - textIndex.at < 3000 && textIndex.nodes[0]?.isConnected !== false)
+    return textIndex;
   const nodes: Text[] = [];
   let full = '';
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -87,6 +93,53 @@ function findTextRange(text: string, prefix?: string, suffix?: string): Range | 
     nodes.push(node as Text);
     full += (node as Text).data;
   }
+  textIndex = { nodes, full, at: Date.now() };
+  return textIndex;
+}
+
+// 命中上下文比对:不再 slice 全文做归一(O(页面)/候选),从命中点向前/后走原始文本,
+// 一段空白折叠为一个空格——O(上下文长度)/候选,语义与 norm(s)=replace(/\s+/g,' ').trim()
+// 后的 endsWith/startsWith 一致(np/ns 已 trim,比对端不携带首尾空白)
+function endsWithNorm(raw: string, end: number, np: string): boolean {
+  let i = end - 1;
+  let j = np.length - 1;
+  while (i >= 0 && /\s/.test(raw[i])) i--; // 结尾空白归一化后消失
+  while (i >= 0 && j >= 0) {
+    if (/\s/.test(raw[i])) {
+      if (np[j] !== ' ') return false; // 一段原始空白折叠成单个空格
+      while (i >= 0 && /\s/.test(raw[i])) i--;
+      j--;
+    } else {
+      if (raw[i] !== np[j]) return false;
+      i--;
+      j--;
+    }
+  }
+  return j < 0;
+}
+
+function startsWithNorm(raw: string, start: number, ns: string): boolean {
+  let i = start;
+  let j = 0;
+  while (i < raw.length && /\s/.test(raw[i])) i++;
+  while (i < raw.length && j < ns.length) {
+    if (/\s/.test(raw[i])) {
+      if (ns[j] !== ' ') return false;
+      while (i < raw.length && /\s/.test(raw[i])) i++;
+      j++;
+    } else {
+      if (raw[i] !== ns[j]) return false;
+      i++;
+      j++;
+    }
+  }
+  return j === ns.length;
+}
+
+function findTextRange(text: string, prefix?: string, suffix?: string): Range | null {
+  const q = text.trim();
+  if (!q || !document.body) return null; // all_urls 匹配的 XML/SVG 页可能无 body
+  const { nodes, full } = getTextIndex();
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
   const np = prefix && norm(prefix);
   const ns = suffix && norm(suffix);
@@ -107,9 +160,9 @@ function findTextRange(text: string, prefix?: string, suffix?: string): Range | 
   let first: Range | null = null;
   for (let i = full.indexOf(q); i >= 0; i = full.indexOf(q, i + q.length)) {
     first ??= at(i);
-    // 命中与上下文之间可能隔着空白,归一后用 endsWith/startsWith 比对
-    if (np && !norm(full.slice(0, i)).endsWith(np)) continue;
-    if (ns && !norm(full.slice(i + q.length)).startsWith(ns)) continue;
+    // 命中与上下文之间可能隔着空白,归一后比对
+    if (np && !endsWithNorm(full, i, np)) continue;
+    if (ns && !startsWithNorm(full, i + q.length, ns)) continue;
     return at(i);
   }
   return first; // 无上下文吻合:退回首个命中(旧行为)
