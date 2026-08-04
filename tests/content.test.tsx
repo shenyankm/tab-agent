@@ -35,6 +35,8 @@ vi.mock('@/lib/settings', () => ({
   petPosItem: { getValue: () => mockPosGet(), setValue: (v: unknown) => mockPosSet(v) },
   pageCarryItem: { getValue: () => mockCarryGet(), watch: () => () => {} },
   clipHighlightItem: { getValue: () => mockHighlightOn(), watch: () => () => {} },
+  highlightColorItem: { getValue: () => Promise.resolve('yellow'), watch: () => () => {} },
+  HIGHLIGHT_COLORS: { yellow: '#fef08a', purple: '#e9d5ff', green: '#bbf7d0', blue: '#bfdbfe' },
   isDark: () => false,
 }));
 
@@ -154,6 +156,7 @@ import { pageText } from '@/lib/page-text';
 import { addClip, type Clip } from '@/lib/clips-store';
 
 describe('FloatingAgent', () => {
+  let lastMark: HTMLElement;
   afterEach(cleanup);
 
   beforeEach(() => {
@@ -168,7 +171,12 @@ describe('FloatingAgent', () => {
     mockCarryGet.mockResolvedValue('article');
     mockClipsGet.mockResolvedValue([]);
     mockHighlightOn.mockResolvedValue(true);
-    mockHighlightClip.mockImplementation(() => [document.createElement('mark')]);
+    // showClip 的 isConnected 检查要求 mark 挂在文档里,否则每次点击都重建
+    mockHighlightClip.mockImplementation(() => {
+      lastMark = document.createElement('mark');
+      document.body.append(lastMark);
+      return [lastMark];
+    });
   });
 
   it('renders nothing when pet is disabled', async () => {
@@ -254,6 +262,8 @@ describe('FloatingAgent', () => {
     // clicking an item re-highlights in-page (no new tab)
     fireEvent.click(screen.getByText('clip on this page'));
     expect(mockHighlightClip).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+    // 高亮色设置写进 mark 内联背景(默认黄)
+    await waitFor(() => expect(lastMark.style.backgroundColor).toBe('rgb(254, 240, 138)'));
 
     // management lives in the options page: no delete button in the widget
     expect(screen.queryByRole('button', { name: 'Delete clip' })).not.toBeInTheDocument();

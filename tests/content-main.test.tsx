@@ -25,6 +25,7 @@ vi.mock('@/lib/marks', () => ({
   showClip: (clip: unknown, scroll?: boolean) => mockShowClip(clip, scroll),
   clearAllMarks: () => mockClearAllMarks(),
   saveClipDraft: vi.fn(),
+  restyleMarks: vi.fn(),
 }));
 
 vi.mock('@/lib/page-text', () => ({
@@ -51,6 +52,7 @@ vi.mock('@/lib/settings', () => ({
     getValue: () => mockHighlightGet(),
     watch: (cb: (on: boolean) => void) => { highlightWatchRef.current = cb; return () => {}; },
   },
+  highlightColorItem: { watch: () => () => {} },
 }));
 
 vi.mock('wxt/browser', () => ({
