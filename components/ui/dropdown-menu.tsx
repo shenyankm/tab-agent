@@ -1,4 +1,9 @@
 import * as React from "react"
+// RetroUI dropdown-menu, trimmed vs the registry original: only 6 of the 15
+// exports kept (Root/Trigger/Content/Item/Label/Separator). Re-running
+// `shadcn add @retroui/dropdown-menu` restores the full set — re-apply the trim.
+// NOTE: Content portals to document.body by default — inside the content-script
+// Shadow UI it must get an explicit shadow-root container or styles are lost.
 import { CheckIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 

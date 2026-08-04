@@ -1,4 +1,7 @@
 import * as React from "react"
+// RetroUI button, trimmed vs the registry original: secondary/link variants and
+// xs/lg/icon-xs/icon-lg sizes dropped (unused). Re-running `shadcn add @retroui/button`
+// silently restores the full set — re-apply the trim if you do.
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 

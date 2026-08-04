@@ -9,7 +9,8 @@ body {
   min-height: 0 !important;
   overflow: visible !important;
   background: transparent !important;
-  pointer-events: none;
+  /* pointer-events stays default here: WXT's :host{all:initial !important} reset would
+     beat it anyway — the .pixel-agent-shell rules below own click-through behavior */
 }
 
 .pixel-agent-shell {
@@ -69,7 +70,8 @@ body {
   border: 2px solid var(--border);
   background: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: 2px 2px 0 0 var(--border);
+  box-shadow: 2px 2px 0 0 var(--border); /* --shadow-sm lives in @theme inline, so no
+    CSS var is emitted for hand-written CSS to reference — keep the literal value */
   font-size: 0.875rem;
   line-height: 1.5;
   overflow-wrap: anywhere;

@@ -1,4 +1,7 @@
 import * as React from "react"
+// RetroUI switch, trimmed vs the registry original: size prop and the after:
+// expanded click area dropped (unused). Re-running `shadcn add @retroui/switch`
+// silently restores them — re-apply the trim if you do.
 import { Switch as SwitchPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"

@@ -12,11 +12,22 @@
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 @custom-variant data-disabled (&[data-disabled]);
+/* theme is a manual .dark class toggle (user setting), not the OS media query —
+   keep Tailwind's default `dark:` variant aligned so future `dark:*` utilities
+   can't bypass the setting */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --font-head: var(--font-head);
   --font-sans: var(--font-sans);
   --radius: var(--radius);
+  /* shadcn v4 derives the radius scale from --radius; this design is square
+     (radius 0), so pin the whole scale or rounded-sm/xl fall back to Tailwind
+     defaults and leak rounded corners into dropdown-menu/alert-dialog/tab buttons */
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
 
   --shadow-sm: 2px 2px 0 0 var(--border);
   --shadow: 3px 3px 0 0 var(--border);
