@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useStorageValue } from '@/lib/utils';
 
 export type Lang = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
@@ -67,10 +68,6 @@ export const dict = {
     'clips.moreActions': 'More actions',
     'clips.editNote': 'Notes',
     'clips.empty': 'No clips yet. Select text on a page and right-click to save.',
-    'nav.graph': 'Graph',
-    'graph.classify': 'Classify',
-    'graph.classifying': 'Classifying…',
-    'graph.empty': 'No classified clips yet. Go to Clips and click "Classify" to build your knowledge graph.',
     'theme.system': 'Follow Device',
     'theme.dark': 'Dark',
     'theme.light': 'Light',
@@ -80,7 +77,7 @@ export const dict = {
     'privacy.collect.body': 'Your preferences, connection credentials and saved clips, stored locally in your browser and never uploaded by us:',
     'privacy.network.title': 'Data We Send',
     'privacy.network.body': 'When you send a question, that question plus the current page\'s URL, title and visible text are sent over HTTPS to Qoder Cloud Agents (api.qoder.com), authenticated with your own API token. If "Screenshot" is selected as page context, a screenshot of the visible page is sent instead of its text. Nothing is sent in the background.',
-    'privacy.classify.title': 'Knowledge Graph Analysis',
+    'privacy.classify.title': 'AI Classification',
     'privacy.classify.body': 'When you click "Classify", your saved clip texts are sent to your configured Qoder Cloud Agent for categorization. Only clip text is sent — not URLs, titles, or other metadata. Nothing is sent unless you explicitly trigger this action.',
     'privacy.permission.title': 'Permissions',
     'privacy.permission.body': 'The extension requests "storage" to save the data above, "contextMenus" for the right-click "save as clip" entry, and access to api.qoder.com solely for the chat requests you initiate. Access to all sites is required to capture page screenshots.',
@@ -139,10 +136,6 @@ export const dict = {
     'clips.moreActions': '更多操作',
     'clips.editNote': '备注',
     'clips.empty': '还没有摘录。在网页上选中文字，右键即可保存。',
-    'nav.graph': '图谱',
-    'graph.classify': '智能分类',
-    'graph.classifying': '分类中…',
-    'graph.empty': '还没有分类的摘录。到摘录页点击“智能分类”来构建知识图谱。',
     'theme.system': '跟随设备',
     'theme.dark': '深色模式',
     'theme.light': '浅色模式',
@@ -152,7 +145,7 @@ export const dict = {
     'privacy.collect.body': '你的偏好设置、连接凭证与保存的摘录，保存在你的浏览器本地，我们绝不上传：',
     'privacy.network.title': '我们发送什么',
     'privacy.network.body': '当你发送提问时，问题以及当前页面的网址、标题和可见文本会通过 HTTPS 发送到 Qoder Cloud Agents（api.qoder.com），使用你自己的 API 令牌鉴权。若选择“截图”作为携带页面，则会改为发送当前可见页面的截图。后台不会发送任何数据。',
-    'privacy.classify.title': '知识图谱分析',
+    'privacy.classify.title': 'AI 分类',
     'privacy.classify.body': '当你点击“智能分类”时，保存的摘录文本会发送给你配置的 Qoder 云端 Agent 进行分类。仅发送摘录文本——不发送网址、标题或其他元数据。除非你主动触发，否则不会发送任何数据。',
     'privacy.permission.title': '权限说明',
     'privacy.permission.body': '本扩展申请 storage 权限用于保存上述数据，contextMenus 权限用于右键“保存为摘录”菜单，以及 api.qoder.com 的访问权限，仅用于你主动发起的对话请求。截图功能需要访问所有网站的权限。',
@@ -211,10 +204,6 @@ export const dict = {
     'clips.moreActions': '更多操作',
     'clips.editNote': '備註',
     'clips.empty': '還沒有摘錄。在網頁上選取文字，按右鍵即可儲存。',
-    'nav.graph': '圖譜',
-    'graph.classify': '智慧分類',
-    'graph.classifying': '分類中…',
-    'graph.empty': '還沒有分類的摘錄。到摘錄頁點擊「智慧分類」來建構知識圖譜。',
     'theme.system': '跟隨裝置',
     'theme.dark': '深色模式',
     'theme.light': '淺色模式',
@@ -224,7 +213,7 @@ export const dict = {
     'privacy.collect.body': '你的偏好設定、連線憑證與儲存的摘錄，儲存在你的瀏覽器本機，我們絕不上傳：',
     'privacy.network.title': '我們傳送什麼',
     'privacy.network.body': '當你傳送提問時，問題以及目前頁面的網址、標題與可見文字會透過 HTTPS 傳送到 Qoder Cloud Agents（api.qoder.com），並使用你自己的 API 令牌驗證。若選擇「攜帶截圖」，則會改為傳送目前可見頁面的截圖。背景不會傳送任何資料。',
-    'privacy.classify.title': '知識圖譜分析',
+    'privacy.classify.title': 'AI 分類',
     'privacy.classify.body': '當你點擊「智慧分類」時，儲存的摘錄文字會傳送給你設定的 Qoder 雲端 Agent 進行分類。僅傳送摘錄文字——不傳送網址、標題或其他中繼資料。除非你主動觸發，否則不會傳送任何資料。',
     'privacy.permission.title': '權限說明',
     'privacy.permission.body': '本擴充功能申請 storage 權限用於保存上述資料，contextMenus 權限用於右鍵「儲存為摘錄」選單，以及 api.qoder.com 的存取權限，僅用於你主動發起的對話請求。截圖功能需要存取所有網站的權限。',
@@ -283,10 +272,6 @@ export const dict = {
     'clips.moreActions': 'その他の操作',
     'clips.editNote': 'メモ',
     'clips.empty': 'クリップはまだありません。ページ上でテキストを選択し、右クリックで保存できます。',
-    'nav.graph': 'グラフ',
-    'graph.classify': 'AI分類',
-    'graph.classifying': '分類中…',
-    'graph.empty': '分類済みのクリップがありません。クリップページで「AI分類」をクリックして知識グラフを構築してください。',
     'theme.system': 'デバイスに合わせる',
     'theme.dark': 'ダークモード',
     'theme.light': 'ライトモード',
@@ -296,7 +281,7 @@ export const dict = {
     'privacy.collect.body': '設定、接続認証情報、保存したクリップはブラウザ内にローカル保存され、我々がアップロードすることはありません：',
     'privacy.network.title': '送信するデータ',
     'privacy.network.body': '質問を送信すると、質問内容と現在のページの URL・タイトル・表示テキストが HTTPS で Qoder Cloud Agents（api.qoder.com）に送信され、あなた自身の API トークンで認証されます。「スクリーンショットを添付」を選択した場合は、テキストの代わりに表示中ページのスクリーンショットが送信されます。バックグラウンドでの送信は一切ありません。',
-    'privacy.classify.title': '知識グラフ分析',
+    'privacy.classify.title': 'AI分類',
     'privacy.classify.body': '「AI分類」をクリックすると、保存したクリップのテキストが設定済みの Qoder クラウド Agent に分類のために送信されます。送信されるのはクリップのテキストのみで、URL・タイトル・その他のメタデータは含まれません。あなたが明示的に操作しない限り、何も送信されません。',
     'privacy.permission.title': '権限について',
     'privacy.permission.body': '本拡張機能は上記データ保存のための storage 権限、右クリックの「クリップとして保存」メニューのための contextMenus 権限、およびあなたが開始したチャットリクエスト専用の api.qoder.com へのアクセス権限を要求します。スクリーンショット取得のため、すべてのサイトへのアクセス権限が必要です。',
@@ -306,12 +291,18 @@ export const dict = {
   },
 } satisfies Record<Lang, Record<string, string>>;
 
+// compile-time key parity: a language missing an en key errors here at edit time
+// instead of in CI (extra keys stay harmless — I18nKey below gates what's usable)
+const _parity: Record<Lang, Record<keyof (typeof dict)['en'], string>> = dict;
+void _parity;
+
 export type I18nKey = keyof (typeof dict)['en'];
 
 export function useI18n() {
   const lang = useStorageValue(langItem, DEFAULT_LANG);
 
-  const t = (key: I18nKey, vars?: Record<string, string | number>) => {
+  // stable identity per lang: consumers can wrap in memo without busting on every render
+  const t = useCallback((key: I18nKey, vars?: Record<string, string | number>) => {
     // storage can hold a stale/invalid lang (old version, manual edit) — fall
     // back instead of crashing the whole React tree on dict[lang][key]
     let s = (dict[lang] as Record<string, string> | undefined)?.[key]
@@ -319,7 +310,7 @@ export function useI18n() {
       ?? key;
     if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
     return s;
-  };
+  }, [lang]);
 
   return { lang, setLang: (l: Lang) => langItem.setValue(l), t };
 }

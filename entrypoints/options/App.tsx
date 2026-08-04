@@ -4,15 +4,14 @@ import { useI18n } from '@/lib/i18n';
 
 // every tab page lazy-loads: popup modulepreloads the shared popup/options chunk,
 // so static page imports would tax every popup open with options-only code
-// (alert-dialog, clips list, d3 ~30KB gz)
+// (alert-dialog, clips list)
 const SettingsPage = lazy(() => import('./pages/settings'));
 const ClipsPage = lazy(() => import('./pages/clips'));
-const GraphPage = lazy(() => import('./pages/graph'));
 const PrivacyPage = lazy(() => import('./pages/privacy'));
 
-type Tab = 'settings' | 'clips' | 'graph' | 'privacy';
+type Tab = 'settings' | 'clips' | 'privacy';
 
-const tabs: Tab[] = ['settings', 'clips', 'graph', 'privacy'];
+const tabs: Tab[] = ['settings', 'clips', 'privacy'];
 
 function App() {
   // tab persisted in URL hash so refresh keeps the current page
@@ -40,9 +39,6 @@ function App() {
         </TabsContent>
         <TabsContent value="clips" className="w-full">
           <Suspense fallback={null}><ClipsPage /></Suspense>
-        </TabsContent>
-        <TabsContent value="graph" className="w-full">
-          <Suspense fallback={null}><GraphPage /></Suspense>
         </TabsContent>
         <TabsContent value="privacy" className="w-full">
           <Suspense fallback={null}><PrivacyPage /></Suspense>
