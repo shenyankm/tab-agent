@@ -1,11 +1,11 @@
 import ReactDOM from 'react-dom/client';
 import { FloatingAgent } from '@/components/floating-agent';
-import { showClip, clearAllMarks, saveClipDraft } from '@/lib/marks';
+import { showClip, clearAllMarks, saveClipDraft, restyleMarks } from '@/lib/marks';
 import { pageText } from '@/lib/page-text';
 import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-store';
 import { buildClipUrl } from '@/lib/clips-highlight';
 import { onPageNav } from '@/lib/utils';
-import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
+import { petEnabledItem, clipHighlightItem, highlightColorItem } from '@/lib/settings';
 import '@/assets/content.css';
 
 export default defineContentScript({
@@ -108,6 +108,8 @@ export default defineContentScript({
       if (on) return void pageClips.getValue().then(replay).catch(() => { /* invalidated context */ });
       clearAllMarks();
     });
+    // 设置页换高亮色:已打开的页面里在页 mark 即时补色
+    const unwatchColor = highlightColorItem.watch(restyleMarks);
 
     // SPA 同文档导航:重锚本页摘录、清掉旧页 mark、按新 URL 重放高亮
     const unsubNav = onPageNav(() => {
@@ -123,6 +125,7 @@ export default defineContentScript({
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage);
       unwatchHighlight();
+      unwatchColor();
       unsubNav();
       spaObserver.disconnect();
       if (spaTimer) clearTimeout(spaTimer);
