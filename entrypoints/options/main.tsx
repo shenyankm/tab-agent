@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import { initTheme } from '@/lib/settings';
-import '@fontsource/archivo-black';
+import '@fontsource/archivo-black/latin.css';
 import '@fontsource-variable/space-grotesk';
 import '@/assets/style.css';
 
