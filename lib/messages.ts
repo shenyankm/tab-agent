@@ -15,8 +15,7 @@ export type Request =
   | { type: 'clipAdd'; clip: Omit<Clip, 'id' | 'createdAt'> }
   | { type: 'clipDel'; id: string }
   | { type: 'clipUpdate'; id: string; patch: ClipPatch }
-  | { type: 'classifyClips' }
-  | { type: 'dailyReportNow' };
+  | { type: 'classifyClips' };
 
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},
 // they don't reject, so the sender never hangs

@@ -4,9 +4,9 @@ import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
 import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore, mirrorClip } from '@/lib/memory';
-import { syncDeployment, buildInstruction } from '@/lib/daily-report';
+import { syncDeployment } from '@/lib/daily-report';
 import { logChat, logClipAdded, logClassified, purgeOld, today } from '@/lib/usage';
-import { memorySyncItem, notionDbIdItem, dailyReportItem, patItem } from '@/lib/settings';
+import { memorySyncItem } from '@/lib/settings';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
@@ -64,17 +64,6 @@ let classifyInFlight: Promise<{ classified: number }> | null = null;
 // 云端记忆改为写入即自动镜像;开关打开时对存量摘录库补一次全量,共享单次运行避免并发重复写
 let memorySyncInFlight: Promise<number> | null = null;
 
-// "立即生成日报"共享单次运行:一次性专用会话(ownSession=''),同 classify 模式
-let reportInFlight: Promise<{ day: string }> | null = null;
-
-async function runDailyReportNow(): Promise<{ day: string }> {
-  const [pat, dbId] = await Promise.all([patItem.getValue(), notionDbIdItem.getValue()]);
-  if (!pat || !dbId) throw new Error('daily report not configured');
-  // 手动触发总结截至此刻的当日记录;回复经 send 丢弃,只要回合正常结束即视为完成
-  await handleChat(buildInstruction(dbId), undefined, false, new AbortController().signal, () => {}, '');
-  return { day: today() };
-}
-
 export default defineBackground(() => {
   // warm the extension-origin DB at startup
   void getClipsDirect().catch(() => {
@@ -83,10 +72,9 @@ export default defineBackground(() => {
   // 清理过期使用日志(保留 7 天);失败下次启动重试
   void purgeOld();
 
-  // 日报 Deployment 收敛:开关/Notion DB ID 变更时把云端状态拉回一致
-  const resync = () => void syncDeployment().catch((e) => console.error('[pixel-agent]', e));
-  dailyReportItem.watch(resync);
-  notionDbIdItem.watch(resync);
+  // 日报是后端默认行为:worker 启动时确保 Deployment 存在(已缓存 → 零网络;
+  // 未配置凭证静默跳过,下次启动重试)
+  void syncDeployment().catch((e) => console.error('[pixel-agent]', e));
 
   // 记忆同步开关打开 → 存量摘录一次性全量补齐(此后新增/更新/删除自动镜像)
   memorySyncItem.watch((on) => {
@@ -236,13 +224,6 @@ export default defineBackground(() => {
       const ping = keepalive();
       classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
       classifyInFlight.then(ok, fail).finally(() => clearInterval(ping));
-      return true;
-    }
-    if (req?.type === 'dailyReportNow') {
-      // 手动生成是一个完整 Agent 回合(总结 + 写 Notion):keepalive + 共享单次运行
-      const ping = keepalive();
-      reportInFlight ??= runDailyReportNow().finally(() => { reportInFlight = null; });
-      reportInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
   });

@@ -46,11 +46,11 @@ vi.mock('@/lib/settings', () => ({
   memorySyncItem: { getValue: () => Promise.resolve(false), watch: () => () => {} },
   memoryStoreIdItem: { getValue: () => Promise.resolve('') },
   memoryMapItem: { getValue: () => Promise.resolve({}), setValue: () => Promise.resolve() },
-  // 日报默认关闭:watch 必须存在(background 注册收敛监听),既有零行为变化
-  dailyReportItem: { getValue: () => Promise.resolve(false), watch: () => () => {} },
-  notionDbIdItem: { getValue: () => Promise.resolve(''), watch: () => () => {} },
   deploymentIdItem: { getValue: () => Promise.resolve('') },
 }));
+
+// 日报 Deployment 编排在启动时跑:mock 掉避免测试内真实请求网关
+vi.mock('@/lib/daily-report', () => ({ syncDeployment: vi.fn().mockResolvedValue(undefined) }));
 
 vi.mock('@/lib/i18n', () => ({
   dict: { 'zh-CN': { 'clips.menu': '保存选中内容为摘录', 'clips.menu.page': '保存整页为摘录', 'clips.menu.image': '保存图片为摘录' } },
@@ -741,18 +741,6 @@ describe('background clips message handler', () => {
     expect(keptOpen).toBe(true);
     await until(() => respond.mock.calls.length > 0);
     expect(respond).toHaveBeenCalledWith({ ok: false, error: 'idb down' });
-  });
-
-  it('dailyReportNow fails fast when unconfigured (no PAT / no Notion DB ID)', async () => {
-    mockPat.mockResolvedValue('');
-    try {
-      const { respond, keptOpen } = dispatch({ type: 'dailyReportNow' });
-      expect(keptOpen).toBe(true);
-      await until(() => respond.mock.calls.length > 0);
-      expect(respond).toHaveBeenCalledWith({ ok: false, error: 'daily report not configured' });
-    } finally {
-      mockPat.mockResolvedValue('test-pat'); // 不恢复会污染后续 describe
-    }
   });
 
   it('ignores unrelated message types', () => {

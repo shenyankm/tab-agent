@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { sendRequest } from '@/lib/messages';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, highlightColorItem, dailyReportItem, notionDbIdItem } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, highlightColorItem } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
@@ -21,22 +19,8 @@ export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
   const highlightColor = useStorageValue(highlightColorItem, 'yellow');
   const memorySync = useStorageValue(memorySyncItem, false);
-  const dailyReport = useStorageValue(dailyReportItem, false);
-  const [reporting, setReporting] = useState(false);
-  const [reportResult, setReportResult] = useState<string | null>(null);
-  const [dbId, setDbId] = useState('');
   const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
-
-  // 手动生成是一个完整 Agent 回合(总结 + 写 Notion),background keepalive 内跑
-  const reportNow = () => {
-    setReporting(true);
-    setReportResult(null);
-    sendRequest<{ day: string }>({ type: 'dailyReportNow' })
-      .then((r) => setReportResult(t('settings.dailyReportResult', { day: r.day })))
-      .catch((e: Error) => setReportResult(t('widget.error.generic', { message: String(e?.message ?? e) })))
-      .finally(() => setReporting(false));
-  };
 
   useEffect(() => {
     connFields.forEach(([key, item]) => {
@@ -46,7 +30,6 @@ export default function SettingsPage() {
         .then((v) => setConn((c) => ({ ...c, [key]: v })))
         .catch(() => {});
     });
-    notionDbIdItem.getValue().then(setDbId).catch(() => {});
   }, []);
 
   return (
@@ -116,38 +99,6 @@ export default function SettingsPage() {
             />
           </div>
         ))}
-      </div>
-
-      <Separator className="my-6" />
-
-      {/* 每日日报:开关/DB ID 变更由 background watcher 收敛云端 Deployment */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.dailyReport')}</span>
-          <div className="flex items-center gap-3">
-            {reportResult !== null && (
-              <span className="text-xs text-muted-foreground">{reportResult}</span>
-            )}
-            <Button size="sm" variant="outline" disabled={reporting || !dbId.trim()} onClick={reportNow}>
-              {t('settings.dailyReportNow')}
-            </Button>
-            <Switch
-              checked={dailyReport}
-              onCheckedChange={(v) => dailyReportItem.setValue(v).catch(() => {})}
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-4">
-          <span className="shrink-0 text-sm font-medium">{t('settings.notionDbId')}</span>
-          <Input
-            value={dbId}
-            onChange={(e) => setDbId(e.target.value)}
-            onBlur={() => notionDbIdItem.setValue(dbId.trim()).catch(() => {})}
-            placeholder={t('settings.notionDbIdPlaceholder')}
-            className="max-w-60"
-          />
-        </div>
       </div>
     </>
   );

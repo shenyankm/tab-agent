@@ -31,7 +31,7 @@ lib/
   clips.ts         # 兼容门面：re-export 上两者；新代码按需引 store/highlight，polyfill 不进 worker 包
   usage.ts         # 每日使用日志：聊天/摘录/分类活动记录（storage，保留 7 天），日报数据源兼备份
   memory.ts        # 云端记忆镜像：摘录与 usage 日志 → Qoder Memory Store（best-effort）
-  daily-report.ts  # 每日日报：云端 Deployment（cron 23:55）收敛管理 + Notion 写入指令构造
+  daily-report.ts  # 每日日报（后端默认行为）：确保云端 Deployment（cron 23:55）存在 + 指令构造
   page-text.ts     # 页面正文提取（Readability 封装 + 缓存，失败回退 innerText）
   marks.ts         # 摘录定位/高亮/淡出 + 划词草稿事件（content script 侧）
   markdown.tsx     # 自写极简 Markdown 渲染器（直接产出 React 元素，天然转义，无 innerHTML）
@@ -135,9 +135,9 @@ user.message → session.status_running → agent.thinking
 
 ### 每日日报（Deployments）
 
-日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `pixel-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在用户配置的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
+日报是**后端默认行为，无前端开关**；目标 Notion 数据库在用户的云端 Agent 配置里指定，不在扩展侧配置。日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `pixel-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在其被配置写入的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
 
-扩展侧只做收敛管理（`lib/daily-report.ts` 的 `syncDeployment`，由设置项 watch 触发）：开关开/DB ID 变 → 创建（先按 name 查重）或 merge-patch 更新 `initial_events` 并 unpause；开关关 → pause。数据链：每个聊天回合/保存摘录/分类完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。“立即生成”按钮则用一次性专用会话（`ownSession=''`，同 classify）手动跑同一指令。
+扩展侧只确保 Deployment 存在（`lib/daily-report.ts` 的 `syncDeployment`，worker 每次启动调一次）：已缓存 `dep_` id → 零网络直接返回（指令是静态文本，建好后无需 patch）；未配置凭证 → 静默跳过，下次启动重试；首次创建前按 name 查重（多设备不重复建）。数据链：每个聊天回合/保存摘录/分类完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。
 
 ## 5. 一次对话回合（tryTurn）
 
@@ -183,7 +183,7 @@ user.message → session.status_running → agent.thinking
 | `lang`（定义在 `lib/i18n.ts`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `memorySync` / `memoryStoreId` / `memoryMap` | 云端记忆同步开关 / Store id 缓存 / clipId→memoryId 映射（含 `usage:<day>` 键） |
-| `dailyReport` / `notionDbId` / `dailyReportDeploymentId` | 每日日报开关（默认关）/ 目标 Notion 数据库 ID / Deployment id 缓存 |
+| `dailyReportDeploymentId` | 日报 Deployment 的 `dep_` id 缓存（日报无前端开关，后端默认行为） |
 | `usage.<YYYY-MM-DD>` | 当日使用日志（回合数/摘录数/分类标志/问答摘要，问答截断，上限 50 条），保留 7 天后清理 |
 | `sessionId.v4.tab.<tabId>` | **按 tab 隔离且按日轮换**的会话缓存，值为 `{id, day}`：全局单会话时 tab B 的 409-cancel 会截断 tab A 进行中的回合；跨天自动重建新会话（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 
