@@ -55,12 +55,11 @@ export function clipToMemory(c: Clip): string {
   return (head + '\n\n' + c.text + notes).slice(0, 100_000);
 }
 
-/** 单条 upsert:有 memoryId → 更新,无 → 创建并回写映射。
+/** map-keyed upsert:有 memoryId → 更新,无 → 创建并回写映射。
  *  单用户场景省略 content_sha256(文档:省略即跳过乐观锁);多端写再补读回 + 409 重试 */
-export async function syncClipToMemoryStore(pat: string, storeId: string, clip: Clip): Promise<boolean> {
-  const content = clipToMemory(clip);
+async function upsertMemory(pat: string, storeId: string, mapKey: string, path: string, content: string): Promise<boolean> {
   const map = await memoryMapItem.getValue();
-  const memoryId = map[clip.id];
+  const memoryId = map[mapKey];
   const res = memoryId
     ? await api(pat, `/memory_stores/${storeId}/memories/${memoryId}`, {
         method: 'POST',
@@ -68,16 +67,19 @@ export async function syncClipToMemoryStore(pat: string, storeId: string, clip: 
       })
     : await api(pat, `/memory_stores/${storeId}/memories`, {
         method: 'POST',
-        body: JSON.stringify({ path: `clips/${clip.id}.md`, content }),
+        body: JSON.stringify({ path, content }),
       });
   if (!res.ok) return false;
   if (!memoryId) {
     const data = (await res.json()) as { id?: string };
     if (typeof data.id !== 'string') return false;
-    await memoryMapItem.setValue({ ...map, [clip.id]: data.id });
+    await memoryMapItem.setValue({ ...map, [mapKey]: data.id });
   }
   return true;
 }
+
+export const syncClipToMemoryStore = (pat: string, storeId: string, clip: Clip): Promise<boolean> =>
+  upsertMemory(pat, storeId, clip.id, `clips/${clip.id}.md`, clipToMemory(clip));
 
 /** 删除摘录时同步删除云端镜像;map 无条目(未同步/已删)直接 no-op。 */
 export async function deleteClipFromMemoryStore(clipId: string): Promise<void> {
@@ -125,22 +127,5 @@ export async function syncUsageToMemoryStore(day: string): Promise<void> {
   const pat = await patItem.getValue();
   if (!pat) return;
   const storeId = await ensureMemoryStore(pat);
-  const content = toMarkdown(day, await getUsage(day));
-  const map = await memoryMapItem.getValue();
-  const mapKey = `usage:${day}`;
-  const memoryId = map[mapKey];
-  const res = memoryId
-    ? await api(pat, `/memory_stores/${storeId}/memories/${memoryId}`, {
-        method: 'POST',
-        body: JSON.stringify({ content }),
-      })
-    : await api(pat, `/memory_stores/${storeId}/memories`, {
-        method: 'POST',
-        body: JSON.stringify({ path: `usage/${day}.md`, content }),
-      });
-  if (!res.ok) return;
-  if (!memoryId) {
-    const data = (await res.json()) as { id?: string };
-    if (typeof data.id === 'string') await memoryMapItem.setValue({ ...map, [mapKey]: data.id });
-  }
+  await upsertMemory(pat, storeId, `usage:${day}`, `usage/${day}.md`, toMarkdown(day, await getUsage(day)));
 }
