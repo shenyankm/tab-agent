@@ -26,7 +26,8 @@ import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/
 
 const PAGE_SIZE = 10;
 
-// category color palette — deterministic by category name
+// category color palette — deterministic by category name; deliberately NOT theme
+// tokens: these are data-viz hues that must stay distinguishable in both themes
 const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b'];
 export const colorFor = (cat: string, cats: string[]) => COLORS[cats.indexOf(cat) % COLORS.length];
 
@@ -72,13 +73,19 @@ export default function ClipsPage() {
   const [noteText, setNoteText] = useState('');
   const [deleting, setDeleting] = useState<Clip | null>(null);
 
-  const cats = [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort();
+  const cats = useMemo(
+    () => [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort(),
+    [clips],
+  );
   const q = query.trim().toLowerCase();
-  const shown = q
-    ? clips.filter((c) => [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q)))
-    : clips;
+  const shown = useMemo(
+    () => q
+      ? clips.filter((c) => [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q)))
+      : clips,
+    [clips, q],
+  );
   // category filter composes with search; site view groups the same filtered set
-  const filtered = cat ? shown.filter((c) => c.category === cat) : shown;
+  const filtered = useMemo(() => (cat ? shown.filter((c) => c.category === cat) : shown), [shown, cat]);
   // no re-sort: getClipsDirect already returns newest-first, watches re-fetch the same order
 
   // deletions/search can shrink the list under the cursor: clamp instead of resetting
@@ -86,13 +93,23 @@ export default function ClipsPage() {
   const cur = Math.min(page, pages);
   const paged = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
 
-  // site view: newest-first inside groups, groups ordered by their newest clip
-  const bySite = new Map<string, Clip[]>();
-  for (const c of view === 'site' ? filtered : []) {
-    const host = new URL(c.pageUrl).hostname;
-    if (!bySite.has(host)) bySite.set(host, []);
-    bySite.get(host)!.push(c);
-  }
+  // site view groups the CURRENT PAGE (not the full list): thousands of clips must
+  // not mount thousands of rows at once. newest-first inside groups, groups ordered
+  // by their newest clip
+  const bySite = useMemo(() => {
+    const map = new Map<string, Clip[]>();
+    for (const c of view === 'site' ? paged : []) {
+      let host: string;
+      try {
+        host = new URL(c.pageUrl).hostname;
+      } catch {
+        host = c.pageUrl; // dirty legacy data: group under the raw value, don't crash the page
+      }
+      if (!map.has(host)) map.set(host, []);
+      map.get(host)!.push(c);
+    }
+    return map;
+  }, [view, paged]);
 
   const row = (clip: Clip) => (
     <div key={clip.id}>
@@ -191,53 +208,52 @@ export default function ClipsPage() {
         <p className="mt-6 text-sm text-muted-foreground">{t('clips.empty')}</p>
       )}
 
-      {view === 'time' ? (
-        <>
-          <div className="mt-4 flex flex-col">{paged.map(row)}</div>
-          {pages > 1 && (
-            <div className="mt-6 flex items-center justify-center gap-0.5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={cur === 1}
-                onClick={() => setPage(cur - 1)}
-                aria-label={t('clips.prev')}
-              >
-                <ChevronLeft className="size-4" />
-                <span className="hidden sm:inline">{t('clips.prev')}</span>
-              </Button>
-              {/* ponytail: every page number rendered, no ellipsis windowing; add it if clip counts ever reach thousands */}
-              {Array.from({ length: pages }, (_, i) => (
-                <Button
-                  key={i}
-                  variant={i + 1 === cur ? 'default' : 'ghost'}
-                  size="icon-sm"
-                  onClick={() => setPage(i + 1)}
-                  aria-current={i + 1 === cur ? 'page' : undefined}
-                >
-                  {i + 1}
-                </Button>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={cur === pages}
-                onClick={() => setPage(cur + 1)}
-                aria-label={t('clips.next')}
-              >
-                <ChevronRight className="size-4" />
-                <span className="hidden sm:inline">{t('clips.next')}</span>
-              </Button>
-            </div>
-          )}
-        </>
-      ) : (
+      {view === 'site' ? (
         [...bySite].map(([host, list]) => (
           <div key={host} className="mt-4">
             <h4 className="text-sm font-medium">{host}</h4>
             <div className="flex flex-col">{list.map(row)}</div>
           </div>
         ))
+      ) : (
+        <div className="mt-4 flex flex-col">{paged.map(row)}</div>
+      )}
+
+      {pages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-0.5">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={cur === 1}
+            onClick={() => setPage(cur - 1)}
+            aria-label={t('clips.prev')}
+          >
+            <ChevronLeft className="size-4" />
+            <span className="hidden sm:inline">{t('clips.prev')}</span>
+          </Button>
+          {/* ponytail: every page number rendered, no ellipsis windowing; add it if clip counts ever reach thousands */}
+          {Array.from({ length: pages }, (_, i) => (
+            <Button
+              key={i}
+              variant={i + 1 === cur ? 'default' : 'ghost'}
+              size="icon-sm"
+              onClick={() => setPage(i + 1)}
+              aria-current={i + 1 === cur ? 'page' : undefined}
+            >
+              {i + 1}
+            </Button>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={cur === pages}
+            onClick={() => setPage(cur + 1)}
+            aria-label={t('clips.next')}
+          >
+            <ChevronRight className="size-4" />
+            <span className="hidden sm:inline">{t('clips.next')}</span>
+          </Button>
+        </div>
       )}
 
       <AlertDialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null); }}>

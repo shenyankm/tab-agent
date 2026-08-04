@@ -1,12 +1,14 @@
 import { lazy, Suspense, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useI18n } from '@/lib/i18n';
-import SettingsPage from './pages/settings';
-import ClipsPage from './pages/clips';
-import PrivacyPage from './pages/privacy';
 
-// d3 (~30KB gz) only loads when the user visits the graph tab
+// every tab page lazy-loads: popup modulepreloads the shared popup/options chunk,
+// so static page imports would tax every popup open with options-only code
+// (alert-dialog, clips list, d3 ~30KB gz)
+const SettingsPage = lazy(() => import('./pages/settings'));
+const ClipsPage = lazy(() => import('./pages/clips'));
 const GraphPage = lazy(() => import('./pages/graph'));
+const PrivacyPage = lazy(() => import('./pages/privacy'));
 
 type Tab = 'settings' | 'clips' | 'graph' | 'privacy';
 
@@ -33,12 +35,18 @@ function App() {
           ))}
         </TabsList>
 
-        <TabsContent value="settings" className="w-full"><SettingsPage /></TabsContent>
-        <TabsContent value="clips" className="w-full"><ClipsPage /></TabsContent>
+        <TabsContent value="settings" className="w-full">
+          <Suspense fallback={null}><SettingsPage /></Suspense>
+        </TabsContent>
+        <TabsContent value="clips" className="w-full">
+          <Suspense fallback={null}><ClipsPage /></Suspense>
+        </TabsContent>
         <TabsContent value="graph" className="w-full">
           <Suspense fallback={null}><GraphPage /></Suspense>
         </TabsContent>
-        <TabsContent value="privacy" className="w-full"><PrivacyPage /></TabsContent>
+        <TabsContent value="privacy" className="w-full">
+          <Suspense fallback={null}><PrivacyPage /></Suspense>
+        </TabsContent>
       </Tabs>
     </div>
   );

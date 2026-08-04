@@ -64,7 +64,11 @@ export default function GraphPage() {
     setClassifying(true);
     setClassifyError('');
     browser.runtime.sendMessage({ type: 'classifyClips' })
-      .then(() => setClassifying(false))
+      // background replies with the {ok,error} envelope: failures RESOLVE, not reject
+      .then((res) => {
+        setClassifying(false);
+        if (!res?.ok) setClassifyError(res?.error ?? 'classify failed');
+      })
       .catch((e) => { setClassifying(false); setClassifyError(String(e?.message ?? e)); });
   };
 
@@ -92,7 +96,8 @@ export default function GraphPage() {
       .selectAll('line')
       .data(simLinks)
       .join('line')
-      .attr('stroke', '#94a3b8')
+      // token-derived, not hardcoded: reads --muted-foreground from the live theme
+      .attr('stroke', getComputedStyle(svg).getPropertyValue('--muted-foreground') || '#94a3b8')
       .attr('stroke-opacity', 0.4)
       .attr('stroke-width', 1);
 
@@ -103,7 +108,9 @@ export default function GraphPage() {
       .join('circle')
       .attr('r', (d) => 6 + d.degree * 2)
       .attr('fill', (d) => colorFor(d.category, categories))
-      .attr('stroke', '#fff')
+      // node outline follows --border (black in both themes); a fixed #fff read
+      // as a white halo in dark mode
+      .attr('stroke', getComputedStyle(svg).getPropertyValue('--border') || '#000')
       .attr('stroke-width', 1.5)
       .attr('cursor', 'pointer')
       .on('click', (_event, d) => browser.tabs.create({ url: d.clipUrl }));
