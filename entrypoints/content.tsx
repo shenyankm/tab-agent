@@ -1,6 +1,9 @@
 import ReactDOM from 'react-dom/client';
-import { FloatingAgent, showClip, clearAllMarks, pageText, saveClipDraft } from '@/components/floating-agent';
-import { addClip, buildClipUrl, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips';
+import { FloatingAgent } from '@/components/floating-agent';
+import { showClip, clearAllMarks, saveClipDraft } from '@/lib/marks';
+import { pageText } from '@/lib/page-text';
+import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-store';
+import { buildClipUrl } from '@/lib/clips-highlight';
 import { onPageNav } from '@/lib/utils';
 import { petEnabledItem, clipHighlightItem } from '@/lib/settings';
 import '@/assets/content.css';

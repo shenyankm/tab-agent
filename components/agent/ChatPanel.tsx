@@ -9,7 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import type { I18nKey } from '@/lib/i18n';
 import { Markdown } from '@/lib/markdown';
-import { clipsPageItem, clipNavUrl, normalizeUrl } from '@/lib/clips';
+import { clipsPageItem, clipNavUrl, normalizeUrl } from '@/lib/clips-store';
 import { showClip } from '@/lib/marks';
 import { cn, onPageNav, useStorageValue } from '@/lib/utils';
 

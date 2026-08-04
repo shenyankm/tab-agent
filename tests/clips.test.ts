@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import {
-  buildClipUrl,
-  highlightClip,
-  unhighlightClip,
   addClip,
   removeClip,
   updateClip,
@@ -16,7 +13,8 @@ import {
   updateClipsDirect,
   clipsPageItem,
   closeClipsDB,
-} from '@/lib/clips';
+} from '@/lib/clips-store';
+import { buildClipUrl, highlightClip, unhighlightClip } from '@/lib/clips-highlight';
 
 function deleteDB(): Promise<void> {
   return new Promise((resolve, reject) => {

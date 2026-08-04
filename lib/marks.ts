@@ -1,4 +1,5 @@
-import { addClip, highlightClip, unhighlightClip, type Clip } from '@/lib/clips';
+import { addClip, type Clip } from '@/lib/clips-store';
+import { highlightClip, unhighlightClip } from '@/lib/clips-highlight';
 import { clipHighlightItem } from '@/lib/settings';
 
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting

@@ -23,7 +23,7 @@ import {
 import { CategoryChips } from '@/components/category-chips';
 import { useI18n } from '@/lib/i18n';
 import { parseNoteLines, useStorageValue } from '@/lib/utils';
-import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips';
+import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips-store';
 
 const PAGE_SIZE = 10;
 

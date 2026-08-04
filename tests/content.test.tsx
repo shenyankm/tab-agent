@@ -38,7 +38,7 @@ vi.mock('@/lib/settings', () => ({
   isDark: () => false,
 }));
 
-vi.mock('@/lib/clips', () => {
+vi.mock('@/lib/clips-store', () => {
   const normalize = (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } };
   // stable item per page: useStorageValue keys its effect on item identity
   const pageItems = new Map<string, { getValue: () => Promise<unknown[]>; watch: () => () => void }>();
@@ -57,16 +57,18 @@ vi.mock('@/lib/clips', () => {
       return item;
     },
     addClip: vi.fn(),
-    buildClipUrl: vi.fn(),
     normalizeUrl: normalize,
     removeClip: (id: string) => mockRemoveClip(id),
-    highlightClip: (clip: unknown) => mockHighlightClip(clip),
-    // IMG outline reset + removeMarks under one roof; tests only exercise marks
-    unhighlightClip: (els: unknown) => mockRemoveMarks(els),
-    removeMarks: (marks: unknown) => mockRemoveMarks(marks),
     clipNavUrl: (clip: { pageUrl: string; id: string }) => `${clip.pageUrl.split('#')[0]}#pixel-agent-clip=${clip.id}`,
   };
 });
+
+vi.mock('@/lib/clips-highlight', () => ({
+  buildClipUrl: vi.fn(),
+  highlightClip: (clip: unknown) => mockHighlightClip(clip),
+  // IMG outline reset + removeMarks under one roof; tests only exercise marks
+  unhighlightClip: (els: unknown) => mockRemoveMarks(els),
+}));
 
 vi.mock('@/lib/i18n', () => ({  langItem: { getValue: () => Promise.resolve('en') },
   useI18n: () => ({
@@ -146,8 +148,10 @@ vi.mock('@/lib/markdown', () => ({
   },
 }));
 
-import { FloatingAgent, saveClipDraft, pageText } from '@/components/floating-agent';
-import { addClip, type Clip } from '@/lib/clips';
+import { FloatingAgent } from '@/components/floating-agent';
+import { saveClipDraft } from '@/lib/marks';
+import { pageText } from '@/lib/page-text';
+import { addClip, type Clip } from '@/lib/clips-store';
 
 describe('FloatingAgent', () => {
   afterEach(cleanup);

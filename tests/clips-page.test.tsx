@@ -8,7 +8,7 @@ const { mockClips, mockRemoveClip } = vi.hoisted(() => ({
   mockRemoveClip: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/lib/clips', () => ({
+vi.mock('@/lib/clips-store', () => ({
   clipsItem: { getValue: () => mockClips(), watch: () => () => {} },
   removeClip: (id: string) => mockRemoveClip(id),
   updateClip: vi.fn().mockResolvedValue(undefined),

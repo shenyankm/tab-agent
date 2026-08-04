@@ -19,17 +19,26 @@ const {
 
 vi.mock('@/components/floating-agent', () => ({
   FloatingAgent: () => null,
+}));
+
+vi.mock('@/lib/marks', () => ({
   showClip: (clip: unknown, scroll?: boolean) => mockShowClip(clip, scroll),
   clearAllMarks: () => mockClearAllMarks(),
-  pageText: () => '',
   saveClipDraft: vi.fn(),
 }));
 
-vi.mock('@/lib/clips', () => ({
+vi.mock('@/lib/page-text', () => ({
+  pageText: () => '',
+}));
+
+vi.mock('@/lib/clips-store', () => ({
   addClip: vi.fn(),
-  buildClipUrl: (u: string) => u,
   clipsPageItem: () => ({ getValue: () => mockClipsGet(), watch: () => () => {} }),
   normalizeUrl: (u: string) => u,
+}));
+
+vi.mock('@/lib/clips-highlight', () => ({
+  buildClipUrl: (u: string) => u,
 }));
 
 vi.mock('@/lib/utils', () => ({

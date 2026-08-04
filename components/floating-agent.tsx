@@ -10,10 +10,6 @@ import { Mascot, type AgentState } from '@/components/agent/Mascot';
 import { ChatPanel, type ChatMessage } from '@/components/agent/ChatPanel';
 import { ClipDraftEditor } from '@/components/agent/ClipDraftEditor';
 
-// compat facade: the content-script entry imports these from here
-export { pageText } from '@/lib/page-text';
-export { showClip, clearAllMarks, saveClipDraft } from '@/lib/marks';
-
 // keep the pet fully on screen regardless of viewport size; clamp order matters:
 // a viewport narrower than the pet must pin it to 0, not push it off-screen
 const clampPos = (p: { right: number; bottom: number }) => ({
