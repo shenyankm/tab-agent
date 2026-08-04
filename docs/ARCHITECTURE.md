@@ -170,7 +170,7 @@ user.message → session.status_running → agent.thinking
 |---|---|
 | `theme` / `petEnabled` / `petPos` | 外观、宠物开关、宠物位置 |
 | `pageCarry` | 携带页面：none / article / screenshot |
-| `clipHighlight` | 摘录高亮开关 |
+| `clipHighlight` / `highlightColor` | 摘录高亮开关 / 高亮颜色（yellow / purple / green / blue） |
 | `lang`（定义在 `lib/i18n.ts`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `sessionId.v3` | 云端会话缓存（无 tab 时的回退 key）；**语义变化时 bump key 版本号**强制新会话（v2→v3 为挂载 vault_ids） |
