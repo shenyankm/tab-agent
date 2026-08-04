@@ -20,47 +20,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { CategoryChips } from '@/components/category-chips';
 import { useI18n } from '@/lib/i18n';
-import { useStorageValue } from '@/lib/utils';
+import { parseNoteLines, useStorageValue } from '@/lib/utils';
 import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips';
 
 const PAGE_SIZE = 10;
-
-// category color palette — deterministic by category name; deliberately NOT theme
-// tokens: these are data-viz hues that must stay distinguishable in both themes
-const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b'];
-export const colorFor = (cat: string, cats: string[]) => COLORS[cats.indexOf(cat) % COLORS.length];
-
-/** "All" + category filter chips, shared with the graph page. */
-export function CategoryChips({ cats, selected, onToggle }: {
-  cats: string[];
-  selected: string | null;
-  onToggle: (cat: string | null) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="flex flex-wrap gap-1">
-      <button
-        type="button"
-        className={`rounded px-2 py-0.5 text-xs ${!selected ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-        onClick={() => onToggle(null)}
-      >
-        {t('clips.all')}
-      </button>
-      {cats.map((c) => (
-        <button
-          key={c}
-          type="button"
-          className={`rounded px-2 py-0.5 text-xs ${selected === c ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-          style={selected === c ? {} : { borderLeft: `3px solid ${colorFor(c, cats)}` }}
-          onClick={() => onToggle(selected === c ? null : c)}
-        >
-          {c}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export default function ClipsPage() {
   const { t } = useI18n();
@@ -164,9 +129,7 @@ export default function ClipsPage() {
             variant="default"
             size="sm"
             onClick={() => {
-              updateClip(clip.id, {
-                notes: noteText.split('\n').map((s) => s.trim()).filter(Boolean),
-              })
+              updateClip(clip.id, { notes: parseNoteLines(noteText) })
                 .then(() => setEditingNote(null))
                 .catch(() => { /* 保存失败:编辑器保持打开,可重试 */ });
             }}
@@ -264,7 +227,16 @@ export default function ClipsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('clips.cancel')}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => deleting && removeClip(deleting.id)}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                if (!deleting) return;
+                e.preventDefault(); // 手动控制关闭时机:失败时对话框保持打开
+                removeClip(deleting.id)
+                  .then(() => setDeleting(null))
+                  .catch(() => { /* 删除失败:对话框保持打开,可重试 */ });
+              }}
+            >
               {t('clips.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

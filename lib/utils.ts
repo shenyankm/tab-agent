@@ -6,6 +6,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Split a multi-line notes draft into trimmed, non-empty lines (options Clips
+ *  editor and the content-side draft card share this one parser). */
+export const parseNoteLines = (text: string): string[] =>
+  text.split('\n').map((s) => s.trim()).filter(Boolean);
+
 /** Subscribe to a WXT storage item: initial read + live watch across pages. */
 export function useStorageValue<T>(
   item: { getValue(): Promise<T>; watch(cb: (value: T) => void): () => void },

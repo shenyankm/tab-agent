@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { I18nKey } from '@/lib/i18n';
 import { commitDraft, type ClipDraft } from '@/lib/marks';
+import { parseNoteLines } from '@/lib/utils';
 import { panelHeaderClass } from '@/components/agent/ChatPanel';
 
 export function ClipDraftEditor({
@@ -17,16 +18,15 @@ export function ClipDraftEditor({
   draft: ClipDraft;
   onCancel: () => void;
 }) {
-  // 与 options Clips 页同款解析：换行分备注，空则不写字段
   const saveDraft = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
-    const notes = String(f.get('notes') ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+    const notes = parseNoteLines(String(f.get('notes') ?? '')); // 换行分备注，空则不写字段
     void commitDraft({
       ...draft,
       title: String(f.get('title') ?? '').trim() || draft.title,
       notes: notes.length ? notes : undefined,
-    });
+    }).catch(() => { /* 写入失败:与宠物未挂载时的直存路径一致,静默 */ });
     onCancel();
   };
 
