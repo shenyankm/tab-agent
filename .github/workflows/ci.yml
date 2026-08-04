@@ -18,5 +18,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # build first: the bundle-size gate reads .output/ and would silently skip otherwise
       - run: pnpm build
+      # release 会发 firefox zip,两个目标都得能构建
+      - run: pnpm build:firefox
       - run: pnpm compile
       - run: pnpm test
