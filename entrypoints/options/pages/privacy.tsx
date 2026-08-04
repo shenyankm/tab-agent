@@ -17,6 +17,7 @@ export default function PrivacyPage() {
         <li>{t('settings.pageCarry')}</li>
         <li>{t('nav.clips')} / {t('settings.clipHighlight')}</li>
         <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')} / {t('settings.vaultId')}</li>
+        <li>{t('settings.memorySync')}</li>
       </ul>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.network.title')}</h3>
@@ -24,6 +25,9 @@ export default function PrivacyPage() {
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.classify.title')}</h3>
       <p className="text-sm leading-6 mt-2">{t('privacy.classify.body')}</p>
+
+      <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.cloud.title')}</h3>
+      <p className="text-sm leading-6 mt-2">{t('privacy.cloud.body')}</p>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.permission.title')}</h3>
       <p className="text-sm leading-6 mt-2">{t('privacy.permission.body')}</p>
