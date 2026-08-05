@@ -25,10 +25,9 @@ lib/
   gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（含 per-tab 每日会话）
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
-  messages.ts      # runtime 消息协议：类型化 Request/Reply 信封 + sendRequest（content/options → background）
+  messages.ts      # runtime 消息协议：类型化 Request + sendRequest（content/options → background），Reply 信封仅模块内使用
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
-  clips.ts         # 兼容门面：re-export 上两者；新代码按需引 store/highlight，polyfill 不进 worker 包
   usage.ts         # 每日使用日志：聊天/摘录活动记录（storage，保留 7 天），日报数据源兼备份
   memory.ts        # 云端记忆镜像：摘录与 usage 日志 → Qoder Memory Store（best-effort）
   daily-report.ts  # 每日日报（后端默认行为）：确保云端 Deployment（cron 23:55）存在 + 指令构造
@@ -41,7 +40,7 @@ assets/
   style.css        # 主题 token（CSS 变量 + @theme inline），popup/options 直接引入
   content.css      # 继承 style.css + Shadow UI 布局样式，仅进 Shadow Root
 components/
-  floating-agent.tsx  # 组合层：状态/effect/port 流式状态机 + 拖拽 + 外壳（门面 re-export）
+  floating-agent.tsx  # 组合层：状态/effect/port 流式状态机 + 拖拽 + 外壳
   agent/           # 拆出的展示组件：Mascot / ChatPanel（纯展示）/ ClipDraftEditor
   ui/              # RetroUI 组件源码（shadcn CLI 添加）
 tests/             # vitest 单元测试（pnpm test）
@@ -60,7 +59,7 @@ flowchart TD
 
 关键决策：**所有网络请求收敛在 background**。内容脚本只通过长连接 Port 收发消息，凭证不进入页面上下文；Port 断开即中止后台请求（AbortController）。
 
-另有两条轻量消息路径（`runtime.sendMessage`）：
+另有一条轻量消息路径（`runtime.sendMessage`）：
 
 - **摘录** —— background 的三个右键菜单（选区 / 整页 / 图片）或 `Alt+Shift+S` 快捷键：选区与整页走 content（`{type:'saveClip'}`/`{type:'saveClipPage'}`，content 有 Selection 与 DOM）生成后 `{type:'clipAdd'}` 回传；图片同样走 content（`{type:'saveClipImage'}`，页面侧读 `location.href`/`document.title` 零权限——background 读 `tab.url` 需要带安装警告的 `tabs` 权限），仅无 content script 的页面（chrome:// 等）由 background 降级直写。写入均落扩展 origin 的 IndexedDB（见 §6）。
 
@@ -101,19 +100,40 @@ flowchart LR
 
 云端三个对象均命名为 `tab-agent`（ID 不入库，填在扩展设置页）：
 
-**Agent**（v11）
+**Agent**
 
-- 模型：Qwen3.8-Max-Preview，上下文 400K
-- 系统提示词：「你是一个通用助手，能够研究、写代码、运行命令，并使用工具端到端地完成任务。」
-- 工具：11 个内置工具全部自动允许 —— Bash / Read / Write / Edit / Glob / Grep / WebFetch / WebSearch / ImageSearch / ImageGen / DeliverArtifacts
+- 模型：Qwen3.7-Plus，上下文 400K
+- 系统提示词：
+
+  ```
+  角色
+  你是 Pixel Agent 的云端助手：一个面向浏览器用户的通用 AI 助手，帮用户研究、写代码、处理文档、整理知识。你的回答服务对象是浏览器的普通用户，语言跟随用户的提问语言（界面语言可能是 en/zh-CN/zh-TW/ja），简短对话给简洁答案，复杂任务给结构化说明。
+
+  视野与能力边界
+  用户当前页面的内容以 user message 中 [Page context] 块（URL/标题/正文）为准，它来自用户本地浏览器，你的云端环境看不到该页面。
+  禁止用 WebFetch 重新抓取 [Page context] 给出的 URL；内容已在消息内联。
+  截图（如有）挂载在 /data/input/screenshot.jpg，包含文本提取不到的可视信息，优先查看。
+  上传的其他文件在 /data/input/ 下，用 Read/Bash 读取。
+  你的环境是隔离沙箱，除挂载资源外看不到用户本地任何文件。
+
+  工具使用准则
+  搜索用 WebSearch；抓取指定外部链接用 WebFetch。
+  文档处理：环境预装 python-docx/pymupdf/openpyxl/python-pptx，用 Bash + Python 处理，产物文件最终用 DeliverArtifacts 交付。
+  凭证：notion 凭证已通过 Vault 提供，直接调用，不要向用户索要 token。
+  写操作（notion 写入等外部副作用）只在用户明确请求时执行，不主动发起。
+
+  行为准则
+  只依据消息内联内容与工具返回事实作答；不确定时明说，不臆造页面内容或文件路径。
+  长任务边做边输出进展（思考、中间结论），不要憋到最后一次性汇报。
+  会话是连续的：后续提问可引用前文结论。
+
+  复杂任务
+  研究类任务按深入研究 skill 的流程执行。
+  ```
+- 工具：6 个内置工具全部自动允许 —— Bash / Read / Write / WebFetch / WebSearch / DeliverArtifacts
 - MCP 服务器（均 streamable http、自动允许）：
   - notion（`mcp.notion.com/mcp`）
-  - 阿里云 OpenAPI（`openapi-mcp.cn-hangzhou.aliyuncs.com`）
-  - ModelScope（`mcp.api-inference.modelscope.net`）
-  - 阿里云 IQS 搜索（`iqs-mcp.aliyuncs.com/.../iqs-mcp-server-search`，工具 `common_search`：开放域实时搜索）
-  - 阿里云 IQS 网页解析（`iqs-mcp.aliyuncs.com/.../iqs-mcp-server-readpage`，工具 `readpage_basic`：静态网页正文提取）
-- Skills（custom）：深入研究、内容研究撰写、市场研究报告、分析数据分析
-- BrowserUse（云端浏览器，Beta）：**未开启** —— 页面内容由扩展内联进消息（见 §5），云端浏览器看不到用户本地页面，开了反而误导 Agent
+- Skills（custom）：深入研究
 
 **Environment**（Cloud）
 
@@ -121,7 +141,7 @@ flowchart LR
 
 **Vault**
 
-- 存放三个 MCP 服务器的凭证：notion、阿里云为 MCP OAuth，ModelScope 为 Static Bearer —— 这就是创建会话时附带 `vault_ids` 的原因：不挂 vault，MCP 工具鉴权失败
+- 存放 notion MCP 服务器的 OAuth 凭证 —— 创建会话时附带 `vault_ids` 挂载，MCP 鉴权通过
 
 ### 每日日报（Deployments）
 
@@ -135,7 +155,7 @@ flowchart LR
 
 1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas[]=agent.message`），后发消息 —— 保证不错过任何 delta。
-3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取纯文本，失败回退 innerText，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白云浏览器）。
+3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取纯文本，失败回退 innerText，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白的云端浏览器）。
 4. 流内用 `isPosted()` 闸门过滤：POST 返回前重放的旧回合 delta / idle 事件一律丢弃。
 5. `session.status_idle` → 发 `done`，回合结束。
 
@@ -145,7 +165,7 @@ flowchart LR
 |---|---|
 | 401/403（`api()` 统一出口） | 抛 `code:'auth'`，前端展示鉴权失败文案 |
 | 404（会话失效） | `tryTurn` 返回 false → 重建 session（带 vault_ids）→ 整回合重试一次 |
-| 409（上一回合仍在跑） | `POST /cancel` 后 1s 间隔有界轮询重发（最多 5 次） |
+| 409（上一回合仍在跑） | `POST /cancel` 后等 `session.status_idle`（5s 安全网），重发，最多 2 次 |
 | SSE 静默 90s（代理断流 / worker 挂起，心跳约 15s 一次） | 读超时 reject，回合按错误收尾 |
 | 流提前关闭（未收到 idle） | 补发 `done` 收尾，前端不卡「思考中」 |
 | MV3 worker 30s 无 API 活动被回收 | 回合期间每 20s `runtime.getPlatformInfo()` 保活；仍被杀则前端 `port.onDisconnect` 渲染「连接中断」 |
