@@ -19,7 +19,7 @@ export type Request =
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},
 // they don't reject, so the sender never hangs. code lets the caller distinguish
 // client bugs (invalid payload) from runtime failures (IDB error, network).
-export type Reply<T> = { ok: true; data: T } | { ok: false; error?: string; code?: string };
+type Reply<T> = { ok: true; data: T } | { ok: false; error?: string; code?: string };
 
 /** Send a request through the background proxy and unwrap the reply envelope. */
 export async function sendRequest<T>(msg: Request): Promise<T> {
