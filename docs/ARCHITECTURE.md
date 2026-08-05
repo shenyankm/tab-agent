@@ -23,14 +23,13 @@ entrypoints/
   options/         # 设置页（独立标签页）：Settings / Clips / Privacy 三页签（pages/，均 React.lazy 懒加载）
 lib/
   gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（含 per-tab 每日会话）
-  classify.ts      # AI 分类本体：分批 prompt + JSON 信封解包（编排/广播留在 background）
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   messages.ts      # runtime 消息协议：类型化 Request/Reply 信封 + sendRequest（content/options → background）
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
   clips.ts         # 兼容门面：re-export 上两者；新代码按需引 store/highlight，polyfill 不进 worker 包
-  usage.ts         # 每日使用日志：聊天/摘录/分类活动记录（storage，保留 7 天），日报数据源兼备份
+  usage.ts         # 每日使用日志：聊天/摘录活动记录（storage，保留 7 天），日报数据源兼备份
   memory.ts        # 云端记忆镜像：摘录与 usage 日志 → Qoder Memory Store（best-effort）
   daily-report.ts  # 每日日报（后端默认行为）：确保云端 Deployment（cron 23:55）存在 + 指令构造
   page-text.ts     # 页面正文提取（Readability 封装 + 缓存，失败回退 innerText）
@@ -64,7 +63,6 @@ flowchart TD
 另有两条轻量消息路径（`runtime.sendMessage`）：
 
 - **摘录** —— background 的三个右键菜单（选区 / 整页 / 图片）或 `Alt+Shift+S` 快捷键：选区与整页走 content（`{type:'saveClip'}`/`{type:'saveClipPage'}`，content 有 Selection 与 DOM）生成后 `{type:'clipAdd'}` 回传；图片同样走 content（`{type:'saveClipImage'}`，页面侧读 `location.href`/`document.title` 零权限——background 读 `tab.url` 需要带安装警告的 `tabs` 权限），仅无 content script 的页面（chrome:// 等）由 background 降级直写。写入均落扩展 origin 的 IndexedDB（见 §6）。
-- **AI 分类** —— `{type:'classifyClips'}` 消息 → background 用专用 session 让云端 Agent 分批给全部摘录打分类，回写 `category`/`relatedIds`/`tags`（见 §5「AI 分类」）。
 
 ## 4. 云端架构（Qoder Cloud Agents）
 
@@ -83,7 +81,7 @@ flowchart LR
 |---|---|---|
 | **Agent** | 静态定义：model、system prompt、启用的工具集（Bash/Read/Write/WebFetch…）、skills、MCP servers | 用户在 Qoder 控制台自建，扩展只持有 `agent_...` ID |
 | **Environment** | 云端沙箱运行时：网络策略（unrestricted / allowed_hosts）、预装包（apt/npm/pip） | 用户自建，扩展只持有 `env_...` ID |
-| **Session** | Agent × Environment 的运行实例，状态机 `idle ⇄ running`，持有完整事件日志 | 扩展创建并缓存 `sess_...`，聊天对话走它；AI 分类另起一次性专用 session（见 §5） |
+| **Session** | Agent × Environment 的运行实例，状态机 `idle ⇄ running`，持有完整事件日志 | 扩展创建并缓存 `sess_...`，聊天对话走它 |
 
 ### 事件模型
 
@@ -129,7 +127,7 @@ flowchart LR
 
 日报是**后端默认行为，无前端开关**；目标 Notion 数据库在用户的云端 Agent 配置里指定，不在扩展侧配置。日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `tab-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在其被配置写入的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
 
-扩展侧只确保 Deployment 存在（`lib/daily-report.ts` 的 `syncDeployment`，worker 每次启动调一次）：已缓存 `dep_` id → 零网络直接返回（指令是静态文本，建好后无需 patch）；未配置凭证 → 静默跳过，下次启动重试；首次创建前按 name 查重（多设备不重复建）。数据链：每个聊天回合/保存摘录/分类完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。
+扩展侧只确保 Deployment 存在（`lib/daily-report.ts` 的 `syncDeployment`，worker 每次启动调一次）：已缓存 `dep_` id → 零网络直接返回（指令是静态文本，建好后无需 patch）；未配置凭证 → 静默跳过，下次启动重试；首次创建前按 name 查重（多设备不重复建）。数据链：每个聊天回合/保存摘录完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。
 
 ## 5. 一次对话回合（tryTurn）
 
@@ -150,7 +148,7 @@ flowchart LR
 | 409（上一回合仍在跑） | `POST /cancel` 后 1s 间隔有界轮询重发（最多 5 次） |
 | SSE 静默 90s（代理断流 / worker 挂起，心跳约 15s 一次） | 读超时 reject，回合按错误收尾 |
 | 流提前关闭（未收到 idle） | 补发 `done` 收尾，前端不卡「思考中」 |
-| MV3 worker 30s 无 API 活动被回收 | 回合/分类期间每 20s `runtime.getPlatformInfo()` 保活；仍被杀则前端 `port.onDisconnect` 渲染「连接中断」 |
+| MV3 worker 30s 无 API 活动被回收 | 回合期间每 20s `runtime.getPlatformInfo()` 保活；仍被杀则前端 `port.onDisconnect` 渲染「连接中断」 |
 | 用户重新提交 | 前端 disconnect Port → 后台 abort → 新回合 |
 
 ### 错误码
@@ -163,16 +161,6 @@ flowchart LR
 | `auth` | `api()` 统一出口 | 401/403，PAT 无效或过期 | 聊天气泡提示「检查 PAT」 |
 | `invalid` | background `onMessage` | 消息载荷校验失败（客户端 bug） | 无 UI（调用方不应发送非法载荷） |
 | 无码（undefined） | 网络/超时/IDB 等运行时错误 | 通用失败 | 聊天气泡提示「请求失败，请重试」 |
-
-### AI 分类（classifyClips）
-
-由 `{type:'classifyClips'}` 消息触发（UI 入口已移除，目前仅 background 处理该消息，无前端触发方），目标是「不污染用户聊天会话」：
-
-1. background 把全部摘录按 `CLASSIFY_BATCH = 50` 分批（每条截 500 字符）拼成 prompt，类别由 Agent 自拟（只要求名称跨摘录一致），要求只回 JSON：`{"clips":[{id, category, relatedIds, tags}]}`。
-2. 复用 `handleChat`，传 `ownSession=''` 强制新建**专用 session**——不读、也不写入 `sessionId.v4.tab.*` 缓存，不会 409 取消用户正在进行的回合。
-3. 每批聚合流式回复后解析 JSON（失败则去 markdown fence 再提取 `{...}`，再失败重试一次），逐条 `updateClipDirect` 回写 `category`/`relatedIds`/`tags`（白名单 + 类型校验）；逐批写库，后批失败保留前批成果；全部写完后做一次 `clipsChanged` 广播。ponytail：`relatedIds` 仅批内有效（模型只看得到本批摘录）。
-4. 并发触发（两个 options 页）由 `classifyInFlight` 共享同一次运行，避免双倍 LLM 成本与写库竞态。
-5. 全程（LLM 生成 + N 次写库）轻易超过 30s worker 上限，期间跑 keepalive ping。
 
 ## 6. 状态与存储
 
@@ -187,12 +175,12 @@ flowchart LR
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `memorySync` / `memoryStoreId` / `memoryMap` | 云端记忆同步开关 / Store id 缓存 / clipId→memoryId 映射（含 `usage:<day>` 键） |
 | `dailyReportDeploymentId` | 日报 Deployment 的 `dep_` id 缓存（日报无前端开关，后端默认行为） |
-| `usage.<YYYY-MM-DD>` | 当日使用日志（回合数/摘录数/分类标志/问答摘要，问答截断，上限 50 条），保留 7 天后清理 |
+| `usage.<YYYY-MM-DD>` | 当日使用日志（回合数/摘录数/问答摘要，问答截断，上限 50 条），保留 7 天后清理 |
 | `sessionId.v4.tab.<tabId>` | **按 tab 隔离且按日轮换**的会话缓存，值为 `{id, day}`：全局单会话时 tab B 的 409-cancel 会截断 tab A 进行中的回合；跨天自动重建新会话（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 
-**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + AI 分类回写的 `category`/`relatedIds`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
+**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 
-- **读写分离**：background 是唯一写者。所有写操作（`addClip`/`removeClip`/`updateClip`，不分 origin）都走 `runtime.sendMessage`（`clipAdd`/`clipDel`/`clipUpdate`）由 background 经 `*Direct` 系列写库；读操作分 origin——扩展 origin（options）经 `getClipsDirect` 直接读，content script 的按页 item 走 `clipsGetForPage` 消息（`pageUrl` 索引，O(本页) 而非全表扫描）。background `onMessage` 用 `return true` 保持异步通道，并统一回 `{ok:true,data}` / `{ok:false,error}` 信封，避免 direct 操作 reject 时发送方永久挂起。`updateClipDirect` 对来自页面消息与 classify 响应的 patch 做白名单 + 类型校验（id 是 keyPath，不校验可整体覆盖另一条记录）。
+- **读写分离**：background 是唯一写者。所有写操作（`addClip`/`removeClip`/`updateClip`，不分 origin）都走 `runtime.sendMessage`（`clipAdd`/`clipDel`/`clipUpdate`）由 background 经 `*Direct` 系列写库；读操作分 origin——扩展 origin（options）经 `getClipsDirect` 直接读，content script 的按页 item 走 `clipsGetForPage` 消息（`pageUrl` 索引，O(本页) 而非全表扫描）。background `onMessage` 用 `return true` 保持异步通道，并统一回 `{ok:true,data}` / `{ok:false,error}` 信封，避免 direct 操作 reject 时发送方永久挂起。`updateClipDirect` 对来自页面消息的 patch 做白名单 + 类型校验（id 是 keyPath，不校验可整体覆盖另一条记录）。
 - **变更同步**：写库后 background 双通道广播 `{type:'clipsChanged'}`——`tabs.sendMessage` 到所有 tab 的 content script（watcher 收到后只重拉本页摘录，幂等），`runtime.sendMessage` 到 options 等扩展页（`tabs.sendMessage` 到不了扩展页）。按页 item 保持与 WXT storage item 同形的 `getValue`/`watch`，消费方经 `useStorageValue` 无感切换。
 - **排序稳定**：`addClipDirect` 用 `Math.max(Date.now(), last+1)` 保证 `createdAt` 单调，同毫秒连续摘录的 newest-first 顺序确定。
 - **URL 归一**：`normalizeUrl` 去 hash 并删跟踪参数（`utm_*`/`fbclid`/`gclid` 等常见清单），同文多链归一到一个 key；「本页摘录」匹配与 `pageUrl` 入库都走它。
@@ -215,7 +203,6 @@ flowchart LR
 - 消息面防御：`clipUpdate` patch 白名单 + 类型校验（`sanitizePatch`），`clipAdd` 载荷宽松校验（`text` 必填、其余字段存在即查型），Port 消息要求 `text` 为字符串——页面消息不可信，脏类型入库会击穿下游渲染。
 - `commands` 声明 `save_clip`（默认 `Alt+Shift+S`，可在 `chrome://extensions/shortcuts` 改键）：复用右键菜单同一条 content script 保存路径，无需额外权限。
 - 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。
-- AI 分类把**摘录文本**发往用户自己配置的云端 Agent（不含 URL/标题等元数据），仅在用户点击「Classify」时触发；隐私页有专门章节说明。
 
 ## 9. 构建与校验
 
