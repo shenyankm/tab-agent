@@ -224,7 +224,7 @@ export default defineBackground(() => {
       };
       // a screenshot turn (tool call + thinking) can stream nothing for that long
       const ping = keepalive();
-      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send, undefined, {
+      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send, {
         tabId: port.sender?.tab?.id,
         windowId: port.sender?.tab?.windowId,
       })

@@ -1,16 +1,16 @@
 // Gateway communication layer: HTTP/SSE calls to the cloud agent gateway plus
 // the handleChat turn orchestrator. Pure move out of entrypoints/background.ts —
-// handleChat/keepalive are exported for the entrypoint (port + classify message
-// handlers), ChatOut/PageContext for its payload typing; the rest of the API
-// surface (api, createSession, uploadFile, postUserMessage, streamReply) stays
-// module-private.
+// handleChat/keepalive are exported for the background entrypoint (port handler),
+// ChatOut/PageContext for its payload typing; api is shared with the cloud-memory
+// modules (memory.ts, daily-report.ts); createSession/uploadFile/postUserMessage/
+// streamReply stay module-private.
 import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
 import { MEMORY_INSTRUCTIONS } from '@/lib/memory';
 import { parseSSE } from '@/lib/sse';
 import { today } from '@/lib/usage'; // 会话缓存按日轮换与日报指令共用
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
-// while a turn or batch classify streams nothing for that long
+// while a turn streams nothing for that long
 export const keepalive = () => setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), 20_000);
 
 export type ChatOut =
@@ -198,13 +198,9 @@ export async function handleChat(
   screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
-  /** Pass a session id to reuse it; pass '' to force-create a dedicated one (falsy → new session). */
-  ownSession?: string,
   /** Port sender identity: per-tab session cache + the window to screenshot. */
   sender?: { tabId?: number; windowId?: number },
-  // resolves the session id used (a fresh one when created) — classify feeds it
-  // back into the next batch so one run reuses a single dedicated session
-): Promise<string | undefined> {
+): Promise<void> {
   const [pat, agentId, envId, vaultId, memorySync, memoryStoreId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
@@ -218,17 +214,16 @@ export async function handleChat(
     return;
   }
 
-  // 分类/专用会话(ownSession 非 undefined)不挂载 Store:严格 JSON prompt 不受记忆干扰。
   // Store 在首次同步时才懒创建,开启同步但尚未同步过的聊天不挂载(同步是显式用户动作)
-  const memStoreId = ownSession === undefined && memorySync ? memoryStoreId : '';
+  const memStoreId = memorySync ? memoryStoreId : '';
 
   // per-tab cloud sessions: with one global session, tab B's 409-cancel would
   // silently truncate tab A's running turn. Keys of closed tabs are cleaned up
   // in background.ts onRemoved.
   const sessionKey: `local:${string}` | null =
     sender?.tabId != null ? `local:sessionId.v4.tab.${sender.tabId}` : null;
-  let sessionId = ownSession ?? '';
-  if (!sessionId && sessionKey) {
+  let sessionId = '';
+  if (sessionKey) {
     // 每日轮换：缓存值是 {id, day}，跨天后日期不符视同无缓存，走下方重建路径
     const cached = await storage.getItem<{ id: string; day: string }>(sessionKey);
     if (cached?.day === today()) sessionId = cached.id;
@@ -299,8 +294,7 @@ export async function handleChat(
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
     sessionId = await createSession(pat, agentId, envId, vaultId, memStoreId, signal);
-    if (ownSession === undefined && sessionKey) await storage.setItem(sessionKey, { id: sessionId, day: today() });
+    if (sessionKey) await storage.setItem(sessionKey, { id: sessionId, day: today() });
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
-  return sessionId;
 }
