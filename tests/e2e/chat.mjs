@@ -91,33 +91,34 @@ try {
     // the send lands as a user bubble — wait for it so the next ask starts clean
     await host.locator('.tab-agent-bubble-user').last().filter({ hasText: text }).waitFor({ timeout: 5_000 });
   };
+  const bubbles = () => host.locator('.tab-agent-md').count();
   const lastReply = () => host.locator('.tab-agent-md').last().textContent();
+
+  // wait for the Nth reply bubble to appear and finish streaming;
+  // 断言里排除错误占位文案:流失败时气泡被替换为"请重试"类文案,不含"思考中",
+  // 只放循环条件会在错误文案误判 PASS
+  const waitReply = async (nth) => {
+    const started = Date.now();
+    let reply = '';
+    while (Date.now() - started < 120_000) {
+      if ((await bubbles()) >= nth) {
+        reply = ((await lastReply()) ?? '').trim();
+        if (reply && !reply.includes('思考中')) break;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return reply;
+  };
 
   // open the panel and ask a question
   await ask('用一句话回答：1+1 等于几？');
-
-  // wait for a non-empty agent reply (streamed deltas land in the last bubble);
-  // 断言里排除错误占位文案:流失败时气泡被替换为"请重试"类文案,不含"思考中",
-  // 只放循环条件会以错误文案误判 PASS
-  const started = Date.now();
-  let reply = '';
-  while (Date.now() - started < 120_000) {
-    reply = ((await lastReply()) ?? '').trim();
-    if (reply && !reply.includes('思考中')) break;
-    await new Promise((r) => setTimeout(r, 1500));
-  }
+  const reply = await waitReply(1);
   check('chat reply streamed from the live gateway',
     reply.length > 0 && !reply.includes('请重试'), reply.slice(0, 120));
 
   // ask again: must reuse the cached daily session (second turn, no new session)
   await ask('很好，谢谢！');
-  const started2 = Date.now();
-  let reply2 = '';
-  while (Date.now() - started2 < 120_000) {
-    reply2 = ((await lastReply()) ?? '').trim();
-    if (reply2 && !reply2.includes('思考中')) break;
-    await new Promise((r) => setTimeout(r, 1500));
-  }
+  const reply2 = await waitReply(2);
   check('second turn answered (cached session path)',
     reply2.length > 0 && reply2 !== reply && !reply2.includes('请重试'), reply2.slice(0, 120));
 
