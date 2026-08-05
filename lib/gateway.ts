@@ -1,13 +1,11 @@
 // Gateway communication layer: HTTP/SSE calls to the cloud agent gateway plus
 // the handleChat turn orchestrator. Pure move out of entrypoints/background.ts —
 // handleChat/keepalive are exported for the background entrypoint (port handler),
-// ChatOut/PageContext for its payload typing; api is shared with the cloud-memory
-// modules (memory.ts, daily-report.ts); createSession/uploadFile/postUserMessage/
-// streamReply stay module-private.
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, memoryStoreIdItem } from '@/lib/settings';
-import { MEMORY_INSTRUCTIONS } from '@/lib/memory';
+// ChatOut/PageContext for its payload typing; api/createSession/uploadFile/
+// postUserMessage/streamReply stay module-private.
+import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, reportSentItem } from '@/lib/settings';
 import { parseSSE } from '@/lib/sse';
-import { today } from '@/lib/usage'; // 会话缓存按日轮换与日报指令共用
+import { today } from '@/lib/usage'; // 会话缓存按日轮换
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
 // while a turn streams nothing for that long
@@ -22,7 +20,7 @@ export type ChatOut =
 // handleChat unsettled forever — that would leak the keepalive interval and pin
 // the worker alive permanently. Streams opt out (timeout: false) and rely on
 // their own 90s read watchdog instead.
-export async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
+async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
   const { timeout, ...rest } = init ?? {};
   const signals = [rest.signal, timeout === false ? undefined : AbortSignal.timeout(timeout ?? 30_000)]
     .filter((s): s is AbortSignal => !!s);
@@ -47,8 +45,6 @@ async function createSession(
   agentId: string,
   envId: string,
   vaultId: string,
-  /** 云端记忆 Store id,非空时作为 resources 挂载(仅用户聊天会话传值) */
-  memoryStoreId: string,
   signal?: AbortSignal,
 ) {
   const res = await api(pat, '/sessions', {
@@ -60,14 +56,6 @@ async function createSession(
       // 标题带日期：云端会话列表里能辨认每天轮换的新会话
       title: `Tab Agent ${today()}`,
       ...(vaultId ? { vault_ids: [vaultId] } : {}),
-      ...(memoryStoreId ? {
-        resources: [{
-          type: 'memory_store',
-          memory_store_id: memoryStoreId,
-          access: 'read_write',
-          instructions: MEMORY_INSTRUCTIONS,
-        }],
-      } : {}),
     }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
@@ -198,35 +186,37 @@ export async function handleChat(
   screenshot: boolean,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
-  /** Port sender identity: per-tab session cache + the window to screenshot. */
-  sender?: { tabId?: number; windowId?: number },
+  /** Port sender identity: only the window to screenshot (session is shared). */
+  sender?: { windowId?: number },
+  /** Fires once per completed turn with the reply's finish day (YYYY-MM-DD). */
+  onTurnDone?: (day: string) => void,
 ): Promise<void> {
-  const [pat, agentId, envId, vaultId, memorySync, memoryStoreId] = await Promise.all([
+  const [pat, agentId, envId, vaultId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
     envIdItem.getValue(),
     vaultIdItem.getValue(),
-    memorySyncItem.getValue(),
-    memoryStoreIdItem.getValue(),
   ]);
   if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
     return;
   }
 
-  // Store 在首次同步时才懒创建,开启同步但尚未同步过的聊天不挂载(同步是显式用户动作)
-  const memStoreId = memorySync ? memoryStoreId : '';
+  // 每日共享会话：所有 tab 同一天共用同一云端会话，跨天重建。
+  // ponytail: 共享会话下 tab B 的 409-cancel 会截断 tab A 进行中的回合；
+  // 单用户轻聊场景可接受，并发不丢需跨 tab 回合排队（另一量级复杂度）。
+  const sessionKey = 'local:sessionId.v4' as const;
+  // 会话归属以最后一条回复的完成日为准：跨午夜的回合（23:56 发、00:12 答完）
+  // 仍属旧会话，done 时把 day 刷成完成日，下一条消息才触发跨天重建。
+  const cached = await storage.getItem<{ id: string; day: string }>(sessionKey);
+  let sessionId = cached?.day === today() ? cached.id : '';
 
-  // per-tab cloud sessions: with one global session, tab B's 409-cancel would
-  // silently truncate tab A's running turn. Keys of closed tabs are cleaned up
-  // in background.ts onRemoved.
-  const sessionKey: `local:${string}` | null =
-    sender?.tabId != null ? `local:sessionId.v4.tab.${sender.tabId}` : null;
-  let sessionId = '';
-  if (sessionKey) {
-    // 每日轮换：缓存值是 {id, day}，跨天后日期不符视同无缓存，走下方重建路径
-    const cached = await storage.getItem<{ id: string; day: string }>(sessionKey);
-    if (cached?.day === today()) sessionId = cached.id;
+  // 跨天且旧会话存在：先让旧会话自总结（上下文即当日完整对话记录，
+  // Agent 侧 notion MCP 写日报），fire-and-forget，失败仅留痕不阻断新会话。
+  if (cached && cached.day !== today() && (await reportSentItem.getValue()) !== cached.day) {
+    await reportSentItem.setValue(cached.day); // 先落标记：失败不重复发，宁缺勿滥
+    void summarizeSession(pat, cached.id, cached.day)
+      .catch((e) => console.error('[tab-agent] daily report:', e));
   }
 
   // upload happens once; mounting is per-session, so it happens inside tryTurn
@@ -285,6 +275,7 @@ export async function handleChat(
       if (!res.ok) throw new Error(`send message: HTTP ${res.status}`);
       posted = true;
       await streaming;
+      onTurnDone?.(today()); // 回复完成日落盘：会话归属跟着最后回复走
       return true;
     } finally {
       turn.abort(); // success: streaming already resolved, no-op; failure: reclaim the SSE fetch
@@ -293,8 +284,21 @@ export async function handleChat(
 
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
-    sessionId = await createSession(pat, agentId, envId, vaultId, memStoreId, signal);
-    if (sessionKey) await storage.setItem(sessionKey, { id: sessionId, day: today() });
+    sessionId = await createSession(pat, agentId, envId, vaultId, signal);
+    await storage.setItem(sessionKey, { id: sessionId, day: today() });
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
+}
+
+/** 跨天时让旧会话自总结：只发消息不等回复（总结写 Notion 由云端 Agent 完成）。
+ *  复用 409 自愈：旧会话若有回合在跑，cancel 后等 idle 再发，最多 2 次。 */
+async function summarizeSession(pat: string, sessionId: string, day: string): Promise<void> {
+  const text = `请总结本次会话中 ${day} 的全部对话，撰写一份简明的中文日报，并用 notion MCP 工具在你被配置写入的 Notion 数据库中新建页面，标题为"Tab Agent 日报 ${day}"。`;
+  let res = await postUserMessage(pat, sessionId, text);
+  for (let i = 0; i < 2 && res.status === 409; i++) {
+    await api(pat, `/sessions/${sessionId}/cancel`, { method: 'POST' });
+    await new Promise((r) => setTimeout(r, 2000)); // cancel→idle 是异步的，给云端一点收敛时间
+    res = await postUserMessage(pat, sessionId, text);
+  }
+  if (!res.ok) throw new Error(`daily report: HTTP ${res.status}`);
 }

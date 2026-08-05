@@ -2,10 +2,6 @@ import { dict, langItem, DEFAULT_LANG, type Lang, type I18nKey } from '@/lib/i18
 import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips-store';
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
-import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore, mirrorClip } from '@/lib/memory';
-import { syncDeployment } from '@/lib/daily-report';
-import { logChat, logClipAdded, purgeOld, today } from '@/lib/usage';
-import { memorySyncItem } from '@/lib/settings';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
@@ -36,9 +32,6 @@ function fanOutClipsChanged(page?: string) {
   setTimeout(() => { if (!delivered) console.warn('[tab-agent] clipsChanged reached no listener'); }, 1000);
 }
 
-// 云端记忆改为写入即自动镜像;开关打开时对存量摘录库补一次全量,共享单次运行避免并发重复写
-let memorySyncInFlight: Promise<number> | null = null;
-
 export default defineBackground(() => {
   // last-resort logger: individual .catch() calls are the primary defense, but a
   // missed one must not go silently — SW console is the only surface we have
@@ -47,21 +40,6 @@ export default defineBackground(() => {
   // warm the extension-origin DB at startup
   void getClipsDirect().catch(() => {
     /* open failed; next access retries */
-  });
-  // 清理过期使用日志(保留 7 天);失败下次启动重试
-  void purgeOld();
-
-  // 日报是后端默认行为:worker 启动时确保 Deployment 存在(已缓存 → 零网络;
-  // 未配置凭证静默跳过,下次启动重试)
-  void syncDeployment().catch((e) => console.error('[tab-agent]', e));
-
-  // 记忆同步开关打开 → 存量摘录一次性全量补齐(此后新增/更新/删除自动镜像)
-  memorySyncItem.watch((on) => {
-    if (!on || memorySyncInFlight) return;
-    const ping = keepalive();
-    memorySyncInFlight = syncAllClipsToMemoryStore()
-      .catch((e) => { console.error('[tab-agent]', e); return 0; })
-      .finally(() => { memorySyncInFlight = null; clearInterval(ping); });
   });
 
   // "save clip" context menus; titles follow the UI language
@@ -168,8 +146,6 @@ export default defineBackground(() => {
       }
       addClipDirect(msg.clip as Omit<Clip, 'id' | 'createdAt'>).then((clip) => {
         fanOutClipsChanged(clip.pageUrl);
-        logClipAdded();
-        void mirrorClip(clip).catch(() => {}); // 自动镜像(开关关时内部 no-op),失败不影响本地
         ok(clip);
       }, fail);
       return true;
@@ -177,10 +153,6 @@ export default defineBackground(() => {
     if (req?.type === 'clipDel') {
       removeClipDirect(req.id).then((page) => {
         fanOutClipsChanged(page);
-        // 云端镜像同步删除(默认关闭):本地已删,镜像残留会误导 Agent,尽力清理
-        void memorySyncItem.getValue().then((on) => {
-          if (on) deleteClipFromMemoryStore(req.id).catch(() => { /* 镜像删除失败静默 */ });
-        });
         ok(undefined);
       }, fail);
       return true;
@@ -189,12 +161,6 @@ export default defineBackground(() => {
       updateClipDirect(req.id, req.patch).then((page) => {
         fanOutClipsChanged(page);
         ok(undefined);
-        // 更新后把合并结果重推镜像:updateClipDirect 不回传合并行,回读查找
-        // (摘录更新低频,O(n) 无碍);镜像失败静默,本地是事实源
-        void getClipsDirect()
-          .then((clips) => clips.find((c) => c.id === req.id))
-          .then((clip) => clip && mirrorClip(clip))
-          .catch(() => {});
       }, fail);
       return true;
     }
@@ -208,14 +174,7 @@ export default defineBackground(() => {
       // port payloads are untrusted-ish (own content scripts today, but cheap to
       // guard): a non-string text would crash handleChat far from the cause
       if (typeof msg?.text !== 'string' || !msg.text) return;
-      let reply = '';
       const send = (out: ChatOut) => {
-        // 回合成功结束时记一笔使用日志并 best-effort 镜像到云端(日报数据源)
-        if (out.type === 'delta') reply += out.text;
-        if (out.type === 'done') {
-          logChat(msg.text, reply);
-          void syncUsageToMemoryStore(today()).catch(() => { /* 镜像失败:本地日志是事实源,下回合重写自愈 */ });
-        }
         try {
           port.postMessage(out);
         } catch {
@@ -225,8 +184,13 @@ export default defineBackground(() => {
       // a screenshot turn (tool call + thinking) can stream nothing for that long
       const ping = keepalive();
       handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send, {
-        tabId: port.sender?.tab?.id,
         windowId: port.sender?.tab?.windowId,
+      }, (day) => {
+        // 回复完成日落进会话缓存：跨午夜回合（23:56 发、00:12 答完）仍属旧会话，
+        // 下一条消息才触发跨天重建 + 旧会话自总结。读-改-写保留 id，只刷 day。
+        void storage.getItem<{ id: string; day: string }>('local:sessionId.v4')
+          .then((c) => c && storage.setItem('local:sessionId.v4', { ...c, day }))
+          .catch(() => {});
       })
         .catch((err) => {
           console.error('[tab-agent]', err); // port may be gone; keep a trace in the SW console
@@ -235,10 +199,5 @@ export default defineBackground(() => {
         })
         .finally(() => clearInterval(ping));
     });
-  });
-
-  // cleanup session keys for closed tabs
-  browser.tabs.onRemoved.addListener((tabId) => {
-    storage.removeItem(`local:sessionId.v4.tab.${tabId}`).catch(() => { /* key 不存在或上下文失效:幂等清理 */ });
   });
 });

@@ -22,15 +22,13 @@ entrypoints/
   popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
   options/         # 设置页（独立标签页）：Settings / Clips / Privacy 三页签（pages/，均 React.lazy 懒加载）
 lib/
-  gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（含 per-tab 每日会话）
+  gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（每日共享会话 + 跨天自总结）
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   messages.ts      # runtime 消息协议：类型化 Request + sendRequest（content/options → background），Reply 信封仅模块内使用
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
-  usage.ts         # 每日使用日志：聊天/摘录活动记录（storage，保留 7 天），日报数据源兼备份
-  memory.ts        # 云端记忆镜像：摘录与 usage 日志 → Qoder Memory Store（best-effort）
-  daily-report.ts  # 每日日报（后端默认行为）：确保云端 Deployment（cron 23:55）存在 + 指令构造
+  usage.ts         # 日期工具：本地时区 YYYY-MM-DD（会话按日轮换与日报归属日共用）
   page-text.ts     # 页面正文提取（Readability 封装 + 缓存，失败回退 innerText）
   marks.ts         # 摘录定位/高亮/淡出 + 划词草稿事件（content script 侧）
   markdown.tsx     # 自写极简 Markdown 渲染器（直接产出 React 元素，天然转义，无 innerHTML）
@@ -143,15 +141,11 @@ flowchart LR
 
 - 存放 notion MCP 服务器的 OAuth 凭证 —— 创建会话时附带 `vault_ids` 挂载，MCP 鉴权通过
 
-### 每日日报（Deployments）
-
-日报是**后端默认行为，无前端开关**；目标 Notion 数据库在用户的云端 Agent 配置里指定，不在扩展侧配置。日终总结不在扩展侧定时（MV3 worker 随时被杀、浏览器关闭时无定时器可用），而是建一个云端 **Deployment**（`POST /deployments`，name `tab-agent-daily-report`）：cron `55 23 * * *`（用户时区），到点云端自动起一个专属 session 并发送 `initial_events` 指令——Agent 从挂载的 Memory Store 读当日 `usage/<日期>.md` 使用日志与摘录镜像，总结后经 notion MCP 在其被配置写入的 Notion 数据库新建日报页；无当日记录则不建页。浏览器关闭也照常执行。
-
-扩展侧只确保 Deployment 存在（`lib/daily-report.ts` 的 `syncDeployment`，worker 每次启动调一次）：已缓存 `dep_` id → 零网络直接返回（指令是静态文本，建好后无需 patch）；未配置凭证 → 静默跳过，下次启动重试；首次创建前按 name 查重（多设备不重复建）。数据链：每个聊天回合/保存摘录完成后，`lib/usage.ts` 写本地当日日志（保留 7 天 = 备份窗口）并 best-effort upsert 到 Memory Store 的 `usage/<day>.md`（复用 `memoryMapItem`，key 前缀 `usage:`）。
-
 ## 5. 一次对话回合（tryTurn）
 
-`lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、可自愈」。会话 id 先按 port sender 的 tab 解析（`sessionId.v4.tab.<tabId>`，缓存值为 `{id, day}`：跨天日期不符视同无缓存，重建当日新会话，session 标题带日期；无 tab 时不缓存）：
+`lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、可自愈」。会话为**每日共享**：所有 tab 同一天共用同一云端会话（缓存键 `sessionId.v4`，值 `{id, day}`），归属以**最后一条回复的完成日**为准——跨午夜回合（23:56 发、00:12 答完）仍属旧会话，done 时把 day 刷成完成日；下一条消息发现 day 不符才重建当日新会话（session 标题带日期）。已知代价：共享会话下 tab B 的 409-cancel 会截断 tab A 进行中的回合（单用户轻聊可接受）。
+
+**跨天日报**：重建前若旧会话存在且当日未总结过（`reportSent` 标记去重），先对旧会话 fire-and-forget 发一条总结指令——旧会话上下文即当日完整对话记录，云端 Agent 自行用 notion MCP 写入 Notion 日报；失败仅留痕不阻断新会话。浏览器关闭期间不触发，顺延到下次打开并发消息时。
 
 1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas[]=agent.message`），后发消息 —— 保证不错过任何 delta。
@@ -193,10 +187,8 @@ flowchart LR
 | `clipHighlight` / `highlightColor` | 摘录高亮开关 / 高亮颜色（yellow / purple / green / blue） |
 | `lang`（定义在 `lib/i18n.ts`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
-| `memorySync` / `memoryStoreId` / `memoryMap` | 云端记忆同步开关 / Store id 缓存 / clipId→memoryId 映射（含 `usage:<day>` 键） |
-| `dailyReportDeploymentId` | 日报 Deployment 的 `dep_` id 缓存（日报无前端开关，后端默认行为） |
-| `usage.<YYYY-MM-DD>` | 当日使用日志（回合数/摘录数/问答摘要，问答截断，上限 50 条），保留 7 天后清理 |
-| `sessionId.v4.tab.<tabId>` | **按 tab 隔离且按日轮换**的会话缓存，值为 `{id, day}`：全局单会话时 tab B 的 409-cancel 会截断 tab A 进行中的回合；跨天自动重建新会话（v3→v4 为按日轮换，值由 id 字符串改为对象） |
+| `reportSent` | 日报去重标记：已发起总结的会话归属日（YYYY-MM-DD） |
+| `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建并触发旧会话自总结（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 
 **摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 
