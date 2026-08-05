@@ -3,25 +3,55 @@ import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect,
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
 
-// fan clipsChanged out to content scripts in every tab and to extension pages
+// content script 注册表(tabId → normalized pageUrl):fanOut 只向注册 tab 广播,
+// 免掉全量 tabs.query + 对无 content 脚本的 tab(chrome://、PDF 等)的无效 IPC。
+// content 脚本启动/SPA 导航时发 tabRegister;tab 关闭由 onRemoved 清理。
+// SW 重启后注册表清空:fanOut 回退全量广播,content 脚本收到广播即重注册,
+// 一次广播后恢复精准投递。
+const contentTabs = new Map<number, string>();
+browser.tabs.onRemoved.addListener((tabId) => { contentTabs.delete(tabId); });
+
+/** Test-only: clear the content-script registry between test cases. */
+export function clearContentTabsForTests() {
+  contentTabs.clear();
+}
+
+// fan clipsChanged out to registered content scripts and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
 // normalized pageUrl) lets page watchers skip other pages' changes; omitted when
 // a change spans pages, so every watcher refreshes.
 function fanOutClipsChanged(page?: string) {
   const msg = { type: CLIPS_CHANGED, page };
   let delivered = 0;
-  browser.tabs
-    .query({})
-    .then((tabs) => {
-      for (const tab of tabs)
-        if (tab.id)
-          browser.tabs.sendMessage(tab.id, msg).then(() => { delivered++; }).catch(() => {
-            /* no content script on this tab */
-          });
-    })
-    .catch(() => {
-      /* tabs.query failed */
+  const deliver = (tabId: number) =>
+    browser.tabs.sendMessage(tabId, msg)
+      .then(() => { delivered++; })
+      .catch((e) => {
+        // 导航走/无内容脚本的 tab:清理陈旧条目(整页导航到 chrome:// 等不会
+        // 重注册也不会注销,不清理则每次广播都白发一次必然 reject 的 IPC);
+        // 该 tab 回到匹配页时启动会重新注册,闭环不受影响。re-throw 让
+        // allSettled 能看到投递失败(否则 catch 吞掉后永远 fulfilled,回退不触发)
+        contentTabs.delete(tabId);
+        throw e;
+      });
+  // 注册表为空(SW 重启后首次广播)时回退全量:content 收到后重注册,下次恢复精准。
+  // 混合版本窗口:更新后只要有一个新脚本注册就切精准模式,未刷新 tab 上的旧版
+  // 脚本(无 tabRegister 逻辑)永远收不到——精准投递全落空时再回退一次全量
+  const targets = contentTabs.size ? [...contentTabs.keys()] : undefined;
+  if (targets) {
+    // 精准投递全部落空(注册表里都是失效/旧版 tab)时回退一次全量广播
+    void Promise.allSettled(targets.map(deliver)).then((rs) => {
+      if (rs.every((r) => r.status === 'rejected')) {
+        void browser.tabs.query({}).then((tabs) => {
+          for (const tab of tabs) if (tab.id) deliver(tab.id).catch(() => {});
+        }).catch(() => {});
+      }
     });
+  } else {
+    void browser.tabs.query({}).then((tabs) => {
+      for (const tab of tabs) if (tab.id) deliver(tab.id);
+    }).catch(() => {});
+  }
   // runtime.sendMessage reaches extension pages (options) but not content scripts;
   // background itself has no watcher, so no echo to worry about here.
   void browser.runtime.sendMessage(msg).then(() => { delivered++; }).catch(() => {
@@ -111,6 +141,15 @@ export default defineBackground(() => {
   // return true keeps the message channel open for the async sendResponse; every
   // branch resolves {ok:true,data} or {ok:false,error} so the sender never hangs.
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // content script 注册(fire-and-forget,不响应):background 只记 tabId → page
+    if ((msg as { type?: string })?.type === 'tabRegister') {
+      const page = (msg as { page?: string })?.page;
+      if (sender.tab?.id) {
+        if (page) contentTabs.set(sender.tab.id, page);
+        else contentTabs.delete(sender.tab.id);
+      }
+      return;
+    }
     const ok = (data: unknown) => sendResponse({ ok: true, data });
     const fail = (e: unknown, code?: string) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e), code });
     const req = msg as Request;
@@ -190,7 +229,7 @@ export default defineBackground(() => {
         // 下一条消息才触发跨天重建 + 旧会话自总结。读-改-写保留 id，只刷 day。
         void storage.getItem<{ id: string; day: string }>('local:sessionId.v4')
           .then((c) => c && storage.setItem('local:sessionId.v4', { ...c, day }))
-          .catch(() => {});
+          .catch(() => console.warn('[tab-agent] session day not persisted'));
       })
         .catch((err) => {
           console.error('[tab-agent]', err); // port may be gone; keep a trace in the SW console

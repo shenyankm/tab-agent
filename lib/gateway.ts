@@ -7,6 +7,14 @@ import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, reportSentItem }
 import { parseSSE } from '@/lib/sse';
 import { today } from '@/lib/usage'; // 会话缓存按日轮换
 
+// 每日会话的 storage 读缓存(SW 存活期内有效):handleChat 每次提问不再读盘
+let sessionCache: { id: string; day: string } | null = null;
+
+/** Test-only: clear the in-memory session cache between test cases. */
+export function resetSessionCacheForTests() {
+  sessionCache = null;
+}
+
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
 // while a turn streams nothing for that long
 export const keepalive = () => setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), 20_000);
@@ -234,7 +242,12 @@ export async function handleChat(
   const sessionKey = 'local:sessionId.v4' as const;
   // 会话归属以最后一条回复的完成日为准：跨午夜的回合（23:56 发、00:12 答完）
   // 仍属旧会话，done 时把 day 刷成完成日，下一条消息才触发跨天重建。
-  const cached = await storage.getItem<{ id: string; day: string }>(sessionKey);
+  // SW 存活期内的内存副本:连续提问不重复读 storage;SW 重启后首次提问回填。
+  let cached = sessionCache;
+  if (!cached) {
+    cached = (await storage.getItem<{ id: string; day: string }>(sessionKey)) ?? null;
+    sessionCache = cached;
+  }
   let sessionId = cached?.day === today() ? cached.id : '';
 
   // 跨天且旧会话存在：先让旧会话自总结（上下文即当日完整对话记录，
@@ -255,8 +268,15 @@ export async function handleChat(
     const dataUrl = sender?.windowId != null
       ? await browser.tabs.captureVisibleTab(sender.windowId, opts)
       : await browser.tabs.captureVisibleTab(opts);
+    // dataURL → Blob 直解:fetch(dataUrl) 会对 base64 做一次完整解码+重编码,
+    // 全屏 JPEG 的 base64 可达 MB 级,主线程上直接 atob 快得多
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const blob = new Blob(
+      [Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))],
+      { type: 'image/jpeg' },
+    );
     mount = {
-      fileId: await uploadFile(pat, 'screenshot.jpg', await (await fetch(dataUrl)).blob(), signal),
+      fileId: await uploadFile(pat, 'screenshot.jpg', blob, signal),
       path: '/data/input/screenshot.jpg',
       note: "[Screenshot] A screenshot of the page currently visible in the user's browser is mounted at /data/input/screenshot.jpg in your workspace. View it when relevant.",
     };
@@ -302,6 +322,7 @@ export async function handleChat(
       posted = true;
       await streaming;
       onTurnDone?.(today()); // 回复完成日落盘：会话归属跟着最后回复走
+      if (sessionCache) sessionCache = { ...sessionCache, day: today() }; // 内存副本同步
       return true;
     } finally {
       turn.abort(); // success: streaming already resolved, no-op; failure: reclaim the SSE fetch
@@ -311,7 +332,9 @@ export async function handleChat(
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
     sessionId = await createSession(pat, agentId, envId, vaultId, signal);
-    await storage.setItem(sessionKey, { id: sessionId, day: today() });
+    const fresh = { id: sessionId, day: today() };
+    sessionCache = fresh;
+    await storage.setItem(sessionKey, fresh);
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
 }
