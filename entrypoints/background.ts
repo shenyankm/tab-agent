@@ -1,17 +1,16 @@
 import { dict, langItem, DEFAULT_LANG, type Lang, type I18nKey } from '@/lib/i18n';
-import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, updateClipsDirect, type Clip } from '@/lib/clips-store';
+import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips-store';
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
-import { classifyBatch, CLASSIFY_BATCH } from '@/lib/classify';
 import { syncAllClipsToMemoryStore, deleteClipFromMemoryStore, syncUsageToMemoryStore, mirrorClip } from '@/lib/memory';
 import { syncDeployment } from '@/lib/daily-report';
-import { logChat, logClipAdded, logClassified, purgeOld, today } from '@/lib/usage';
+import { logChat, logClipAdded, purgeOld, today } from '@/lib/usage';
 import { memorySyncItem } from '@/lib/settings';
 
 // fan clipsChanged out to content scripts in every tab and to extension pages
 // (options) which tabs.sendMessage can't reach. page (the changed clip's
 // normalized pageUrl) lets page watchers skip other pages' changes; omitted when
-// a change spans pages (classify), so every watcher refreshes.
+// a change spans pages, so every watcher refreshes.
 function fanOutClipsChanged(page?: string) {
   const msg = { type: CLIPS_CHANGED, page };
   let delivered = 0;
@@ -36,34 +35,6 @@ function fanOutClipsChanged(page?: string) {
   // options would show stale data with no clue why
   setTimeout(() => { if (!delivered) console.warn('[tab-agent] clipsChanged reached no listener'); }, 1000);
 }
-
-/** Send all clips to the cloud agent for knowledge-type classification, parse the
- *  JSON response and write category/relatedIds back to each clip, batch by batch. */
-async function handleClassify(): Promise<{ classified: number }> {
-  const clips = await getClipsDirect();
-  if (!clips.length) return { classified: 0 };
-
-  // one dedicated gateway session for the whole run: force-creating per batch
-  // would litter the user's session list with N/50 throwaway "Tab Agent" entries
-  const session = { id: '' };
-  let classified = 0;
-  for (let i = 0; i < clips.length; i += CLASSIFY_BATCH) {
-    // write each batch back as it lands: a later batch's failure keeps earlier progress
-    const patches = await classifyBatch(clips.slice(i, i + CLASSIFY_BATCH), session);
-    await updateClipsDirect(patches);
-    classified += patches.length;
-  }
-  fanOutClipsChanged();
-  if (classified) logClassified();
-  // 分类写回后镜像到云端记忆(默认关闭);失败只影响镜像,本地 IDB 是事实源
-  if (await memorySyncItem.getValue())
-    void syncAllClipsToMemoryStore().catch((e) => console.error('[tab-agent]', e));
-  return { classified };
-}
-
-// concurrent classify triggers (two options tabs) share one run — parallel runs
-// would double the LLM cost and race the write-back
-let classifyInFlight: Promise<{ classified: number }> | null = null;
 
 // 云端记忆改为写入即自动镜像;开关打开时对存量摘录库补一次全量,共享单次运行避免并发重复写
 let memorySyncInFlight: Promise<number> | null = null;
@@ -190,7 +161,7 @@ export default defineBackground(() => {
       const valid = !!c && typeof c === 'object' && typeof c.text === 'string'
         && optStr(c.url) && optStr(c.pageUrl) && optStr(c.title) && optStr(c.imageSrc) && optStr(c.category)
         && (c.kind === undefined || c.kind === 'page' || c.kind === 'image')
-        && optStrArr(c.tags) && optStrArr(c.notes) && optStrArr(c.relatedIds);
+        && optStrArr(c.tags) && optStrArr(c.notes);
       if (!valid) {
         fail(new Error('invalid clip payload'), 'invalid');
         return true;
@@ -225,13 +196,6 @@ export default defineBackground(() => {
           .then((clip) => clip && mirrorClip(clip))
           .catch(() => {});
       }, fail);
-      return true;
-    }
-    if (req?.type === 'classifyClips') {
-      // classify (LLM generation + N IDB writes) easily exceeds the 30s worker cap
-      const ping = keepalive();
-      classifyInFlight ??= handleClassify().finally(() => { classifyInFlight = null; });
-      classifyInFlight.then(ok, fail).finally(() => clearInterval(ping));
       return true;
     }
   });

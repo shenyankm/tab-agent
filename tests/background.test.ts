@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockPat, mockAgentId, mockEnvId, mockVaultId,
   connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef, tabRemovedListenerRef,
-  mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip, mockUpdateClips,
+  mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip,
   mockTabsQuery, mockTabsSend, mockCapture, mockMenuCreate, mockMenuRemoveAll,
   perTabStorage, mockStorageGet, mockStorageSet, mockStorageRemove,
 } = vi.hoisted(() => ({
@@ -23,7 +23,6 @@ const {
   mockAddClip: vi.fn(),
   mockRemoveClip: vi.fn().mockResolvedValue(undefined),
   mockUpdateClip: vi.fn().mockResolvedValue(undefined),
-  mockUpdateClips: vi.fn().mockResolvedValue(undefined),
   mockTabsQuery: vi.fn().mockResolvedValue([]),
   mockTabsSend: vi.fn().mockResolvedValue(undefined),
   mockCapture: vi.fn().mockResolvedValue('data:image/jpeg;base64,Zm9v'),
@@ -77,7 +76,6 @@ vi.mock('@/lib/clips-store', () => ({
   addClipDirect: (clip: unknown) => mockAddClip(clip),
   removeClipDirect: (id: string) => mockRemoveClip(id),
   updateClipDirect: (id: string, patch: unknown) => mockUpdateClip(id, patch),
-  updateClipsDirect: (patches: unknown) => mockUpdateClips(patches),
   normalizeUrl: (u: string) => { try { const p = new URL(u); p.hash = ''; return p.toString(); } catch { return u; } },
 }));
 
@@ -686,8 +684,6 @@ describe('background clips message handler', () => {
     mockRemoveClip.mockResolvedValue(undefined);
     mockUpdateClip.mockReset();
     mockUpdateClip.mockResolvedValue(undefined);
-    mockUpdateClips.mockReset();
-    mockUpdateClips.mockResolvedValue(undefined);
   });
 
   it('clipsGet responds with the clips and keeps the channel open', async () => {
@@ -827,221 +823,3 @@ describe('background commands', () => {
   });
 });
 
-describe('background classify', () => {
-  const clip = (id: string) => ({
-    id, url: 'https://e.com/p', pageUrl: 'https://e.com/p', title: 'T', text: `text ${id}`, createdAt: 1,
-  });
-
-  const classifyFetch = (opts: {
-    reply: (attempt: number) => string[];
-    onSession?: () => void;
-  }) => {
-    let attempts = 0;
-    // the gateway pushes this turn's events only after the user.message POST returns
-    const streams: ReadableStreamDefaultController[] = [];
-    return vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      const url = String(_url);
-      if (url.endsWith('/sessions') && init?.method === 'POST') {
-        const id = `cls-sess-${++attempts}`;
-        opts.onSession?.();
-        return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ id }) });
-      }
-      if (url.includes('/events/stream')) {
-        return Promise.resolve({
-          status: 200, ok: true,
-          body: new ReadableStream({ start(c) { streams.push(c); } }),
-        });
-      }
-      if (url.includes('/events') && init?.method === 'POST') {
-        // events flow only AFTER the post resolves (posted flips true in the
-        // caller) — a macrotask guarantees that microtask chain finished
-        const c = streams.shift(); // the stream opened for this turn
-        const frames = opts.reply(attempts);
-        setTimeout(() => {
-          c?.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${f}\n\n`).join('')));
-          c?.close();
-        }, 0);
-        return Promise.resolve({ status: 200, ok: true });
-      }
-      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
-    });
-  };
-
-  beforeEach(() => {
-    mockUpdateClips.mockReset();
-    mockUpdateClips.mockResolvedValue(undefined);
-  });
-
-  it('classifies clips and writes results', async () => {
-    mockGetClips.mockResolvedValue([clip('a')]);
-    vi.stubGlobal('fetch', classifyFetch({
-      reply: () => [
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-        JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[],"tags":["ai","x"]}]}' } } }),
-        JSON.stringify({ type: 'session.status_idle' }),
-      ],
-    }));
-
-    const { respond } = dispatch({ type: 'classifyClips' });
-    await until(() => respond.mock.calls.length > 0);
-
-    // 结果批量写回(单事务),handleClassify 末尾统一 fan-out
-    expect(mockUpdateClips).toHaveBeenCalledWith([
-      { id: 'a', patch: { category: 'concept', relatedIds: [], tags: ['ai', 'x'] } },
-    ]);
-    expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
-    vi.unstubAllGlobals();
-  });
-
-  // agents sometimes ignore "no markdown fences" — the JSON must still be recovered
-  it('parses a reply wrapped in a ```json markdown fence', async () => {
-    mockGetClips.mockResolvedValue([clip('a')]);
-    vi.stubGlobal('fetch', classifyFetch({
-      reply: () => [
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-        JSON.stringify({
-          type: 'event_delta',
-          delta: { content: { text: 'Here is the result:\n```json\n{"clips":[{"id":"a","category":"concept","relatedIds":[],"tags":["x"]}]}\n```' } },
-        }),
-        JSON.stringify({ type: 'session.status_idle' }),
-      ],
-    }));
-
-    const { respond } = dispatch({ type: 'classifyClips' });
-    await until(() => respond.mock.calls.length > 0);
-    expect(mockUpdateClips).toHaveBeenCalledWith([
-      { id: 'a', patch: { category: 'concept', relatedIds: [], tags: ['x'] } },
-    ]);
-    expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
-    vi.unstubAllGlobals();
-  });
-
-  it('splits large libraries into batches and writes each batch back', async () => {
-    const clips = Array.from({ length: 120 }, (_, i) => clip(`c${i}`));
-    mockGetClips.mockResolvedValue(clips);
-    let sessions = 0;
-    vi.stubGlobal('fetch', classifyFetch({
-      onSession: () => sessions++,
-      // each batch filters the reply to its own ids, so replying with all ids is fine
-      reply: () => [
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-        JSON.stringify({
-          type: 'event_delta',
-          delta: { content: { text: JSON.stringify({ clips: clips.map((c) => ({ id: c.id, category: 'x', relatedIds: [] })) }) } },
-        }),
-        JSON.stringify({ type: 'session.status_idle' }),
-      ],
-    }));
-
-    const { respond } = dispatch({ type: 'classifyClips' });
-    await until(() => respond.mock.calls.length > 0);
-
-    expect(sessions).toBe(1); // 120 clips / 50 per batch = 3 batches sharing one per-run session
-    expect(mockUpdateClips).toHaveBeenCalledTimes(3);
-    expect(mockUpdateClips.mock.calls[0][0]).toHaveLength(50);
-    expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 120 } });
-    vi.unstubAllGlobals();
-  });
-
-  it('retries once on an unparseable reply, then surfaces the failure', async () => {
-    mockGetClips.mockResolvedValue([clip('a')]);
-    let sessions = 0;
-    let streams = 0;
-    vi.stubGlobal('fetch', classifyFetch({
-      onSession: () => sessions++,
-      // the retry reuses the run's session; only the second stream gets a parseable reply
-      reply: () => [
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-        ++streams === 1
-          ? JSON.stringify({ type: 'event_delta', delta: { content: { text: 'sorry, cannot do that' } } })
-          : JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"concept","relatedIds":[]}]}' } } }),
-        JSON.stringify({ type: 'session.status_idle' }),
-      ],
-    }));
-
-    const { respond } = dispatch({ type: 'classifyClips' });
-    await until(() => respond.mock.calls.length > 0);
-    expect(sessions).toBe(1); // the retry reuses the same per-run session
-    expect(respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
-
-    // both attempts garbage → {ok:false}, and the in-flight lock is released
-    sessions = 0;
-    vi.stubGlobal('fetch', classifyFetch({
-      onSession: () => sessions++,
-      reply: () => [
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-        JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-        JSON.stringify({ type: 'event_delta', delta: { content: { text: 'no json at all' } } }),
-        JSON.stringify({ type: 'session.status_idle' }),
-      ],
-    }));
-    const second = dispatch({ type: 'classifyClips' });
-    await until(() => second.respond.mock.calls.length > 0);
-    expect(sessions).toBe(1); // one run = one session, both attempts reuse it
-    expect(second.respond).toHaveBeenCalledWith({ ok: false, error: 'no JSON in agent reply' });
-    vi.unstubAllGlobals();
-  });
-
-  it('shares one in-flight run across concurrent classify triggers', async () => {
-    mockGetClips.mockResolvedValue([clip('a')]);
-    let sessions = 0;
-    let posts = 0;
-    let release: (() => void) | null = null;
-    const frames = [
-      JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_1', type: 'user.message' } }),
-      JSON.stringify({ type: 'event_start', event: { id: 'cls_evt_2', type: 'agent.message' } }),
-      JSON.stringify({ type: 'event_delta', delta: { content: { text: '{"clips":[{"id":"a","category":"x","relatedIds":[]}]}' } } }),
-      JSON.stringify({ type: 'session.status_idle' }),
-    ];
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      const url = String(_url);
-      if (url.endsWith('/sessions') && init?.method === 'POST') {
-        sessions++;
-        return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ id: `s-${sessions}` }) });
-      }
-      if (url.includes('/events/stream')) {
-        // the test holds the stream open until both triggers have been dispatched
-        return Promise.resolve({
-          status: 200, ok: true,
-          body: new ReadableStream({
-            start(c) {
-              release = () => {
-                c.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${f}\n\n`).join('')));
-                c.close();
-              };
-            },
-          }),
-        });
-      }
-      if (url.includes('/events') && init?.method === 'POST') {
-        posts++;
-        return Promise.resolve({ status: 200, ok: true });
-      }
-      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const first = dispatch({ type: 'classifyClips' });
-    await until(() => release !== null && posts === 1); // stream open AND our POST landed
-    const second = dispatch({ type: 'classifyClips' }); // joins the in-flight run
-    release!();
-    await until(() => first.respond.mock.calls.length > 0 && second.respond.mock.calls.length > 0);
-
-    expect(sessions).toBe(1); // one shared run, not two
-    expect(first.respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
-    expect(second.respond).toHaveBeenCalledWith({ ok: true, data: { classified: 1 } });
-
-    // after completion the lock is released: a new trigger starts a fresh run
-    release = null;
-    const third = dispatch({ type: 'classifyClips' });
-    await until(() => release !== null && posts === 2);
-    release!();
-    await until(() => third.respond.mock.calls.length > 0);
-    expect(sessions).toBe(2);
-    vi.unstubAllGlobals();
-  });
-});

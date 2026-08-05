@@ -6,7 +6,7 @@ import type { Clip, ClipPatch } from '@/lib/clips-store';
 
 // change broadcast, background → every tab's content script + extension pages.
 // page (normalized pageUrl) lets page watchers skip other pages' changes; it is
-// omitted for multi-page changes (classify) so every watcher refreshes.
+// omitted for multi-page changes so every watcher refreshes.
 export const CLIPS_CHANGED = 'clipsChanged';
 
 export type Request =
@@ -14,8 +14,7 @@ export type Request =
   | { type: 'clipsGetForPage'; page: string }
   | { type: 'clipAdd'; clip: Omit<Clip, 'id' | 'createdAt'> }
   | { type: 'clipDel'; id: string }
-  | { type: 'clipUpdate'; id: string; patch: ClipPatch }
-  | { type: 'classifyClips' };
+  | { type: 'clipUpdate'; id: string; patch: ClipPatch };
 
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},
 // they don't reject, so the sender never hangs. code lets the caller distinguish
