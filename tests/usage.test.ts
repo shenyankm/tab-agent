@@ -10,7 +10,7 @@ vi.mock('wxt/utils/storage', () => ({
   },
 }));
 
-const { logChat, logClipAdded, logClassified, getUsage, toMarkdown, purgeOld, today } =
+const { logChat, logClipAdded, getUsage, toMarkdown, purgeOld, today } =
   await import('@/lib/usage');
 
 const dayKey = (day: string) => `local:usage.${day}`;
@@ -37,20 +37,17 @@ describe('usage log', () => {
     expect(u.chats).toHaveLength(50);
   });
 
-  it('clip and classify counters accumulate on the same day', async () => {
+  it('clip counters accumulate on the same day', async () => {
     logClipAdded();
     await flush(); // 读-改-写是 fire-and-forget：串行发出才不丢更新（真实钩子间隔秒级）
     logClipAdded();
     await flush();
-    logClassified();
-    await flush();
     const u = await getUsage(today());
     expect(u.clipsAdded).toBe(2);
-    expect(u.classified).toBe(true);
   });
 
   it('getUsage returns empty shape for an unknown day', async () => {
-    expect(await getUsage('2000-01-01')).toEqual({ turns: 0, clipsAdded: 0, classified: false, chats: [] });
+    expect(await getUsage('2000-01-01')).toEqual({ turns: 0, clipsAdded: 0, chats: [] });
   });
 
   it('toMarkdown carries the stats and chat digest', async () => {

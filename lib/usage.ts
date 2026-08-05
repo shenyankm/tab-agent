@@ -1,16 +1,15 @@
-// 每日使用日志：当天聊天/摘录/分类活动的轻量记录，是日报总结的数据源；
+// 每日使用日志：当天聊天/摘录活动的轻量记录，是日报总结的数据源；
 // 本地保留 7 天（= 数据备份窗口）。所有写入静默失败——附属数据不得影响主流程。
 // 无 DOM 依赖：background bundles 本模块。
 
-export type UsageChat = { t: number; q: string; a: string };
+type UsageChat = { t: number; q: string; a: string };
 export type UsageDay = {
   turns: number;
   clipsAdded: number;
-  classified: boolean;
   chats: UsageChat[];
 };
 
-const EMPTY: UsageDay = { turns: 0, clipsAdded: 0, classified: false, chats: [] };
+const EMPTY: UsageDay = { turns: 0, clipsAdded: 0, chats: [] };
 const MAX_CHATS = 50; // 截断上限：storage 配额有限，总结够用即可
 const KEEP_DAYS = 7;
 
@@ -42,15 +41,12 @@ export const logChat = (q: string, a: string) => update((u) => {
 
 export const logClipAdded = () => update((u) => { u.clipsAdded++; });
 
-export const logClassified = () => update((u) => { u.classified = true; });
-
 /** 日志 → Markdown：字段扁平，云端 Agent 无需工具即可读懂 */
 export function toMarkdown(day: string, u: UsageDay): string {
   const lines = [
     `# ${day} 使用记录`,
     `- 聊天回合: ${u.turns}`,
     `- 新增摘录: ${u.clipsAdded}`,
-    `- AI 分类: ${u.classified ? '执行过' : '未执行'}`,
     '',
   ];
   if (u.chats.length) {
