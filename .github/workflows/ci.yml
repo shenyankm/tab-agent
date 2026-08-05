@@ -6,8 +6,30 @@ on:
   pull_request:
 
 jobs:
-  build-test:
+  check:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: compile
+            cmd: pnpm compile
+          - name: unit
+            cmd: pnpm test
+          # e2e/chat 读 .output/,需要先 build;chat 无 secrets 时自动 skip
+          - name: e2e
+            cmd: pnpm test:e2e
+            build: true
+          - name: chat
+            build: true
+            # chat.mjs 读仓库根 .env,用 secrets 现场生成
+            cmd: |
+              printf 'PAT=%s\nAGENT_ID=%s\nENV_ID=%s\nVAULT_ID=%s\n' "$PAT" "$AGENT_ID" "$ENV_ID" "$VAULT_ID" > .env
+              pnpm test:chat
+          # release 会发 firefox zip,构建得能过
+          - name: build-firefox
+            cmd: pnpm build:firefox
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4 # version from package.json packageManager
@@ -16,9 +38,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # build first: the bundle-size gate reads .output/ and would silently skip otherwise
       - run: pnpm build
-      # release 会发 firefox zip,两个目标都得能构建
-      - run: pnpm build:firefox
-      - run: pnpm compile
-      - run: pnpm test
+        if: matrix.build
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.cmd }}
+        env:
+          PAT: ${{ secrets.PAT }}
+          AGENT_ID: ${{ secrets.AGENT_ID }}
+          ENV_ID: ${{ secrets.ENV_ID }}
+          VAULT_ID: ${{ secrets.VAULT_ID }}
