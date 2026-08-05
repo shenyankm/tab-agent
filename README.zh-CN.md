@@ -111,7 +111,7 @@ components/
   floating-agent.tsx  # 浮动宠物组合层（状态、port 流式、拖拽）
   agent/            # 展示组件：Mascot / ChatPanel / ClipDraftEditor
   ui/               # RetroUI 组件（shadcn CLI）
-lib/                # 共享模块（gateway、classify、i18n、设置、SSE 解析器、摘录）
+lib/                # 共享模块（gateway、memory、i18n、设置、SSE 解析器、摘录）
 tests/              # Vitest 测试套件
 ```
 

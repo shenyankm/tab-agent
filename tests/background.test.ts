@@ -91,7 +91,7 @@ vi.mock('wxt/browser', () => ({
       },
       // fanOutClipsChanged broadcasts to extension pages; no listener in tests
       sendMessage: vi.fn().mockRejectedValue(new Error('no listener')),
-      // keepalive pings this every 20s while a turn/classify streams nothing
+      // keepalive pings this every 20s while a turn streams nothing
       getPlatformInfo: vi.fn().mockResolvedValue({}),
     },
     contextMenus: {
