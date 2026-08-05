@@ -9,7 +9,23 @@ let pageTextCache: { url: string; text: string } | null = null;
 let textGen = 0, textGenAt = 0;
 if (typeof document !== 'undefined') {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const obs = new MutationObserver(() => {
+  // 扩展自己插入的 <mark>(text-fragments-polyfill 带特征 class)会触发结构变化,
+  // 页面正文并未改变——整批变化都落在自己的 mark 内时不让缓存失效,
+  // 否则保存/重放摘录的瞬间缓存就被废掉,下次提问重跑整页 Readability。
+  // 注意 childList 突变的 target 是 mark 的父元素而非 mark 本身,
+  // 必须检查 addedNodes/removedNodes 才能识别"自己的变化"。
+  // nodeType 用数字字面量:环境 teardown 后残留的 observer microtask 里
+  // 全局 Element/Node 已不可用,instanceof 会抛 ReferenceError
+  const inOwnMark = (n: Node) => {
+    const el = n.nodeType === 1 ? (n as Element) : n.parentElement;
+    return !!el?.closest?.('mark.text-fragments-polyfill-target-text');
+  };
+  const own = (m: MutationRecord) =>
+    m.type === 'characterData'
+      ? inOwnMark(m.target)
+      : [...m.addedNodes, ...m.removedNodes].every(inOwnMark);
+  const obs = new MutationObserver((muts) => {
+    if (muts.every(own)) return;
     if (timer) return;
     timer = setTimeout(() => { textGen++; timer = null; }, 1000);
   });

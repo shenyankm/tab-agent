@@ -235,6 +235,9 @@ export const clipsItem = {
 // 从 O(全部摘录) 降到 O(本页)。Map 保证同一 page 返回同一对象,否则
 // useStorageValue 的 [item] 依赖每次渲染都是新对象,会退订/重订阅死循环。
 const pageItems = new Map<string, { getValue: () => Promise<Clip[]>; watch: typeof clipsItem.watch }>();
+// SPA 长逛会按页累积 item 对象(每个持有 watch 闭包与消息监听):上限 20,超出丢最旧。
+// 被丢弃页的组件因 useStorageValue 的 [item] 依赖变化会重订阅新 item,安全
+const PAGE_ITEMS_MAX = 20;
 export function clipsPageItem(page: string) {
   let item = pageItems.get(page);
   if (!item) {
@@ -245,6 +248,11 @@ export function clipsPageItem(page: string) {
         ? sendRequest<Clip[]>({ type: 'clipsGetForPage', page })
         : getClipsForPageDirect(page);
     item = { getValue, watch: (cb) => watchChanges(() => getValue().then(cb).catch(() => {}), np) };
+    pageItems.set(page, item);
+    if (pageItems.size > PAGE_ITEMS_MAX) pageItems.delete(pageItems.keys().next().value!);
+  } else {
+    // 命中即重排为最近使用(Map 按插入序迭代,FIFO 会淘汰刚回访的页)
+    pageItems.delete(page);
     pageItems.set(page, item);
   }
   return item;

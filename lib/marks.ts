@@ -79,3 +79,15 @@ export function clearAllMarks() {
   for (const marks of markByClip.values()) unhighlightClip(marks);
   markByClip.clear();
 }
+
+/** 广播刷新后清理已删除 clip 的残留 mark(keep = 现存 clip id 集,replay 前调用)。
+ *  单独删除时不影响其他 clip 的 mark/淡出定时器。 */
+export function pruneMarks(keep: Set<string>) {
+  for (const [id, marks] of markByClip) {
+    if (keep.has(id)) continue;
+    clearTimeout(fadeTimers.get(id));
+    fadeTimers.delete(id);
+    unhighlightClip(marks);
+    markByClip.delete(id);
+  }
+}

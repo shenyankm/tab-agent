@@ -82,6 +82,11 @@ const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
 // 失连即重建);动态 DOM 的最坏情况是一次兜底失配,与逐条快照同量级
 let textIndex: { nodes: Text[]; full: string; at: number } | null = null;
 
+// ponytail: 全文索引上限——超长页面只索引前 500KB(约 12.5 万字符),
+// 文末文本的兜底定位会失配;nodes/full 同步截断,offset 映射仍自洽。
+// 文章类页面正文通常远小于此,遇超长文档再考虑分段索引
+const TEXT_INDEX_CAP = 500_000;
+
 function getTextIndex(): { nodes: Text[]; full: string } {
   if (textIndex && Date.now() - textIndex.at < 3000 && textIndex.nodes[0]?.isConnected !== false)
     return textIndex;
@@ -90,6 +95,8 @@ function getTextIndex(): { nodes: Text[]; full: string } {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node: Node | null; (node = walker.nextNode()); ) {
     if (SKIP_TEXT_PARENTS.has((node.parentElement as HTMLElement | null)?.tagName ?? '')) continue;
+    // 先检查再拼接:单个超大文本节点(巨型 <pre>)也不能突破上限
+    if (full.length >= TEXT_INDEX_CAP) break;
     nodes.push(node as Text);
     full += (node as Text).data;
   }
