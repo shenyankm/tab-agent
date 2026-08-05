@@ -14,7 +14,6 @@ export type Clip = {
   imageSrc?: string; // image clips only
   tags?: string[];
   category?: string;
-  relatedIds?: string[];
   notes?: string[]; // user annotations, appended to exports
 };
 
@@ -99,7 +98,7 @@ export async function closeClipsDB() {
 
 // ---- extension-origin direct access (background writer, options reader) ----
 // This layer never broadcasts changes itself: the background handler fans out
-// once per user action (classify: once per whole run), so per-write notification
+// once per user action, so per-write notification
 // here would multiply traffic. Options pages only read through this path.
 
 export async function getClipsDirect(): Promise<Clip[]> {
@@ -152,10 +151,10 @@ export async function removeClipDirect(id: string): Promise<string | undefined> 
   return pageUrl;
 }
 
-// patch 来自页面消息(不可信)与 classify 响应:白名单 + 类型校验。id 是 keyPath,
+// patch 来自页面消息(不可信):白名单 + 类型校验。id 是 keyPath,
 // 不校验的话可整体覆盖另一条记录;脏类型(如 notes 非数组)会击穿渲染。
-const PATCH_KEYS = ['category', 'relatedIds', 'notes', 'tags'] as const;
-export type ClipPatch = Partial<Pick<Clip, 'category' | 'relatedIds' | 'notes' | 'tags'>>;
+const PATCH_KEYS = ['category', 'notes', 'tags'] as const;
+export type ClipPatch = Partial<Pick<Clip, 'category' | 'notes' | 'tags'>>;
 
 function sanitizePatch(patch: ClipPatch): Partial<Clip> {
   const safe: Partial<Clip> = {};
@@ -164,7 +163,6 @@ function sanitizePatch(patch: ClipPatch): Partial<Clip> {
     if (v === undefined) continue;
     if (k === 'notes' && !(Array.isArray(v) && v.every((n) => typeof n === 'string'))) continue;
     if (k === 'tags' && !(Array.isArray(v) && v.every((n) => typeof n === 'string'))) continue;
-    if (k === 'relatedIds' && !(Array.isArray(v) && v.every((id) => typeof id === 'string'))) continue;
     if (k === 'category' && typeof v !== 'string') continue;
     safe[k] = v as never;
   }
@@ -176,7 +174,7 @@ export async function updateClipDirect(id: string, patch: ClipPatch): Promise<st
   return (await updateClipsDirect([{ id, patch }]))[0];
 }
 
-/** Batch patch in one readwrite transaction (classify writes hundreds); resolves
+/** Batch patch in one readwrite transaction; resolves
  *  the pageUrls of the clips actually patched. */
 export async function updateClipsDirect(patches: { id: string; patch: ClipPatch }[]): Promise<string[]> {
   if (!patches.length) return [];
@@ -256,7 +254,7 @@ export function clipsPageItem(page: string) {
 // dirty flag for exactly one follow-up read — rapid consecutive writes must not
 // resolve out of order and leave the UI on a stale snapshot. page (normalized on
 // both sides) lets page watchers skip other pages' changes; a bare broadcast
-// (classify) refreshes everyone.
+// refreshes everyone.
 function watchChanges(refresh: () => Promise<unknown>, page?: string): () => void {
   let inFlight = false;
   let dirty = false;

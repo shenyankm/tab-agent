@@ -184,10 +184,9 @@ describe('clip storage (extension origin)', () => {
 
   it('updateClipDirect merges patch and ignores missing ids', async () => {
     const clip = await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'hello' });
-    await updateClipDirect(clip.id, { category: 'concept', relatedIds: ['nope'] });
+    await updateClipDirect(clip.id, { category: 'concept' });
     const [updated] = await getClipsDirect();
     expect(updated.category).toBe('concept');
-    expect(updated.relatedIds).toEqual(['nope']);
     expect(updated.text).toBe('hello'); // untouched fields preserved
     // non-existent id: no throw
     await updateClipDirect('ghost', { category: 'x' });
@@ -237,13 +236,13 @@ describe('clip storage (extension origin)', () => {
     const b = await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'B', text: 'b' });
     await updateClipsDirect([
       { id: a.id, patch: { category: 'concept' } },
-      { id: b.id, patch: { category: 'data', relatedIds: [a.id] } },
+      { id: b.id, patch: { category: 'data' } },
       { id: 'ghost', patch: { category: 'x' } }, // 不存在的 id:不抛错
       { id: a.id, patch: { notes: 'boom' as any } }, // 脏 patch:sanitize 后无可写字段,跳过
     ]);
     const clips = await getClipsDirect();
     expect(clips.find((c) => c.id === a.id)?.category).toBe('concept');
-    expect(clips.find((c) => c.id === b.id)).toMatchObject({ category: 'data', relatedIds: [a.id] });
+    expect(clips.find((c) => c.id === b.id)).toMatchObject({ category: 'data' });
     expect(clips.find((c) => c.id === a.id)?.notes).toBeUndefined();
   });
 
