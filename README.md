@@ -111,7 +111,7 @@ components/
   floating-agent.tsx  # Floating pet composition layer (state, port streaming, drag)
   agent/            # Presentational parts: Mascot / ChatPanel / ClipDraftEditor
   ui/               # RetroUI components (shadcn CLI)
-lib/                # Shared modules (gateway, memory, i18n, settings, SSE parser, clips)
+lib/                # Shared modules (gateway, i18n, settings, SSE parser, clips)
 tests/              # Vitest test suites
 ```
 

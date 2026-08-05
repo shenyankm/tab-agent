@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
 import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, memorySyncItem, highlightColorItem } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, highlightColorItem } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
@@ -18,7 +17,6 @@ const connFields = [
 export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
   const highlightColor = useStorageValue(highlightColorItem, 'yellow');
-  const memorySync = useStorageValue(memorySyncItem, false);
   const [conn, setConn] = useState<Record<string, string>>({});
   const { lang, setLang, t } = useI18n();
 
@@ -77,15 +75,6 @@ export default function SettingsPage() {
       <Separator className="my-6" />
 
       <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          {/* 写入即自动镜像;开关打开时 background 对存量摘录补一次全量 */}
-          <span className="shrink-0 text-sm font-medium">{t('settings.memorySync')}</span>
-          <Switch
-            checked={memorySync}
-            onCheckedChange={(v) => memorySyncItem.setValue(v).catch(() => { /* storage 写失败:下次读回旧值,UI 已 watch 同步 */ })}
-          />
-        </div>
-
         {connFields.map(([key, item, placeholder]) => (
           <div key={key} className="flex items-center justify-between gap-4">
             <span className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</span>
