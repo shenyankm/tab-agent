@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tab Agent —— 住在网页上的 AI 问答宠物</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 680px; margin: 0 auto; padding: 48px 20px; line-height: 1.7;
+  }
+  header { text-align: center; }
+  h1 { margin: 12px 0 4px; }
+  .tagline { opacity: 0.75; margin: 0 0 32px; }
+  .card {
+    border: 2px solid currentColor; border-radius: 12px;
+    padding: 16px 20px; margin: 16px 0; box-shadow: 4px 4px 0 rgba(0,0,0,0.25);
+  }
+  .card h2 { margin-top: 0; font-size: 1.05rem; }
+  a { color: #0969da; }
+  footer { margin-top: 40px; text-align: center; opacity: 0.6; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <img src="public/icon/128.png" width="96" height="96" alt="Tab Agent 吉祥物" />
+  <h1>Tab Agent</h1>
+  <p class="tagline">一只住在每个网页上的气泡小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。</p>
+  <p>
+    <a href="https://github.com/shenyankm/tab-agent">GitHub 仓库</a> ·
+    <a href="https://github.com/shenyankm/tab-agent/blob/main/README.zh-CN.md">中文文档</a> ·
+    <a href="https://github.com/shenyankm/tab-agent/releases">下载 Releases</a>
+  </p>
+</header>
+
+<section>
+  <div class="card">
+    <h2>问页面</h2>
+    <p>点击宠物提问，可携带当前页面正文或截图一起发问，回答流式出现。</p>
+  </div>
+  <div class="card">
+    <h2>摘录</h2>
+    <p>右键菜单或快捷键 <code>Alt+Shift+S</code> 保存选中文字为摘录，高亮刷新不丢、可跨页跳转。</p>
+  </div>
+  <div class="card">
+    <h2>多端支持</h2>
+    <p>基于 WXT 构建，原生支持 Chrome（MV3）与 Firefox 扩展。</p>
+  </div>
+</section>
+
+<section>
+  <h2>快速上手</h2>
+  <ol>
+    <li>从 <a href="https://github.com/shenyankm/tab-agent/releases">Releases</a> 下载扩展包，或克隆仓库执行 <code>pnpm install && pnpm build</code>。</li>
+    <li>在 <code>chrome://extensions</code> 开启开发者模式，加载已解压的扩展。</li>
+    <li>在设置页填入自己的 Qoder PAT / Agent ID / Environment ID。</li>
+    <li>打开任意网页，点击右下角的气泡宠物开始提问。</li>
+  </ol>
+</section>
+
+<footer>
+  <p>本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建。</p>
+</footer>
+</body>
+</html>
