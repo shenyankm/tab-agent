@@ -1,23 +1,8 @@
-import ReactDOM from 'react-dom/client';
-import { Component, type ReactNode } from 'react';
-import { FloatingAgent } from '@/components/floating-agent';
-
-// render-error boundary: a crash inside FloatingAgent (markdown parser, etc.) must
-// not white-screen the Shadow UI — show a minimal fallback instead of nothing
-class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
-  state = { crashed: false };
-  static getDerivedStateFromError() { return { crashed: true }; }
-  componentDidCatch(err: unknown) { console.error('[tab-agent] render:', err); }
-  render() {
-    if (this.state.crashed)
-      return <div style={{ padding: 16, fontSize: 13 }}>Tab Agent encountered an error. Reload the page to retry.</div>;
-    return this.props.children;
-  }
-}
-import { showClip, clearAllMarks, saveClipDraft, restyleMarks } from '@/lib/marks';
+import { showClip, clearAllMarks, saveClipDraft, restyleMarks, pruneMarks } from '@/lib/marks';
 import { pageText } from '@/lib/page-text';
 import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-store';
 import { buildClipUrl } from '@/lib/clips-highlight';
+import { CLIPS_CHANGED } from '@/lib/messages';
 import { onPageNav } from '@/lib/utils';
 import { petEnabledItem, clipHighlightItem, highlightColorItem } from '@/lib/settings';
 import '@/assets/content.css';
@@ -29,7 +14,27 @@ export default defineContentScript({
   async main(ctx) {
     // "save clip" from the background context menu: selection → text-fragment URL →
     // 编辑卡片（宠物 UI 在挂载时）→ storage；fragment 必须在选区还活着时生成
+    // 注册到 background 的 content-script 注册表:fanOutClipsChanged 只向注册
+    // tab 广播,不再全量 tabs.query;SPA 导航后 page 变化要重注册
+    const registerTab = () => {
+      // 扩展更新/重载后旧上下文失效,sendMessage 会 reject——吞掉,
+      // 否则页面控制台刷 unhandled rejection
+      browser.runtime.sendMessage({ type: 'tabRegister', page: normalizeUrl(location.href) })
+        .catch(() => { /* invalidated context */ });
+    };
+    registerTab();
+
     const onMessage = (msg: { type?: string; srcUrl?: string; altText?: string }) => {
+      // SW 重启后注册表被清空,fanOut 回退全量广播;收到广播即重注册,恢复精准投递。
+      // 同时刷新本页 mark:面板关闭时(无 watch 订阅)广播是唯一能触发重放的路径——
+      // 删除 clip 后残留 mark 在此清理;clipGen++ 作废在途 idle 回调,
+      // 避免已删 clip 的 mark 被重放复活
+      if (msg?.type === CLIPS_CHANGED) {
+        registerTab();
+        clipGen++;
+        if (highlightOn) pageClips.getValue().then(replay).catch(() => {});
+        return;
+      }
       if (msg?.type === 'saveClip') {
         const sel = window.getSelection();
         const text = sel?.toString().trim();
@@ -76,6 +81,8 @@ export default defineContentScript({
     let clipGen = 0;
     const replay = (clips: Clip[]) => {
       const gen = clipGen;
+      // 广播刷新后,已删除 clip 的残留 mark 就地清理(避免一直挂在页面上)
+      pruneMarks(new Set(clips.map((c) => c.id)));
       for (const clip of clips)
         // idle-sliced: many clips on a big page must not stall first paint with one scan
         requestIdleCallback(() => {
@@ -131,12 +138,15 @@ export default defineContentScript({
       pageClips = clipsPageItem(page);
       clipGen++; // 作废旧页在途的 idle 重放
       clearAllMarks();
+      registerTab(); // 注册表里的 page 跟着 SPA 导航更新
       clipHighlightItem.getValue()
         .then((on) => { if (on) pageClips.getValue().then(replay).catch(() => {}); })
         .catch(() => { /* invalidated context */ });
     });
     // dev HMR 下脚本失效重跑会叠加监听;生产与页面同生命周期,注销是 no-op
+    let invalidated = false;
     ctx.onInvalidated(() => {
+      invalidated = true;
       browser.runtime.onMessage.removeListener(onMessage);
       unwatchHighlight();
       unwatchColor();
@@ -145,23 +155,26 @@ export default defineContentScript({
       if (spaTimer) clearTimeout(spaTimer);
     });
 
-    const mountUI = () => createShadowRootUi(ctx, {
-      name: 'tab-agent-floating-ui',
-      position: 'inline',
-      isolateEvents: true,
-      onMount(container) {
-        const root = ReactDOM.createRoot(container);
-        root.render(
-          <ErrorBoundary>
-            <FloatingAgent />
-          </ErrorBoundary>
-        );
-        return root;
-      },
-      onRemove(root) {
-        root?.unmount();
-      },
-    });
+    // UI 树(React + 组件 + markdown 解析)走动态 import:WXT 0.20 对 content
+    // script 强制 IIFE 输出,动态块会被内联(暂无拆分收益),但结构上主包不
+    // 再静态依赖 React——WXT 支持 content 代码拆分后此处在构建期自动生效
+    const mountUI = async () => {
+      const { mountFloatingAgent } = await import('@/components/floating-agent');
+      // 动态 import 期间上下文被 invalidated(扩展更新/重载):此时 mount 只会
+      // 在失效上下文里创建 shadow UI,残留到页面导航——直接放弃
+      if (invalidated) throw new Error('context invalidated during UI load');
+      return createShadowRootUi(ctx, {
+        name: 'tab-agent-floating-ui',
+        position: 'inline',
+        isolateEvents: true,
+        onMount(container) {
+          return mountFloatingAgent(container);
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+    };
 
     // pet toggle takes effect live: disabled = no React mount at all (spares the
     // runtime + heap on every page); every mount/remove runs on one chain so rapid
@@ -170,15 +183,19 @@ export default defineContentScript({
     let ui: Awaited<ReturnType<typeof mountUI>> | null = null;
     let mountChain: Promise<void> = Promise.resolve();
     const sync = (on: boolean) => {
-      mountChain = mountChain.then(async () => {
-        if (on && !ui) {
-          ui = await mountUI();
-          ui.mount();
-        } else if (!on && ui) {
-          ui.remove();
-          ui = null;
-        }
-      });
+      // 链上兜底:mountUI 失败(动态 import 错误/invalidated)只记日志不断链,
+      // 否则后续 pet 开关全部被跳过且 main() 末尾 await 抛未捕获异常
+      mountChain = mountChain
+        .then(async () => {
+          if (on && !ui) {
+            ui = await mountUI();
+            ui.mount();
+          } else if (!on && ui) {
+            ui.remove();
+            ui = null;
+          }
+        })
+        .catch((e) => console.error('[tab-agent] mount:', e));
     };
     const unwatchPet = petEnabledItem.watch(sync);
     ctx.onInvalidated(unwatchPet);

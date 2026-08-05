@@ -12,6 +12,32 @@ import { Mascot, type AgentState } from '@/components/agent/Mascot';
 import { ChatPanel, type ChatMessage } from '@/components/agent/ChatPanel';
 import { ClipDraftEditor } from '@/components/agent/ClipDraftEditor';
 
+// render-error boundary: a crash inside FloatingAgent (markdown parser, etc.) must
+// not white-screen the Shadow UI — show a minimal fallback instead of nothing
+class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(err: unknown) { console.error('[tab-agent] render:', err); }
+  render() {
+    if (this.state.crashed)
+      return <div style={{ padding: 16, fontSize: 13 }}>Tab Agent encountered an error. Reload the page to retry.</div>;
+    return this.props.children;
+  }
+}
+
+// content.tsx 动态 import 的挂载入口:createRoot 在此模块内,React 全家桶
+// 留在动态块,不随主包进每个页面
+// eslint-disable-next-line react-refresh/only-export-components
+export function mountFloatingAgent(container: HTMLElement) {
+  const root = ReactDOM.createRoot(container);
+  root.render(
+    <ErrorBoundary>
+      <FloatingAgent />
+    </ErrorBoundary>
+  );
+  return root;
+}
+
 // keep the pet fully on screen regardless of viewport size; clamp order matters:
 // a viewport narrower than the pet must pin it to 0, not push it off-screen
 const clampPos = (p: { right: number; bottom: number }) => ({
