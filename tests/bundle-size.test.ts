@@ -19,6 +19,14 @@ describe('bundle size', () => {
     expect(readFileSync(contentJs).length / 1024).toBeLessThan(400);
   });
 
+  // 全量 i18n dict 是 popup/options/background 的;content 只用 contentDict 子集。
+  // 若未来某处把全量 dict 重新引入 content 路径(约 7KB),这里立即失败
+  it.skipIf(!existsSync(contentJs))('content.js excludes the full i18n dict', () => {
+    const src = readFileSync(contentJs, 'utf8');
+    expect(src.includes('アナリティクスもトラッカーもありません')).toBe(false); // ja privacy key
+    expect(src.includes('privacy.promise')).toBe(false); // en privacy key
+  });
+
   it.skipIf(!existsSync(contentJs))('shared popup/options chunk stays under 380 KB', () => {
     const file = sharedChunk();
     expect(file).toBeDefined();

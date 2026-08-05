@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { resetSessionCacheForTests } from '@/lib/gateway';
+import { clearContentTabsForTests } from '@/entrypoints/background';
+
+// 顶层 beforeEach:gateway 的会话内存缓存与 content 注册表都是 SW 存活期内的
+// 模块级状态,测试间必须清空
+beforeEach(() => {
+  resetSessionCacheForTests();
+  clearContentTabsForTests();
+});
 
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
@@ -6,7 +15,7 @@ const {
   connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef,
   mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip,
   mockTabsQuery, mockTabsSend, mockCapture, mockMenuCreate, mockMenuRemoveAll,
-  perTabStorage, mockStorageGet, mockStorageSet,
+  perTabStorage, mockStorageGet, mockStorageSet, onRemovedRef,
 } = vi.hoisted(() => ({
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
@@ -27,6 +36,7 @@ const {
   mockCapture: vi.fn().mockResolvedValue('data:image/jpeg;base64,Zm9v'),
   mockMenuCreate: vi.fn(),
   mockMenuRemoveAll: vi.fn().mockResolvedValue(undefined),
+  onRemovedRef: { current: null as ((tabId: number) => void) | null },
   // backing map for the shared daily session cache (WXT storage auto-import)
   perTabStorage: new Map<string, unknown>(),
   mockStorageGet: vi.fn((key: string) => Promise.resolve(perTabStorage.get(key) ?? null)),
@@ -98,6 +108,7 @@ vi.mock('wxt/browser', () => ({
       query: (info: unknown) => mockTabsQuery(info),
       sendMessage: (tabId: number, msg: unknown) => mockTabsSend(tabId, msg),
       captureVisibleTab: (...args: unknown[]) => mockCapture(...args),
+      onRemoved: { addListener: (fn: (tabId: number) => void) => { onRemovedRef.current = fn; } },
     },
   },
 }));
@@ -679,12 +690,21 @@ describe('background shared daily session', () => {
     tabA.port.postMessage({ text: 'hi from A' });
     await until(() => tabA.messages.some((m: any) => m.type === 'done'));
 
+    // 等 onTurnDone 的 fire-and-forget 读-改-写落地后再清零,
+    // 以便精确断言"第二次提问不读盘"(内存缓存命中)
+    await new Promise((r) => setTimeout(r, 0));
+    mockStorageGet.mockClear();
+
     const tabB = connect({ tabId: 9, windowId: 1 });
     tabB.port.postMessage({ text: 'hi from B' });
     await until(() => tabB.messages.some((m: any) => m.type === 'done'));
+    await new Promise((r) => setTimeout(r, 0)); // tabB 的 onTurnDone 落地
 
     expect(sessionsUsed).toContain('sess-A');
     expect(sessionsUsed).not.toContain('new-sess');
+    // 第二次提问 handleChat 命中内存缓存(0 次读盘);唯一的一次读来自
+    // onTurnDone 的读-改-写——若无缓存,这里会是 2 次
+    expect(mockStorageGet.mock.calls.filter((c) => c[0] === SESS_KEY)).toHaveLength(1);
     vi.unstubAllGlobals();
   });
 
@@ -851,6 +871,76 @@ describe('background clips message handler', () => {
     const { respond, keptOpen } = dispatch({ type: 'somethingElse' });
     expect(keptOpen).toBe(false);
     expect(respond).not.toHaveBeenCalled();
+  });
+});
+
+describe('background content-script registry', () => {
+  beforeEach(() => {
+    mockGetClips.mockResolvedValue([]);
+    mockAddClip.mockResolvedValue({ id: 'n', text: 's', createdAt: 1 });
+    mockTabsSend.mockReset();
+    mockTabsSend.mockResolvedValue(undefined);
+    mockTabsQuery.mockReset();
+    mockTabsQuery.mockResolvedValue([]);
+  });
+
+  it('tabRegister registers the tab; fanOut then sends only to registered tabs without tabs.query', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    dispatch({ type: 'tabRegister', page: 'https://e.com/q' }, 8);
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsSend.mock.calls.length === 2);
+    expect(mockTabsSend.mock.calls.map((c) => c[0])).toEqual([7, 8]);
+    expect(mockTabsQuery).not.toHaveBeenCalled();
+  });
+
+  it('empty registry falls back to the full tabs.query broadcast', async () => {
+    mockTabsQuery.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsSend.mock.calls.length === 2);
+    expect(mockTabsQuery).toHaveBeenCalledTimes(1);
+    expect(mockTabsSend.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+  });
+
+  it('tabRegister without a page removes the tab from the registry', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    dispatch({ type: 'tabRegister' }, 7); // page-less re-register = leave
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsQuery.mock.calls.length > 0);
+    // registry empty → fallback queries all tabs (none) instead of targeting tab 7
+    expect(mockTabsQuery).toHaveBeenCalled();
+    expect(mockTabsSend).not.toHaveBeenCalledWith(7, expect.anything());
+  });
+
+  it('a rejected sendMessage drops the stale tab from the registry (self-heal)', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    mockTabsSend.mockRejectedValue(new Error('no content script'));
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await new Promise((r) => setTimeout(r, 0));
+    // second fanOut: tab 7 was evicted, registry empty → falls back to query (none)
+    mockTabsSend.mockResolvedValue(undefined);
+    mockTabsSend.mockClear();
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsSend.mock.calls.length > 0 || mockTabsQuery.mock.calls.length > 1);
+    expect(mockTabsQuery.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('all-registered-tabs-rejected fanOut falls back to a full broadcast (mixed-version window)', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    mockTabsSend.mockRejectedValue(new Error('no content script'));
+    mockTabsQuery.mockResolvedValue([{ id: 3 }]);
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsQuery.mock.calls.length > 0);
+    // 回退全量时给 3 号 tab 投递(旧版脚本 tab 借此收到广播)
+    expect(mockTabsSend).toHaveBeenCalledWith(3, { type: 'clipsChanged', page: undefined });
+  });
+
+  it('tab close removes the tab from the registry', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    onRemovedRef.current?.(7);
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsSend.mock.calls.length > 0 || mockTabsQuery.mock.calls.length > 0);
+    expect(mockTabsQuery).toHaveBeenCalled(); // registry empty after removal
+    expect(mockTabsSend).not.toHaveBeenCalledWith(7, expect.anything());
   });
 });
 

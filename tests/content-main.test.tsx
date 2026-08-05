@@ -19,6 +19,8 @@ const {
 
 vi.mock('@/components/floating-agent', () => ({
   FloatingAgent: () => null,
+  // content.tsx 动态 import 后解构的是挂载入口,mock 缺了会 TypeError
+  mountFloatingAgent: vi.fn(() => ({ unmount: vi.fn() })),
 }));
 
 vi.mock('@/lib/marks', () => ({
@@ -26,6 +28,7 @@ vi.mock('@/lib/marks', () => ({
   clearAllMarks: () => mockClearAllMarks(),
   saveClipDraft: vi.fn(),
   restyleMarks: vi.fn(),
+  pruneMarks: vi.fn(),
 }));
 
 vi.mock('@/lib/page-text', () => ({
@@ -57,7 +60,7 @@ vi.mock('@/lib/settings', () => ({
 
 vi.mock('wxt/browser', () => ({
   browser: {
-    runtime: { onMessage: { addListener: vi.fn(), removeListener: vi.fn() } },
+    runtime: { onMessage: { addListener: vi.fn(), removeListener: vi.fn() }, sendMessage: vi.fn().mockResolvedValue(undefined) },
   },
 }));
 

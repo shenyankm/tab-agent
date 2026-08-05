@@ -335,4 +335,17 @@ describe('clip storage (content script proxy)', () => {
       vi.restoreAllMocks();
     }
   });
+
+  it('caps the per-page item cache at 20 and reorders on hit (LRU eviction)', async () => {
+    // 填充 20 页并记住 p1 的引用;命中 p0(重排为最新)后插入第 21 页,
+    // 被淘汰的是 p1(最久未用)而非 p0
+    const p1 = clipsPageItem('https://e.com/p1');
+    for (let i = 0; i < 20; i++) clipsPageItem(`https://e.com/p${i}`);
+    const p0 = clipsPageItem('https://e.com/p0'); // hit: reorders
+    expect(clipsPageItem('https://e.com/p0')).toBe(p0); // same instance while cached
+
+    clipsPageItem('https://e.com/p20'); // over the cap → evict LRU (p1)
+    expect(clipsPageItem('https://e.com/p1')).not.toBe(p1); // rebuilt after eviction
+    expect(clipsPageItem('https://e.com/p0')).toBe(p0); // recently used survives
+  });
 });

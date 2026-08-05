@@ -17,6 +17,7 @@ vi.mock('@/lib/clips-store', () => ({
 
 // t() returns the key: assertions read the raw keys
 vi.mock('@/lib/i18n', () => ({
+  dict: {},
   useI18n: () => ({ t: (k: string) => k }),
 }));
 
