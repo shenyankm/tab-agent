@@ -21,14 +21,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { CategoryChips } from '@/components/category-chips';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, dict } from '@/lib/i18n';
 import { parseNoteLines, useStorageValue } from '@/lib/utils';
 import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips-store';
 
 const PAGE_SIZE = 10;
 
 export default function ClipsPage() {
-  const { t } = useI18n();
+  const { t } = useI18n(dict);
   const clips = useStorageValue(clipsItem, []);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'time' | 'site'>('time');

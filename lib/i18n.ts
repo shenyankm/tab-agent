@@ -15,10 +15,11 @@ export const langLabels: Record<Lang, string> = {
 // exported so the background can localize the context menu title
 export const langItem = storage.defineItem<Lang>('local:lang', { fallback: DEFAULT_LANG });
 
-// exported for the background (menu titles) and the key-parity test
-export const dict = {
-  en: {
-    'app.title': 'Tab Agent',
+// en extracted so the dict's satisfies can pin every language to en's key set
+// (key parity is a compile-time check now — a language missing an en key errors
+// here at edit time instead of in CI)
+const en = {
+  'app.title': 'Tab Agent',
     'widget.open': 'Open Tab Agent',
     'widget.close': 'Close Tab Agent',
     'widget.status.thinking': 'Thinking',
@@ -78,17 +79,21 @@ export const dict = {
     'theme.dark': 'Dark',
     'theme.light': 'Light',
     'privacy.updated': 'Last updated: August 5, 2026',
-    'privacy.intro': 'Tab Agent stores everything locally. Data leaves your device only when you actively send a question to the cloud agent you configured.',
+    'privacy.intro': 'Tab Agent stores everything locally. Data leaves your device only when you ask a question.',
     'privacy.collect.title': 'Data We Store',
-    'privacy.collect.body': 'Your preferences, connection credentials and saved clips, stored locally in your browser and never uploaded by us:',
+    'privacy.collect.body': 'Preferences, credentials and clips, stored locally and never uploaded:',
     'privacy.network.title': 'Data We Send',
-    'privacy.network.body': 'When you send a question, that question plus the current page\'s URL, title and visible text are sent over HTTPS to Qoder Cloud Agents (api.qoder.com), authenticated with your own API token. If "Screenshot" is selected as page context, a screenshot of the visible page is sent instead of its text. Nothing is sent in the background.',
+    'privacy.network.body': 'When you ask a question, the question, URL, title and visible text are sent via HTTPS to api.qoder.com (using your PAT). If "Screenshot" is selected, a screenshot is sent instead. Nothing is sent in the background.',
     'privacy.permission.title': 'Permissions',
-    'privacy.permission.body': 'The extension requests "storage" to save the data above, "contextMenus" for the right-click "save as clip" entry, and access to api.qoder.com solely for the chat requests you initiate. Access to all sites is required to capture page screenshots.',
+    'privacy.permission.body': 'Requires storage to save data, contextMenus for the right-click clip menu, and access to api.qoder.com for your chat requests. Screenshots require access to all sites.',
     'privacy.share.title': 'Third Parties',
-    'privacy.share.body': 'No analytics, no trackers. Your data goes only to the Qoder agent you configured and is never sold or shared elsewhere.',
+    'privacy.share.body': 'No analytics, no trackers. Data goes only to your agent and is never shared.',
     'privacy.promise': 'If you never ask a question or configure credentials, nothing ever leaves your device.',
-  },
+};
+
+// exported for the background (menu titles) and the key-parity test
+export const dict = {
+  en,
   'zh-CN': {
     'app.title': 'Tab Agent',
     'widget.open': '打开 Tab Agent',
@@ -150,15 +155,15 @@ export const dict = {
     'theme.dark': '深色模式',
     'theme.light': '浅色模式',
     'privacy.updated': '最后更新：2026 年 8 月 5 日',
-    'privacy.intro': 'Tab Agent 的所有数据都保存在本地，只有当你主动提问时，数据才会发送给你自己配置的云端 Agent。',
+    'privacy.intro': 'Tab Agent 数据全在本地，仅在你提问时发送。',
     'privacy.collect.title': '我们存储什么',
-    'privacy.collect.body': '你的偏好设置、连接凭证与保存的摘录，保存在你的浏览器本地，我们绝不上传：',
+    'privacy.collect.body': '偏好设置、凭证与摘录，仅存本地，不上传：',
     'privacy.network.title': '我们发送什么',
-    'privacy.network.body': '当你发送提问时，问题以及当前页面的网址、标题和可见文本会通过 HTTPS 发送到 Qoder Cloud Agents（api.qoder.com），使用你自己的 API 令牌鉴权。若选择“截图”作为携带页面，则会改为发送当前可见页面的截图。后台不会发送任何数据。',
+    'privacy.network.body': '提问时，问题、网址、标题和可见文本通过 HTTPS 发送到 api.qoder.com（使用你的 PAT）。选择"截图"时发送截图。后台不发送任何数据。',
     'privacy.permission.title': '权限说明',
-    'privacy.permission.body': '本扩展申请 storage 权限用于保存上述数据，contextMenus 权限用于右键“保存为摘录”菜单，以及 api.qoder.com 的访问权限，仅用于你主动发起的对话请求。截图功能需要访问所有网站的权限。',
+    'privacy.permission.body': '需要 storage 保存数据，contextMenus 用于右键菜单，以及 api.qoder.com 的访问权限。截图功能需要所有网站权限。',
     'privacy.share.title': '第三方',
-    'privacy.share.body': '无统计分析、无跟踪器。你的数据只会发送给你自己配置的 Qoder Agent，绝不出售或共享给其他任何方。',
+    'privacy.share.body': '无分析、无追踪。数据仅发送给你的 Agent，绝不共享。',
     'privacy.promise': '只要你不主动提问、不配置云端凭证，就没有任何数据离开你的设备。',
   },
   'zh-TW': {
@@ -222,15 +227,15 @@ export const dict = {
     'theme.dark': '深色模式',
     'theme.light': '淺色模式',
     'privacy.updated': '最後更新：2026 年 8 月 5 日',
-    'privacy.intro': 'Tab Agent 的所有資料都保存在本機，只有當你主動提問時，資料才會傳送給你自己設定的雲端 Agent。',
+    'privacy.intro': 'Tab Agent 資料全在本機，僅在你提問時傳送。',
     'privacy.collect.title': '我們儲存什麼',
-    'privacy.collect.body': '你的偏好設定、連線憑證與儲存的摘錄，儲存在你的瀏覽器本機，我們絕不上傳：',
+    'privacy.collect.body': '偏好設定、憑證與摘錄，僅存本機，不上傳：',
     'privacy.network.title': '我們傳送什麼',
-    'privacy.network.body': '當你傳送提問時，問題以及目前頁面的網址、標題與可見文字會透過 HTTPS 傳送到 Qoder Cloud Agents（api.qoder.com），並使用你自己的 API 令牌驗證。若選擇「攜帶截圖」，則會改為傳送目前可見頁面的截圖。背景不會傳送任何資料。',
+    'privacy.network.body': '提問時，問題、網址、標題和可見文字透過 HTTPS 傳送到 api.qoder.com（使用你的 PAT）。選擇「攜帶截圖」時傳送截圖。背景不傳送任何資料。',
     'privacy.permission.title': '權限說明',
-    'privacy.permission.body': '本擴充功能申請 storage 權限用於保存上述資料，contextMenus 權限用於右鍵「儲存為摘錄」選單，以及 api.qoder.com 的存取權限，僅用於你主動發起的對話請求。截圖功能需要存取所有網站的權限。',
+    'privacy.permission.body': '需要 storage 保存資料，contextMenus 用於右鍵選單，以及 api.qoder.com 的存取權限。截圖功能需要所有網站權限。',
     'privacy.share.title': '第三方',
-    'privacy.share.body': '無統計分析、無追蹤器。你的資料只會傳送給你自己設定的 Qoder Agent，絕不出售或分享給其他任何一方。',
+    'privacy.share.body': '無分析、無追蹤。資料僅傳送給你的 Agent，絕不共享。',
     'privacy.promise': '只要你不主動提問、不設定雲端憑證，就沒有任何資料離開你的裝置。',
   },
   ja: {
@@ -305,28 +310,26 @@ export const dict = {
     'privacy.share.body': 'アナリティクスもトラッカーもありません。データはあなたが設定した Qoder Agent にのみ送られ、販売・共有されることはありません。',
     'privacy.promise': '質問せず、認証情報を設定しない限り、データがデバイスを離れることはありません。',
   },
-} satisfies Record<Lang, Record<string, string>>;
-
-// compile-time key parity: a language missing an en key errors here at edit time
-// instead of in CI (extra keys stay harmless — I18nKey below gates what's usable)
-const _parity: Record<Lang, Record<keyof (typeof dict)['en'], string>> = dict;
-void _parity;
+} satisfies Record<Lang, Record<keyof typeof en, string>>;
 
 export type I18nKey = keyof (typeof dict)['en'];
 
-export function useI18n() {
+// dicts is a required parameter (not a default arg) so the content-script bundle
+// can pass the slim contentDict and tree-shake the full 4-lang dict out of it
+// (a default `= dict` would pin the whole dict into every bundle importing useI18n)
+export function useI18n(dicts: Record<Lang, Record<string, string>>) {
   const lang = useStorageValue(langItem, DEFAULT_LANG);
 
   // stable identity per lang: consumers can wrap in memo without busting on every render
   const t = useCallback((key: I18nKey, vars?: Record<string, string | number>) => {
     // storage can hold a stale/invalid lang (old version, manual edit) — fall
     // back instead of crashing the whole React tree on dict[lang][key]
-    let s = (dict[lang] as Record<string, string> | undefined)?.[key]
-      ?? dict[DEFAULT_LANG][key as I18nKey]
+    let s = (dicts[lang] as Record<string, string> | undefined)?.[key]
+      ?? dicts[DEFAULT_LANG]?.[key]
       ?? key;
     if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
     return s;
-  }, [lang]);
+  }, [lang, dicts]);
 
   return { lang, setLang: (l: Lang) => langItem.setValue(l), t };
 }

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, dict } from '@/lib/i18n';
 
 // every tab page lazy-loads: popup modulepreloads the shared popup/options chunk,
 // so static page imports would tax every popup open with options-only code
@@ -23,7 +23,7 @@ function App() {
     setTabState(t);
     location.hash = t;
   };
-  const { t } = useI18n();
+  const { t } = useI18n(dict);
 
   return (
     <div className="mx-auto max-w-lg p-8">

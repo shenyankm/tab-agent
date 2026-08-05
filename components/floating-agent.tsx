@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import ReactDOM from 'react-dom/client';
+import { Component, useEffect, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useI18n } from '@/lib/i18n';
+import { contentDict } from '@/lib/i18n-content';
 import { cn, useStorageValue } from '@/lib/utils';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, isDark } from '@/lib/settings';
 import { pageText } from '@/lib/page-text';
@@ -52,7 +54,8 @@ export function FloatingAgent() {
   const dragPosRef = useRef<{ right: number; bottom: number } | null>(null);
   const movedRef = useRef(false);
   const selRef = useRef(''); // page selection captured at pointerdown (click collapses it)
-  const { t } = useI18n();
+  // contentDict 子集:完整 4 语言 dict 不随 content bundle 进每个页面
+  const { t } = useI18n(contentDict);
 
   useEffect(() => {
     // invalidated context (reload/update) rejects the read: keep the default

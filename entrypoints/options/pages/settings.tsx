@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { RadioDropdown } from '@/components/radio-dropdown';
-import { useI18n, langLabels } from '@/lib/i18n';
+import { useI18n, langLabels, dict } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, highlightColorItem } from '@/lib/settings';
 
@@ -18,7 +18,7 @@ export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
   const highlightColor = useStorageValue(highlightColorItem, 'yellow');
   const [conn, setConn] = useState<Record<string, string>>({});
-  const { lang, setLang, t } = useI18n();
+  const { lang, setLang, t } = useI18n(dict);
 
   useEffect(() => {
     connFields.forEach(([key, item]) => {

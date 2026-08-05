@@ -3,7 +3,7 @@ import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { RadioDropdown } from '@/components/radio-dropdown';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, dict } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
 import { petEnabledItem, pageCarryItem, clipHighlightItem, type PageCarry } from '@/lib/settings';
 
@@ -11,7 +11,7 @@ const carries: PageCarry[] = ['none', 'article', 'screenshot'];
 const ALL_URLS = { origins: ['<all_urls>'] as string[] };
 
 function App() {
-  const { t } = useI18n();
+  const { t } = useI18n(dict);
   // watch keeps the popup in sync with the options page
   const petEnabled = useStorageValue(petEnabledItem, true);
   const carry = useStorageValue(pageCarryItem, 'article');
