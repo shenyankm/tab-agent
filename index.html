@@ -20,6 +20,8 @@
   }
   .card h2 { margin-top: 0; font-size: 1.05rem; }
   a { color: #0969da; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+  th, td { border: 1px solid currentColor; padding: 6px 10px; text-align: left; }
   footer { margin-top: 40px; text-align: center; opacity: 0.6; font-size: 0.9rem; }
 </style>
 </head>
@@ -59,6 +61,24 @@
     <li>在设置页填入自己的 Qoder PAT / Agent ID / Environment ID。</li>
     <li>打开任意网页，点击右下角的气泡宠物开始提问。</li>
   </ol>
+</section>
+
+<section>
+  <h2>云端配置</h2>
+  <p>前置条件：Node.js ≥ 22.13 与 pnpm；一个 <a href="https://qoder.com">Qoder</a> 账号，且已开通 <a href="https://docs.qoder.com/zh/cloud-agents/quickstart">Cloud Agents</a>。</p>
+  <p>扩展连接你自己的 Qoder 云端 Agent，需要以下凭证：</p>
+  <table>
+    <thead>
+      <tr><th>凭证</th><th>格式</th><th>从哪拿</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>PAT</td><td><code>pt-...</code></td><td>Qoder 控制台 → Settings → Personal Access Tokens → 新建</td></tr>
+      <tr><td>Agent ID</td><td><code>agent_...</code></td><td><a href="https://qoder.com/cloud/agents">Cloud Agents 控制台</a> → 你的 Agent</td></tr>
+      <tr><td>Environment ID</td><td><code>env_...</code></td><td>同上，Agent 关联的环境</td></tr>
+      <tr><td>Vault ID（可选）</td><td><code>vault_...</code></td><td>需要让会话挂载 vault 时才填</td></tr>
+    </tbody>
+  </table>
+  <p>填入方式：点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项）打开设置页，依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需），输入框失焦即保存。同页可切换语言与主题。</p>
 </section>
 
 </body>
