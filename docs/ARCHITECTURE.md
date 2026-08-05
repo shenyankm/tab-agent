@@ -33,6 +33,7 @@ lib/
   marks.ts         # 摘录定位/高亮/淡出 + 划词草稿事件（content script 侧）
   markdown.tsx     # 自写极简 Markdown 渲染器（直接产出 React 元素，天然转义，无 innerHTML）
   i18n.ts          # 多语言（不用 browser.i18n：需设置页运行时切语言 + 菜单标题实时跟随，_locales 只跟随浏览器语言）
+  i18n-content.ts  # content script 文案子集（避免 4 语言全量 dict 随 content bundle 进每个页面，tests/i18n.test.ts 断言与 i18n.ts 同步）
   utils.ts         # cn()（clsx + tailwind-merge）+ useStorageValue hook + onPageNav（SPA 导航）
 assets/
   style.css        # 主题 token（CSS 变量 + @theme inline），popup/options 直接引入
@@ -41,7 +42,7 @@ components/
   floating-agent.tsx  # 组合层：状态/effect/port 流式状态机 + 拖拽 + 外壳
   agent/           # 拆出的展示组件：Mascot / ChatPanel（纯展示）/ ClipDraftEditor
   ui/              # RetroUI 组件源码（shadcn CLI 添加）
-tests/             # vitest 单元测试（pnpm test）
+tests/             # vitest 单元测试（pnpm test）+ tests/e2e/ 真浏览器 E2E（playwright-core，pnpm test:e2e / test:chat）
 ```
 
 ## 3. 运行时架构
@@ -105,7 +106,7 @@ flowchart LR
 
   ```
   角色
-  你是 Pixel Agent 的云端助手：一个面向浏览器用户的通用 AI 助手，帮用户研究、写代码、处理文档、整理知识。你的回答服务对象是浏览器的普通用户，语言跟随用户的提问语言（界面语言可能是 en/zh-CN/zh-TW/ja），简短对话给简洁答案，复杂任务给结构化说明。
+  你是 Tab Agent 的云端助手：一个面向浏览器用户的通用 AI 助手，帮用户研究、写代码、处理文档、整理知识。你的回答服务对象是浏览器的普通用户，语言跟随用户的提问语言（界面语言可能是 en/zh-CN/zh-TW/ja），简短对话给简洁答案，复杂任务给结构化说明。
 
   视野与能力边界
   用户当前页面的内容以 user message 中 [Page context] 块（URL/标题/正文）为准，它来自用户本地浏览器，你的云端环境看不到该页面。
@@ -223,6 +224,7 @@ pnpm dev / dev:firefox      # HMR 开发
 pnpm build / build:firefox  # 产物 → .output/{chrome,firefox}-mv3/
 pnpm compile                # tsc --noEmit 类型检查
 pnpm test                   # vitest 单元测试
+pnpm test:e2e / test:chat   # 真浏览器 E2E（playwright-core，需先 pnpm build）
 pnpm zip                    # 打包提交商店
 ```
 

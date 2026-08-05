@@ -11,13 +11,12 @@
 一只住在每个网页上的气泡小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。
 
 > [!NOTE]
-> 本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建；吉祥物形象因好看复用了 Qoder 的 logo。
+> 本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建；吉祥物形象借用了 Qoder 的 logo（因为可爱）。
 
 ## 功能
 
 - **问页面** —— 点宠物提问，可携带当前页面（正文或截图）一起发问。
 - **摘录** —— 右键菜单或快捷键 `Alt+Shift+S` 保存选中文字，text-fragment 高亮刷新不丢、可跨页跳转。
-- **AI 分类** —— 让你的 Agent 给全部摘录打分类。
 
 ## 快速开始
 
@@ -65,7 +64,7 @@ Firefox：`pnpm build:firefox` / `pnpm dev:firefox`。
 | 提示「尚未配置」 | PAT / Agent ID / Environment ID 三项有缺，回设置页补全 |
 | 提示「鉴权失败」 | PAT 失效或填错，重新生成一个 |
 | 截图上下文不生效 | 在 Popup 选「截图」时会弹权限申请，需允许访问所有网站 |
-| 想强制开新会话 | 在扩展的 Service Worker 控制台清掉 `local:sessionId.v4.tab.<tabId>`（每个标签页一条），或重装扩展 |
+| 想强制开新会话 | 在扩展的 Service Worker 控制台清掉 `local:sessionId.v4`（所有标签页当日共用一条），或重装扩展 |
 
 ## 开发
 

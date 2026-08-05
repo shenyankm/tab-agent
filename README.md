@@ -17,7 +17,6 @@ A chat-bubble mascot that lives on every webpage. Click it and ask — your conf
 
 - **Ask your page** — click the mascot, type a question; the page can be carried along as article text or a screenshot.
 - **Clips** — save text selections via right-click menu or `Alt+Shift+S`, with text-fragment highlights that survive reloads and jump across pages.
-- **AI classification** — let your Agent categorize all your clips.
 
 ## Quick Start
 
@@ -65,7 +64,7 @@ Fill them in:
 | "Not configured" error | PAT / Agent ID / Environment ID incomplete — fill all three in Settings |
 | "Auth failed" error | PAT expired or wrong — regenerate one |
 | Screenshot context not working | Approve the site-access permission prompt when selecting "Screenshot" in the popup |
-| Want a fresh session | Clear `local:sessionId.v4.tab.<tabId>` via the extension's Service Worker console, or reinstall |
+| Want a fresh session | Clear `local:sessionId.v4` (one session shared daily across all tabs) via the extension's Service Worker console, or reinstall |
 
 ## Development
 
