@@ -96,22 +96,29 @@ function postUserMessage(
   });
 }
 
-/** Read the SSE stream and forward agent.message deltas until the turn ends. */
+/** Read the SSE stream and forward agent.message text until the turn ends. */
 async function streamReply(
   pat: string,
   sessionId: string,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
-  /** true once our user.message POST has succeeded — gates the turn's event_start */
+  /** true once our user.message POST has succeeded — gates the turn's events */
   isPosted: () => boolean,
   onIdle?: () => void,
 ) {
-  const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas[]=agent.message`, {
+  // delta subscription — the brackets MUST be percent-encoded: literal `[]` in
+  // the query kills the stream silently (no frames at all, turn hangs forever);
+  // %5B%5D streams event_start/event_delta per docs (live capture 2026-08-05).
+  // The buffered agent.message copy (same id) follows the deltas — deduped below.
+  const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas%5B%5D=agent.message`, {
     headers: { Accept: 'text/event-stream' },
     signal,
     timeout: false, // long-lived by design; the 90s read watchdog below guards it
   });
-  if (!res.ok || !res.body) throw new Error(`stream: HTTP ${res.status}`);
+  if (!res.ok || !res.body) {
+    console.warn('[tab-agent] stream HTTP', res.status);
+    throw new Error(`stream: HTTP ${res.status}`);
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -128,10 +135,13 @@ async function streamReply(
   armTimeout();
 
   // stream opens BEFORE our POST: everything that arrives while isPosted() is
-  // false is the old turn's replay (in-flight deltas, stale idle) and must be
-  // dropped — the first user.message event_start after POST is our turn's, and
-  // only events after it belong to this reply
+  // false is the old turn's replay (in-flight messages, stale idle) and must be
+  // dropped — the LAST user.message event is this turn's boundary (the event
+  // log is ordered: replay always precedes our message)
   let userMsgId = '';
+  let sentAny = false; // \n\n separator between agent messages, across reads
+  let lastDeltaId = ''; // message boundary detection inside the delta stream
+  const seenDeltaIds = new Set<string>(); // delta'd message ids — their buffered copy must not double-count
 
   try {
     while (true) {
@@ -150,25 +160,41 @@ async function streamReply(
         } catch {
           continue;
         }
-        // only the user.message event_start arriving after our POST is this turn's;
-        // the stream replays the previous turn's events (incl. its event_start) before
-        // the POST returns — without this gate, replay leaks into this reply
-        if (payload.type === 'event_start' && payload.event?.id && payload.event.type === 'user.message' && isPosted()) {
-          userMsgId = payload.event.id;
-        }
+        // buffered events only: data is the event itself {id, type, content?}.
+        // user.message is the turn boundary, last one wins (the log is ordered:
+        // replay precedes our message). No isPosted condition on it: the broadcast
+        // races the POST response and a dropped boundary is never replayed → the
+        // turn goes silent
+        if (payload.type === 'user.message' && payload.id) userMsgId = payload.id;
         // fire onIdle on any session.status_idle (used by tryTurn after cancel)
         if (payload.type === 'session.status_idle') onIdle?.();
-        // userMsgId gates deltas: only process events from after our user.message,
-        // preventing replay of the old turn's in-flight deltas after our POST returns
-        if (payload.type === 'event_delta' && userMsgId && payload.delta?.content?.text) {
+        // isPosted gates content/idle instead: replayed old-turn events arrive
+        // before our POST returns and are dropped; ours arrive after
+        if (payload.type === 'event_delta' && userMsgId && isPosted() && payload.delta?.content?.text) {
+          if (payload.event_id) {
+            seenDeltaIds.add(payload.event_id);
+            if (payload.event_id !== lastDeltaId) {
+              lastDeltaId = payload.event_id;
+              if (text || sentAny) text += '\n\n'; // new message in the same turn
+            }
+          }
           text += payload.delta.content.text;
-        } else if (payload.type === 'session.status_idle' && userMsgId) {
+        } else if (payload.type === 'agent.message' && userMsgId && isPosted() && Array.isArray(payload.content) && !seenDeltaIds.has(payload.id)) {
+          // buffered authoritative copy — fallback when deltas never streamed
+          const msg = payload.content
+            .map((b: any) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : ''))
+            .join('');
+          if (msg) text += (text || sentAny ? '\n\n' : '') + msg;
+        } else if (payload.type === 'session.status_idle' && userMsgId && isPosted()) {
           if (text) send({ type: 'delta', text });
           send({ type: 'done' });
           return;
         }
       }
-      if (text) send({ type: 'delta', text });
+      if (text) {
+        send({ type: 'delta', text });
+        sentAny = true;
+      }
     }
     // stream closed without session.status_idle (server close, network drop, or the
     // idle event was filtered by the isPosted gate during replay) — complete the turn

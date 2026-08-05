@@ -89,7 +89,7 @@ flowchart LR
     A["user.message"] --> B["session.status_running"] --> C["agent.thinking"] --> D["agent.message（含增量 delta）"] --> E["agent.tool_use / agent.tool_result（可多轮）"] --> F["session.status_idle（stop_reason: end_turn）"]
 ```
 
-- 扩展用 `?event_deltas[]=agent.message` 只订阅消息增量，工具事件不进 UI。
+- 扩展用 `?event_deltas%5B%5D=agent.message` 订阅消息增量（**方括号必须 percent-encode**：字面 `[]` 会让流静默挂起整回合，2026-08-05 线上抓帧实锤）。增量帧（`event_start`/`event_delta`）之后有**同 id 的权威 buffered `agent.message`**，消费端按 `event_id` 去重；`user.message` 只有 buffered 事件，为回合边界（最后一条胜出）。[协议细节](https://docs.qoder.com/zh/cloud-agents/events-stream)
 - `heartbeat` 约每 15s 一次保活，`parseSSE` 按无 data 帧丢弃。
 - 流重连时会**重放历史事件**（支持 `Last-Event-ID`）—— 这就是 background 里 `isPosted()` 闸门存在的原因：扩展不传 Last-Event-ID，每次开流都从头重放，必须丢掉本回合 POST 之前的事件。
 - Agent 在环境沙箱内执行工具；上传文件挂载到 `/data/input/` 后，Agent 用自己的 Read/Bash 工具读取。
@@ -148,9 +148,9 @@ flowchart LR
 **跨天日报**：重建前若旧会话存在且当日未总结过（`reportSent` 标记去重），先对旧会话 fire-and-forget 发一条总结指令——旧会话上下文即当日完整对话记录，云端 Agent 自行用 notion MCP 写入 Notion 日报；失败仅留痕不阻断新会话。浏览器关闭期间不触发，顺延到下次打开并发消息时。
 
 1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
-2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas[]=agent.message`），后发消息 —— 保证不错过任何 delta。
+2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas%5B%5D=agent.message`），后发消息 —— 保证不错过任何 delta。
 3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取纯文本，失败回退 innerText，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白的云端浏览器）。
-4. 流内用 `isPosted()` 闸门过滤：POST 返回前重放的旧回合 delta / idle 事件一律丢弃。
+4. 流内以最后一条 buffered `user.message` 为回合边界（**不设 posted 条件**：事件广播与 POST 响应并发到达，带条件的边界帧若被丢弃不会重放，整回合静默）；`isPosted()` 闸门过滤 POST 返回前重放的旧回合 delta / idle 事件。
 5. `session.status_idle` → 发 `done`，回合结束。
 
 ### 异常自愈

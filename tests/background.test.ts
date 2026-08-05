@@ -214,12 +214,11 @@ describe('background handleChat', () => {
         // this turn's events flow only after the post resolves (posted flips
         // true in the caller) — a macrotask guarantees that microtask chain ran
         if (posts === 1) {
+          // buffered-only wire format: complete events, data = {id, type, content?}
           const frames = [
-            { type: 'event_start', event: { id: 'evt_1', type: 'user.message' } },
-            { type: 'event_start', event: { id: 'evt_2', type: 'agent.message' } },
-            { type: 'event_delta', delta: { content: { text: 'Hi ' } } },
-            { type: 'event_delta', delta: { content: { text: 'there' } } },
-            { type: 'session.status_idle' },
+            { id: 'evt_1', type: 'user.message', content: [{ type: 'text', text: 'hello' }] },
+            { id: 'evt_2', type: 'agent.message', content: [{ type: 'text', text: 'Hi ' }, { type: 'text', text: 'there' }] },
+            { id: 'evt_3', type: 'session.status_idle', stop_reason: { type: 'end_turn' } },
           ];
           setTimeout(() => {
             controller?.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('')));
@@ -239,6 +238,105 @@ describe('background handleChat', () => {
     const deltas = messages.filter((m: any) => m.type === 'delta');
     // frames arriving in one network read are coalesced into a single delta
     expect(deltas).toEqual([{ type: 'delta', text: 'Hi there' }]);
+    expect(messages.at(-1)).toEqual({ type: 'done' });
+  });
+
+  // regression: the cloud broadcasts our user.message event to the open stream
+  // concurrently with the POST response — when the SSE frame is read first, a
+  // boundary gated on isPosted() is dropped forever (replays only happen at
+  // stream open), so every agent.message is silently swallowed and the UI hangs
+  // in "thinking" (heartbeats keep resetting the 90s read watchdog — forever)
+  it('captures the turn when our user.message event beats the POST response', async () => {
+    perTabStorage.set(SESS_KEY, sess('sess-1'));
+    const enc = (f: unknown) => `data: ${JSON.stringify(f)}\n\n`;
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const url = String(_url);
+      if (url.includes('/events/stream')) {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          body: new ReadableStream({
+            start(c) {
+              // the old turn's replay AND our turn's user.message boundary both
+              // arrive before the POST below resolves — the race that dropped it
+              c.enqueue(new TextEncoder().encode(
+                enc({ id: 'evt_old_1', type: 'user.message' }) +
+                enc({ id: 'evt_old_2', type: 'agent.message', content: [{ type: 'text', text: 'old reply' }] }) +
+                enc({ id: 'evt_old_3', type: 'session.status_idle' }) +
+                enc({ id: 'evt_new_1', type: 'user.message' }),
+              ));
+              // agent latency means its messages only flow after the POST returned
+              setTimeout(() => {
+                c.enqueue(new TextEncoder().encode(
+                  enc({ id: 'evt_new_2', type: 'agent.message', content: [{ type: 'text', text: 'reply' }] }) +
+                  enc({ id: 'evt_new_3', type: 'agent.message', content: [{ type: 'text', text: 'more' }] }) +
+                  enc({ id: 'evt_new_4', type: 'session.status_idle' }),
+                ));
+                c.close();
+              }, 20);
+            },
+          }),
+        });
+      }
+      if (url.includes('/events') && init?.method === 'POST') {
+        // deferred: the stream frames above are processed while posted is false
+        return new Promise((r) => setTimeout(() => r({ status: 200, ok: true }), 10));
+      }
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { port, messages } = connect({ tabId: 7 });
+    port.postMessage({ text: 'hello' });
+    await until(() => messages.some((m: any) => m.type === 'done'));
+
+    // the old turn's replay never leaks; same-turn messages join with \n\n
+    expect(messages.filter((m: any) => m.type === 'delta')).toEqual([{ type: 'delta', text: 'reply\n\nmore' }]);
+    expect(messages.at(-1)).toEqual({ type: 'done' });
+  });
+
+  // delta mode: event_delta frames stream the text; the authoritative buffered
+  // agent.message (same id) that follows must not double-count
+  it('streams event_delta frames and dedupes the buffered copy', async () => {
+    perTabStorage.set(SESS_KEY, sess('sess-1'));
+    let controller: ReadableStreamDefaultController | null = null;
+    let posts = 0;
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const url = String(_url);
+      if (url.includes('/events/stream')) {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          body: new ReadableStream({ start(c) { controller = c; } }),
+        });
+      }
+      if (url.includes('/events') && init?.method === 'POST') {
+        posts++;
+        if (posts === 1) {
+          const frames = [
+            { id: 'evt_1', type: 'user.message', content: [{ type: 'text', text: 'hello' }] },
+            { type: 'event_start', event: { id: 'evt_2', type: 'agent.message' } },
+            { type: 'event_delta', event_id: 'evt_2', delta: { type: 'content_delta', index: 0, content: { type: 'text', text: 'Hi ' } } },
+            { type: 'event_delta', event_id: 'evt_2', delta: { type: 'content_delta', index: 0, content: { type: 'text', text: 'there' } } },
+            { id: 'evt_2', type: 'agent.message', content: [{ type: 'text', text: 'Hi there' }] },
+            { id: 'evt_3', type: 'session.status_idle', stop_reason: { type: 'end_turn' } },
+          ];
+          setTimeout(() => {
+            controller?.enqueue(new TextEncoder().encode(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('')));
+            controller?.close();
+          }, 0);
+        }
+        return Promise.resolve({ status: 200, ok: true });
+      }
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { port, messages } = connect({ tabId: 7 });
+    port.postMessage({ text: 'hello' });
+    await until(() => messages.some((m: any) => m.type === 'done'));
+
+    expect(messages.filter((m: any) => m.type === 'delta')).toEqual([{ type: 'delta', text: 'Hi there' }]);
     expect(messages.at(-1)).toEqual({ type: 'done' });
   });
 
@@ -328,18 +426,17 @@ describe('background handleChat', () => {
             start(c) {
               // old turn's replay arrives immediately, before the first POST returns
               c.enqueue(new TextEncoder().encode(
-                `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_1', type: 'user.message' } })}\n\n` +
-                `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_2', type: 'agent.message' } })}\n\n`
+                `data: ${JSON.stringify({ id: 'evt_old_1', type: 'user.message' })}\n\n` +
+                `data: ${JSON.stringify({ id: 'evt_old_2', type: 'agent.message', content: [{ type: 'text', text: 'Old reply' }] })}\n\n`
               ));
               releaseIdle = () => {
-                c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`));
+                c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ id: 'evt_old_3', type: 'session.status_idle' })}\n\n`));
               };
               sendNewTurn = () => {
                 c.enqueue(new TextEncoder().encode(
-                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_new_1', type: 'user.message' } })}\n\n` +
-                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_new_2', type: 'agent.message' } })}\n\n` +
-                  `data: ${JSON.stringify({ type: 'event_delta', delta: { content: { text: 'New reply' } } })}\n\n` +
-                  `data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`
+                  `data: ${JSON.stringify({ id: 'evt_new_1', type: 'user.message' })}\n\n` +
+                  `data: ${JSON.stringify({ id: 'evt_new_2', type: 'agent.message', content: [{ type: 'text', text: 'New reply' }] })}\n\n` +
+                  `data: ${JSON.stringify({ id: 'evt_new_3', type: 'session.status_idle' })}\n\n`
                 ));
                 c.close();
               };
@@ -394,7 +491,7 @@ describe('background handleChat', () => {
             body: new ReadableStream({
               start(c) {
                 c.enqueue(new TextEncoder().encode(
-                  `data: ${JSON.stringify({ type: 'event_start', event: { id: 'evt_old_1', type: 'user.message' } })}\n\n`
+                  `data: ${JSON.stringify({ id: 'evt_old_1', type: 'user.message' })}\n\n`
                 ));
                 releaseIdle = () => {
                   c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'session.status_idle' })}\n\n`));
