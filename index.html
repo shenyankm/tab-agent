@@ -72,13 +72,13 @@
       <tr><th>凭证</th><th>格式</th><th>从哪拿</th></tr>
     </thead>
     <tbody>
-      <tr><td>PAT</td><td><code>pt-...</code></td><td><a href="https://qoder.com/cloud/secrets">密钥生成页面</a> → 新建</td></tr>
+      <tr><td>PAT</td><td><code>pt-...</code></td><td><a href="https://qoder.com/cloud/pat-keys">PAT 生成页面</a> → 新建</td></tr>
       <tr><td>Agent ID</td><td><code>agent_...</code></td><td><a href="https://qoder.com/cloud/agents">Cloud Agents 控制台</a> → 你的 Agent（请确保已接入 Notion MCP）</td></tr>
       <tr><td>Environment ID</td><td><code>env_...</code></td><td><a href="https://qoder.com/cloud/environments">环境管理页面</a> → Agent 关联的环境</td></tr>
-      <tr><td>Vault ID（可选）</td><td><code>vault_...</code></td><td>需要让会话挂载 vault 时才填</td></tr>
+      <tr><td>Vault ID</td><td><code>vault_...</code></td><td><a href="https://qoder.com/cloud/secrets">Vault 创建页面</a>（接入 Notion MCP 的必要配置，存放 Notion OAuth 凭证）</td></tr>
     </tbody>
   </table>
-  <p>填入方式：点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项）打开设置页，依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需），输入框失焦即保存。同页可切换语言与主题。</p>
+  <p>填入方式：点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项）打开设置页，依次粘贴 PAT / Agent ID / Environment ID（Vault ID 接入 Notion MCP 时必填），输入框失焦即保存。同页可切换语言与主题。</p>
   <p>云端 Agent 的完整配置教程（模型、系统提示词、工具集、Notion MCP、环境与 Vault）见架构文档「<a href="https://github.com/shenyankm/tab-agent/blob/main/docs/ARCHITECTURE.md#本项目实例配置">本项目实例配置</a>」章节。</p>
 </section>
 
