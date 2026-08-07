@@ -26,7 +26,7 @@ jobs:
             build: true
             # chat.mjs 读仓库根 .env,用 secrets 现场生成
             cmd: |
-              printf 'PAT=%s\nAGENT_ID=%s\nENV_ID=%s\nVAULT_ID=%s\n' "$PAT" "$AGENT_ID" "$ENV_ID" "$VAULT_ID" > .env
+              printf 'PAT=%s\nAGENT_ID=%s\nENV_ID=%s\n' "$PAT" "$AGENT_ID" "$ENV_ID" > .env
               pnpm test:chat
           # release 会发 firefox zip,构建得能过
           - name: build-firefox
@@ -47,4 +47,3 @@ jobs:
           PAT: ${{ secrets.PAT }}
           AGENT_ID: ${{ secrets.AGENT_ID }}
           ENV_ID: ${{ secrets.ENV_ID }}
-          VAULT_ID: ${{ secrets.VAULT_ID }}
