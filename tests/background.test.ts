@@ -802,7 +802,7 @@ describe('background shared daily session', () => {
     await until(() => messages.some((m: any) => m.type === 'done'));
 
     expect(perTabStorage.get(SESS_KEY)).toEqual(sess('new-sess'));
-    // 跨天时不再向旧会话补发总结指令：所有 POST 都应落在新会话上
+    // 跨天时所有 POST 都应落在新会话上
     expect(posted.every((p) => p.url.includes('new-sess'))).toBe(true);
     vi.unstubAllGlobals();
   });
