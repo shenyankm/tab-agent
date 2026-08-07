@@ -245,7 +245,7 @@ export default defineBackground(() => {
         windowId: port.sender?.tab?.windowId,
       }, (day) => {
         // 回复完成日落进会话缓存：跨午夜回合（23:56 发、00:12 答完）仍属旧会话，
-        // 下一条消息才触发跨天重建 + 旧会话自总结。读-改-写保留 id，只刷 day。
+        // 下一条消息才触发跨天重建。读-改-写保留 id，只刷 day。
         void storage.getItem<{ id: string; day: string }>('local:sessionId.v4')
           .then((c) => c && storage.setItem('local:sessionId.v4', { ...c, day }))
           .catch(() => console.warn('[tab-agent] session day not persisted'));
