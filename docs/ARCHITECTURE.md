@@ -22,13 +22,13 @@ entrypoints/
   popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
   options/         # 设置页（独立标签页）：Settings / Clips / Privacy 三页签（pages/，均 React.lazy 懒加载）
 lib/
-  gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（每日共享会话 + 跨天自总结）
+  gateway.ts       # Qoder 网关通信：api/createSession/uploadFile/SSE 流/handleChat 回合状态机（每日共享会话）
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   messages.ts      # runtime 消息协议：类型化 Request + sendRequest（content/options → background），Reply 信封仅模块内使用
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
-  usage.ts         # 日期工具：本地时区 YYYY-MM-DD（会话按日轮换与日报归属日共用）
+  usage.ts         # 日期工具：本地时区 YYYY-MM-DD（会话按日轮换）
   page-text.ts     # 页面正文提取（Readability 封装 + 缓存，失败回退 innerText）
   marks.ts         # 摘录定位/高亮/淡出 + 划词草稿事件（content script 侧）
   markdown.tsx     # 自写极简 Markdown 渲染器（直接产出 React 元素，天然转义，无 innerHTML）
@@ -76,7 +76,6 @@ flowchart LR
     Env["Environment（沙箱运行时）"] --> Session
     Session["Session（运行实例，绑定二者）"] --> Events["事件日志 + SSE 流"]
     Session --> Res["resources：挂载上传的文件（/data/input/...）"]
-    Session --> Vault["vault_ids：挂载 Vault（密钥/凭据）"]
 ```
 
 | 对象 | 是什么 | 本扩展怎么用 |
@@ -122,8 +121,7 @@ flowchart LR
   工具使用准则
   搜索用 WebSearch；抓取指定外部链接用 WebFetch。
   文档处理：环境预装 python-docx/pymupdf/openpyxl/python-pptx，用 Bash + Python 处理，产物文件最终用 DeliverArtifacts 交付。
-  凭证：notion 凭证已通过 Vault 提供，直接调用，不要向用户索要 token。
-  写操作（notion 写入等外部副作用）只在用户明确请求时执行，不主动发起。
+  写操作（外部副作用）只在用户明确请求时执行，不主动发起。
 
   行为准则
   只依据消息内联内容与工具返回事实作答；不确定时明说，不臆造页面内容或文件路径。
@@ -134,23 +132,15 @@ flowchart LR
   研究类任务按深入研究 skill 的流程执行。
   ```
 - 工具：6 个内置工具全部自动允许 —— Bash / Read / Write / WebFetch / WebSearch / DeliverArtifacts
-- MCP 服务器（均 streamable http、自动允许）：
-  - notion（`mcp.notion.com/mcp`）
 - Skills（custom）：深入研究
 
 **Environment**（Cloud）
 
 - 预装 pip 包：python-docx、pymupdf、openpyxl、python-pptx（均 latest）—— 服务于文档处理类任务
 
-**Vault**
-
-- 存放 notion MCP 服务器的 OAuth 凭证 —— 创建会话时附带 `vault_ids` 挂载，MCP 鉴权通过
-
 ## 5. 一次对话回合（tryTurn）
 
 `lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、可自愈」。会话为**每日共享**：所有 tab 同一天共用同一云端会话（缓存键 `sessionId.v4`，值 `{id, day}`），归属以**最后一条回复的完成日**为准——跨午夜回合（23:56 发、00:12 答完）仍属旧会话，done 时把 day 刷成完成日；下一条消息发现 day 不符才重建当日新会话（session 标题带日期）。已知代价：共享会话下 tab B 的 409-cancel 会截断 tab A 进行中的回合（单用户轻聊可接受）。
-
-**跨天日报**：重建前若旧会话存在且当日未总结过（`reportSent` 标记去重），先对旧会话 fire-and-forget 发一条总结指令——旧会话上下文即当日完整对话记录，云端 Agent 自行用 notion MCP 写入 Notion 日报；失败仅留痕不阻断新会话。浏览器关闭期间不触发，顺延到下次打开并发消息时。
 
 1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas%5B%5D=agent.message`），后发消息 —— 保证不错过任何 delta。
@@ -163,7 +153,7 @@ flowchart LR
 | 状态 | 处理 |
 |---|---|
 | 401/403（`api()` 统一出口） | 抛 `code:'auth'`，前端展示鉴权失败文案 |
-| 404（会话失效） | `tryTurn` 返回 false → 重建 session（带 vault_ids）→ 整回合重试一次 |
+| 404（会话失效） | `tryTurn` 返回 false → 重建 session → 整回合重试一次 |
 | 409（上一回合仍在跑） | `POST /cancel` 后等 `session.status_idle`（5s 安全网），重发，最多 2 次 |
 | SSE 静默 90s（代理断流 / worker 挂起，心跳约 15s 一次） | 读超时 reject，回合按错误收尾 |
 | 流提前关闭（未收到 idle） | 补发 `done` 收尾，前端不卡「思考中」 |
@@ -191,9 +181,8 @@ flowchart LR
 | `pageCarry` | 携带页面：none / article / screenshot |
 | `clipHighlight` / `highlightColor` | 摘录高亮开关 / 高亮颜色（yellow / purple / green / blue） |
 | `lang`（定义在 `lib/i18n.ts`） | 界面语言 en / zh-CN / zh-TW / ja |
-| `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
-| `reportSent` | 日报去重标记：已发起总结的会话归属日（YYYY-MM-DD） |
-| `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建并触发旧会话自总结（v3→v4 为按日轮换，值由 id 字符串改为对象） |
+| `pat` / `agentId` / `envId` | Qoder 凭证 |
+| `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 | `eventCursor.v1` | SSE 事件游标，值 `{sessionId, eventId}`：下一轮请求通过 `Last-Event-ID` 跳过已消费的历史事件 |
 
 **摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。首次从 0.4.x（旧库名 `pixel-agent`）升级时，扩展 origin 会将旧库中不存在于新库的记录迁入后删除旧库；新安装不创建旧库。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：

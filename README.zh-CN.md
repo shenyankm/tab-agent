@@ -43,12 +43,11 @@ Firefox：`pnpm build:firefox` / `pnpm dev:firefox`。
 | PAT | `pt-...` | Qoder 控制台 → Settings → Personal Access Tokens → 新建 |
 | Agent ID | `agent_...` | [Cloud Agents 控制台](https://qoder.com/cloud/agents) → 你的 Agent |
 | Environment ID | `env_...` | 同上，Agent 关联的环境 |
-| Vault ID（可选） | `vault_...` | 需要让会话挂载 vault 时才填 |
 
 填入方式：
 
 1. 点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项），打开设置页。
-2. 依次粘贴 PAT / Agent ID / Environment ID（Vault ID 按需）。输入框失焦即保存。
+2. 依次粘贴 PAT / Agent ID / Environment ID。输入框失焦即保存。
 3. 同页可切换语言与主题（跟随设备 / 深色 / 浅色）。
 
 ## 使用

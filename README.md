@@ -43,12 +43,11 @@ The extension talks to your own Qoder Cloud Agent. You need three credentials:
 | PAT | `pt-...` | Qoder console → Settings → Personal Access Tokens → Create |
 | Agent ID | `agent_...` | [Cloud Agents console](https://qoder.com/cloud/agents) → your Agent |
 | Environment ID | `env_...` | Same page, the environment linked to your Agent |
-| Vault ID (optional) | `vault_...` | Only if you want sessions to mount a vault |
 
 Fill them in:
 
 1. Click the Tab Agent toolbar icon → gear icon (or right-click the icon → Options) to open Settings.
-2. Paste PAT / Agent ID / Environment ID (and Vault ID if needed). Fields save on blur.
+2. Paste PAT / Agent ID / Environment ID. Fields save on blur.
 3. Language and theme (system / dark / light) can also be changed here.
 
 ## Usage
