@@ -9,7 +9,10 @@ const { mockClips, mockRemoveClip } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/clips-store', () => ({
-  clipsItem: { getValue: () => mockClips(), watch: () => () => {} },
+  getClipsDirect: () => mockClips(),
+  getClipsPageDirect: () => mockClips().then((clips: unknown[]) => ({ clips, total: clips.length })),
+  getClipCategoriesDirect: () => mockClips().then((clips: { category?: string }[]) =>
+    [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort()),
   removeClip: (id: string) => mockRemoveClip(id),
   updateClip: vi.fn().mockResolvedValue(undefined),
   clipNavUrl: (c: { pageUrl: string; id: string }) => `${c.pageUrl}#tab-agent-clip=${c.id}`,

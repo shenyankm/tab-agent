@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Trash2, ChevronLeft, ChevronRight, Pencil, Link, EllipsisVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,28 +22,101 @@ import {
 } from '@/components/ui/alert-dialog';
 import { CategoryChips } from '@/components/category-chips';
 import { useI18n, dict } from '@/lib/i18n';
-import { parseNoteLines, useStorageValue } from '@/lib/utils';
-import { clipsItem, removeClip, updateClip, clipNavUrl, type Clip } from '@/lib/clips-store';
+import { parseNoteLines } from '@/lib/utils';
+import { CLIPS_CHANGED } from '@/lib/messages';
+import {
+  getClipCategoriesDirect,
+  getClipsDirect,
+  getClipsPageDirect,
+  removeClip,
+  updateClip,
+  clipNavUrl,
+  type Clip,
+} from '@/lib/clips-store';
 
 const PAGE_SIZE = 10;
 
 export default function ClipsPage() {
   const { t } = useI18n(dict);
-  const clips = useStorageValue(clipsItem, []);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'time' | 'site'>('time');
   const [page, setPage] = useState(1);
   const [cat, setCat] = useState<string | null>(null);
+  const [pageClips, setPageClips] = useState<Clip[]>([]);
+  const [allClips, setAllClips] = useState<Clip[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [cats, setCats] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [deleting, setDeleting] = useState<Clip | null>(null);
   const [opError, setOpError] = useState('');
 
-  const cats = useMemo(
-    () => [...new Set(clips.map((c) => c.category).filter((v): v is string => !!v))].sort(),
-    [clips],
-  );
-  const q = query.trim().toLowerCase();
+  const q = useDeferredValue(query.trim().toLowerCase());
+  // Search/category filters need the full set; the normal view only reads one IDB page.
+  const needsFull = !!q || !!cat;
+  const pageKey = needsFull ? 0 : page;
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, cat]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      setLoading(true);
+      try {
+        if (needsFull) {
+          const clips = await getClipsDirect();
+          if (alive) {
+            setAllClips(clips);
+            setTotal(clips.length);
+          }
+        } else {
+          const result = await getClipsPageDirect((pageKey - 1) * PAGE_SIZE, PAGE_SIZE);
+          if (alive) {
+            setAllClips(null);
+            setPageClips(result.clips);
+            setTotal(result.total);
+            const lastPage = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+            if (page > lastPage) setPage(lastPage);
+          }
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    const onChanged = (msg: { type?: string }) => {
+      if (msg?.type !== CLIPS_CHANGED) return;
+      void load();
+    };
+    void load();
+    browser.runtime.onMessage.addListener(onChanged);
+    return () => {
+      alive = false;
+      browser.runtime.onMessage.removeListener(onChanged);
+    };
+  }, [needsFull, pageKey]);
+
+  useEffect(() => {
+    let alive = true;
+    const loadCategories = () => {
+      void getClipCategoriesDirect().then((values) => {
+        if (alive) setCats(values);
+      }).catch(() => {});
+    };
+    const onChanged = (msg: { type?: string }) => {
+      if (msg?.type === CLIPS_CHANGED) loadCategories();
+    };
+    loadCategories();
+    browser.runtime.onMessage.addListener(onChanged);
+    return () => {
+      alive = false;
+      browser.runtime.onMessage.removeListener(onChanged);
+    };
+  }, []);
+
+  const clips = needsFull ? allClips ?? [] : pageClips;
   const shown = useMemo(
     () => q
       ? clips.filter((c) => [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q)))
@@ -52,12 +125,11 @@ export default function ClipsPage() {
   );
   // category filter composes with search; site view groups the same filtered set
   const filtered = useMemo(() => (cat ? shown.filter((c) => c.category === cat) : shown), [shown, cat]);
-  // no re-sort: getClipsDirect already returns newest-first, watches re-fetch the same order
 
-  // deletions/search can shrink the list under the cursor: clamp instead of resetting
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Normal mode gets its total from IDB; filtered mode derives it from the full set.
+  const pages = Math.max(1, Math.ceil((needsFull ? filtered.length : total) / PAGE_SIZE));
   const cur = Math.min(page, pages);
-  const paged = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
+  const paged = needsFull ? filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE) : filtered;
 
   // site view groups the CURRENT PAGE (not the full list): thousands of clips must
   // not mount thousands of rows at once. newest-first inside groups, groups ordered
@@ -172,7 +244,7 @@ export default function ClipsPage() {
         </div>
       )}
 
-      {filtered.length === 0 && (
+      {!loading && filtered.length === 0 && (
         <p className="mt-6 text-sm text-muted-foreground">{t('clips.empty')}</p>
       )}
 

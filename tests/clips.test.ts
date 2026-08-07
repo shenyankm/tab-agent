@@ -6,6 +6,8 @@ import {
   updateClip,
   clipsItem,
   getClipsDirect,
+  getClipsPageDirect,
+  getClipCategoriesDirect,
   getClipsForPageDirect,
   addClipDirect,
   removeClipDirect,
@@ -175,6 +177,24 @@ describe('clip storage (extension origin)', () => {
     expect(b.createdAt).toBeGreaterThan(a.createdAt);
     const clips = await getClipsDirect();
     expect(clips.map((c) => c.text)).toEqual(['b', 'a']);
+  });
+
+  it('reads a newest-first page and total without returning older rows', async () => {
+    await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'a' });
+    await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'B', text: 'b' });
+    await addClipDirect({ url: 'https://c', pageUrl: 'https://c', title: 'C', text: 'c' });
+
+    const result = await getClipsPageDirect(1, 1);
+    expect(result.total).toBe(3);
+    expect(result.clips.map((c) => c.text)).toEqual(['b']);
+  });
+
+  it('reads distinct categories without copying clip rows', async () => {
+    await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'A', text: 'a', category: 'z' });
+    await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'B', text: 'b', category: 'a' });
+    await addClipDirect({ url: 'https://c', pageUrl: 'https://c', title: 'C', text: 'c', category: 'z' });
+
+    expect(await getClipCategoriesDirect()).toEqual(['a', 'z']);
   });
 
   it('normalizes tracking params on save', async () => {

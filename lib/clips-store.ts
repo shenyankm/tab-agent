@@ -108,6 +108,65 @@ export async function getClipsDirect(): Promise<Clip[]> {
   return clips.reverse(); // newest first
 }
 
+export type ClipPage = { clips: Clip[]; total: number };
+
+/** Read one newest-first window without loading older rows into memory. */
+export async function getClipsPageDirect(offset: number, limit: number): Promise<ClipPage> {
+  const db = await openDB();
+  const tx = db.transaction(STORE);
+  const index = tx.objectStore(STORE).index('createdAt');
+  const totalRequest = index.count();
+  const clips: Clip[] = [];
+  const skip = Math.max(0, Math.floor(offset));
+  const take = Math.max(1, Math.floor(limit));
+  let skipped = 0;
+  const cursorDone = new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(null, 'prev');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || clips.length >= take) {
+        resolve();
+        return;
+      }
+      if (skipped++ < skip) {
+        cursor.continue();
+        return;
+      }
+      clips.push(cursor.value as Clip);
+      if (clips.length < take) cursor.continue();
+      else resolve();
+    };
+  });
+  const done = txDone(tx);
+  const [total] = await Promise.all([req2p(totalRequest), cursorDone, done]);
+  return { clips, total };
+}
+
+/** Read category labels without copying every clip's text into the UI. */
+export async function getClipCategoriesDirect(): Promise<string[]> {
+  const db = await openDB();
+  const tx = db.transaction(STORE);
+  const categories = new Set<string>();
+  const cursorDone = new Promise<void>((resolve, reject) => {
+    const request = tx.objectStore(STORE).openCursor();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const category = (cursor.value as Clip).category;
+      if (category) categories.add(category);
+      cursor.continue();
+    };
+  });
+  const done = txDone(tx);
+  await Promise.all([cursorDone, done]);
+  return [...categories].sort();
+}
+
 /** Read only one page's clips via the pageUrl index (values are normalized at write). */
 export async function getClipsForPageDirect(page: string): Promise<Clip[]> {
   const db = await openDB();
@@ -223,8 +282,15 @@ export async function updateClipsDirect(patches: { id: string; patch: ClipPatch 
 
 /** Same shape as a WXT storage item, so useStorageValue keeps working unchanged. */
 export const clipsItem = {
-  getValue: (): Promise<Clip[]> =>
-    isContentScript() ? sendRequest<Clip[]>({ type: 'clipsGet' }) : getClipsDirect(),
+  getValue: (() => {
+    let inFlight: Promise<Clip[]> | null = null;
+    return () => {
+      if (inFlight) return inFlight;
+      inFlight = (isContentScript() ? sendRequest<Clip[]>({ type: 'clipsGet' }) : getClipsDirect())
+        .finally(() => { inFlight = null; });
+      return inFlight;
+    };
+  })(),
   // refresh rejections (invalidated context after reload/update) are non-fatal:
   // swallow them instead of flooding the page console with unhandled rejections
   watch: (cb: (clips: Clip[]) => void) =>
@@ -243,10 +309,15 @@ export function clipsPageItem(page: string) {
   if (!item) {
     // 广播携带的 page 是写入时规范化后的 pageUrl,这里按同一规则预规范化再比对
     const np = normalizeUrl(page);
-    const getValue = (): Promise<Clip[]> =>
-      isContentScript()
-        ? sendRequest<Clip[]>({ type: 'clipsGetForPage', page })
-        : getClipsForPageDirect(page);
+    let inFlight: Promise<Clip[]> | null = null;
+    const getValue = (): Promise<Clip[]> => {
+      if (inFlight) return inFlight;
+      inFlight = (isContentScript()
+        ? sendRequest<Clip[]>({ type: 'clipsGetForPage', page: np })
+        : getClipsForPageDirect(np))
+        .finally(() => { inFlight = null; });
+      return inFlight;
+    };
     item = { getValue, watch: (cb) => watchChanges(() => getValue().then(cb).catch(() => {}), np) };
     pageItems.set(page, item);
     if (pageItems.size > PAGE_ITEMS_MAX) pageItems.delete(pageItems.keys().next().value!);
