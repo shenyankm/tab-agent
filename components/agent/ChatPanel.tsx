@@ -86,7 +86,6 @@ export function ChatPanel({
   srStatus,
   messages,
   thinking,
-  now,
   startRef,
   query,
   onQueryChange,
@@ -102,7 +101,6 @@ export function ChatPanel({
   srStatus: string;
   messages: ChatMessage[];
   thinking: boolean;
-  now: number;
   startRef: RefObject<number>;
   query: string;
   onQueryChange: (value: string) => void;
@@ -110,6 +108,14 @@ export function ChatPanel({
   onSubmit: (event: FormEvent) => void;
   onSummarize: () => void;
 }) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!thinking) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [thinking]);
+
   return (
     <>
     <CardHeader className={panelHeaderClass}>
@@ -155,7 +161,7 @@ export function ChatPanel({
           <AgentBubble
             key={i}
             msg={msg}
-            thinking={thinking}
+            thinking={thinking && i === messages.length - 1}
             // only the live thinking bubble receives the ticking status, so the
             // 1s elapsed counter doesn't bust memoization of done bubbles
             status={!msg.text

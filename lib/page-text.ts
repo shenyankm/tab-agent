@@ -7,7 +7,11 @@ import { Readability } from '@mozilla/readability';
 // invalidate the cache via a debounced MutationObserver so LLM prompts see fresh text
 let pageTextCache: { url: string; text: string } | null = null;
 let textGen = 0, textGenAt = 0;
-if (typeof document !== 'undefined') {
+let observerStarted = false;
+
+function ensureObserver() {
+  if (observerStarted || typeof document === 'undefined') return;
+  observerStarted = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
   // 扩展自己插入的 <mark>(text-fragments-polyfill 带特征 class)会触发结构变化,
   // 页面正文并未改变——整批变化都落在自己的 mark 内时不让缓存失效,
@@ -33,7 +37,9 @@ if (typeof document !== 'undefined') {
   else document.addEventListener('DOMContentLoaded', () => obs.observe(document.body, { childList: true, subtree: true, characterData: true }), { once: true });
 }
 export function pageText() {
-  if (pageTextCache?.url === location.href && textGen === textGenAt) return pageTextCache.text;
+  ensureObserver();
+  const url = location.href.split('#', 1)[0];
+  if (pageTextCache?.url === url && textGen === textGenAt) return pageTextCache.text;
   let text: string | undefined;
   try {
     const article = new Readability(document.cloneNode(true) as Document).parse();
@@ -44,7 +50,7 @@ export function pageText() {
   // cache the capped form: consumers slice(0, 20000/500) anyway, and a huge page's
   // full text would sit in this module-level cache forever
   const capped = text.slice(0, 20000);
-  pageTextCache = { url: location.href, text: capped };
+  pageTextCache = { url, text: capped };
   textGenAt = textGen;
   return capped;
 }

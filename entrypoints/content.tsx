@@ -1,11 +1,19 @@
-import { showClip, clearAllMarks, saveClipDraft, restyleMarks, pruneMarks } from '@/lib/marks';
-import { pageText } from '@/lib/page-text';
 import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-store';
-import { buildClipUrl } from '@/lib/clips-highlight';
 import { CLIPS_CHANGED } from '@/lib/messages';
 import { onPageNav } from '@/lib/utils';
 import { petEnabledItem, clipHighlightItem, highlightColorItem } from '@/lib/settings';
 import '@/assets/content.css';
+
+type MarksModule = typeof import('@/lib/marks');
+type HighlightModule = typeof import('@/lib/clips-highlight');
+let marksModule: Promise<MarksModule> | null = null;
+let highlightModule: Promise<HighlightModule> | null = null;
+let loadedMarks: MarksModule | null = null;
+const loadMarks = () => marksModule ??= import('@/lib/marks').then((module) => {
+  loadedMarks = module;
+  return module;
+});
+const loadHighlight = () => highlightModule ??= import('@/lib/clips-highlight');
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -39,23 +47,25 @@ export default defineContentScript({
         const sel = window.getSelection();
         const text = sel?.toString().trim();
         if (!sel || !text) return;
-        saveClipDraft({
-          url: buildClipUrl(location.href, sel),
-          pageUrl: location.href,
-          title: document.title,
-          text,
-        });
+        void Promise.all([loadMarks(), loadHighlight()]).then(([marks, highlight]) =>
+          marks.saveClipDraft({
+            url: highlight.buildClipUrl(location.href, sel),
+            pageUrl: location.href,
+            title: document.title,
+            text,
+          }),
+        ).catch(() => {});
       }
       // 整页剪藏:Readability 正文(失败回退 innerText)截短存进 text,
       // 供列表/分类使用;无 fragment,不高亮(与裸 URL clip 语义一致)
       if (msg?.type === 'saveClipPage') {
-        addClip({
+        void import('@/lib/page-text').then(({ pageText }) => addClip({
           kind: 'page',
           url: location.href,
           pageUrl: location.href,
           title: document.title,
           text: pageText().slice(0, 500),
-        }).catch(() => { /* 写入失败(上下文失效/IDB 错误):菜单动作无反馈面 */ });
+        })).catch(() => { /* 写入失败(上下文失效/IDB 错误):菜单动作无反馈面 */ });
       }
       // 图片剪藏也走页面侧:location.href/document.title 无需权限——background 读
       // tab.url/title 需要 broad "tabs" 权限(带"浏览历史"安装警告),least privilege
@@ -79,46 +89,82 @@ export default defineContentScript({
     let pageClips = clipsPageItem(page); // background 只回本页摘录,不再全量过通道
     // 开关每切换一次，在途的 idle 重放回调作废（否则关闭后残留回调会重新加 mark）
     let clipGen = 0;
-    const replay = (clips: Clip[]) => {
-      const gen = clipGen;
-      // 广播刷新后,已删除 clip 的残留 mark 就地清理(避免一直挂在页面上)
-      pruneMarks(new Set(clips.map((c) => c.id)));
-      for (const clip of clips)
-        // idle-sliced: many clips on a big page must not stall first paint with one scan
-        requestIdleCallback(() => {
-          if (gen === clipGen) showClip(clip, false);
-        }, { timeout: 2000 });
-    };
-    // 启动时高亮重放与 #clip=id 落地共用同一次读取;扩展更新后旧上下文里的
-    // sendMessage 会 reject,吞掉而不是在页面控制台刷 unhandled rejection
-    const initial = pageClips.getValue().catch(() => [] as Clip[]);
     let highlightOn = false; // 内存镜像开关:observer 回调短路,不必每次读 storage
-    clipHighlightItem.getValue()
-      .then((on) => { highlightOn = on; if (on) initial.then(replay); })
-      .catch(() => { /* invalidated context */ });
-
-    // SPA DOM 变化后重试高亮:页面内容异步渲染后重新定位
     let spaTimer: ReturnType<typeof setTimeout> | null = null;
-    const spaObserver = new MutationObserver(() => {
-      if (spaTimer || !highlightOn) return;
-      spaTimer = setTimeout(() => {
-        spaTimer = null;
-        if (!highlightOn) return;
-        clipGen++; // 作废旧 mark,重新定位(持续变化的页面以 2s 窗口收敛)
-        pageClips.getValue().then(replay).catch(() => {});
-      }, 2000);
-    });
-    if (document.body) spaObserver.observe(document.body, { childList: true, subtree: true });
-    else document.addEventListener('DOMContentLoaded', () => spaObserver.observe(document.body, { childList: true, subtree: true }), { once: true });
+    let spaObserver: MutationObserver | null = null;
+
+    const stopSpaObserver = () => {
+      if (spaTimer) clearTimeout(spaTimer);
+      spaTimer = null;
+      spaObserver?.disconnect();
+      spaObserver = null;
+    };
+
+    const startSpaObserver = () => {
+      if (spaObserver || !highlightOn || !document.body) return;
+      spaObserver = new MutationObserver(() => {
+        if (spaTimer || !highlightOn) return;
+        spaTimer = setTimeout(() => {
+          spaTimer = null;
+          if (!highlightOn) return;
+          clipGen++; // 作废旧 mark,重新定位(持续变化的页面以 2s 窗口收敛)
+          pageClips.getValue().then(replay).catch(() => {});
+        }, 2000);
+      });
+      spaObserver.observe(document.body, { childList: true, subtree: true });
+    };
+
+    const replay = (clips: Clip[]) => {
+      const keep = new Set(clips.map((c) => c.id));
+      if (!highlightOn || !clips.length) {
+        // 没有加载过高亮模块时，没有残留 mark 需要清理。
+        if (loadedMarks) loadedMarks.pruneMarks(keep);
+        else if (marksModule) void marksModule.then(({ pruneMarks }) => pruneMarks(keep));
+        if (!clips.length) stopSpaObserver();
+        return;
+      }
+      startSpaObserver();
+      const gen = clipGen;
+      void loadMarks().then(({ pruneMarks, showClip }) => {
+        pruneMarks(keep);
+        if (!highlightOn || gen !== clipGen) return;
+        let index = 0;
+        const pump = (deadline?: IdleDeadline) => {
+          const started = Date.now();
+          while (index < clips.length && gen === clipGen) {
+            showClip(clips[index++], false);
+            // Keep each idle slice short even when the browser reports unlimited time.
+            if (deadline && deadline.timeRemaining() < 2) break;
+            if (Date.now() - started >= 8) break;
+          }
+          if (index < clips.length && gen === clipGen)
+            requestIdleCallback(pump, { timeout: 2000 });
+        };
+        // idle-sliced: many clips on a big page must not stall first paint with one scan
+        requestIdleCallback(pump, { timeout: 2000 });
+      }).catch(() => {});
+    };
 
     // 跨页跳转落地（options/面板回退打开的 #tab-agent-clip=id）：走 showClip 同一条
     // 定位+滚动路径，高亮开关关闭时照常 3s 淡出；消费后清 hash，刷新不重闪
     const navClip = location.hash.match(/^#tab-agent-clip=(.+)/)?.[1];
-    if (navClip) {
-      initial.then((clips) => {
+    // 启动时只有高亮开启或需要落地某条摘录时才读取本页数据。
+    // 高亮关闭且没有导航目标时，普通网页不再为摘录支付一次 IPC/IDB 查询。
+    const initial = clipHighlightItem.getValue()
+      .then((on) => {
+        highlightOn = on;
+        if (!on && !navClip) return [] as Clip[];
+        return pageClips.getValue();
+      })
+      .catch(() => [] as Clip[]);
+    initial.then((clips) => {
+      if (highlightOn) replay(clips);
+      if (navClip) {
         const clip = clips.find((c) => c.id === navClip);
-        if (clip) showClip(clip);
-      });
+        if (clip) void loadMarks().then(({ showClip }) => showClip(clip)).catch(() => {});
+      }
+    });
+    if (navClip) {
       // 只剥 #tab-agent-clip= 段:规范化 URL 会把 utm 等参数从地址栏抹掉(影响复制/书签)
       history.replaceState(null, '', location.pathname + location.search);
     }
@@ -127,21 +173,26 @@ export default defineContentScript({
       clipGen++;
       highlightOn = on;
       if (on) return void pageClips.getValue().then(replay).catch(() => { /* invalidated context */ });
-      clearAllMarks();
+      stopSpaObserver();
+      if (loadedMarks) loadedMarks.clearAllMarks();
+      else if (marksModule) void marksModule.then(({ clearAllMarks }) => clearAllMarks());
     });
     // 设置页换高亮色:已打开的页面里在页 mark 即时补色
-    const unwatchColor = highlightColorItem.watch(restyleMarks);
+    const unwatchColor = highlightColorItem.watch((color) => {
+      if (loadedMarks) loadedMarks.restyleMarks(color);
+      else if (marksModule) void marksModule.then(({ restyleMarks }) => restyleMarks(color));
+    });
 
     // SPA 同文档导航:重锚本页摘录、清掉旧页 mark、按新 URL 重放高亮
     const unsubNav = onPageNav(() => {
       page = normalizeUrl(location.href);
       pageClips = clipsPageItem(page);
       clipGen++; // 作废旧页在途的 idle 重放
-      clearAllMarks();
+      stopSpaObserver();
+      if (loadedMarks) loadedMarks.clearAllMarks();
+      else if (marksModule) void marksModule.then(({ clearAllMarks }) => clearAllMarks());
       registerTab(); // 注册表里的 page 跟着 SPA 导航更新
-      clipHighlightItem.getValue()
-        .then((on) => { if (on) pageClips.getValue().then(replay).catch(() => {}); })
-        .catch(() => { /* invalidated context */ });
+      if (highlightOn) pageClips.getValue().then(replay).catch(() => {});
     });
     // dev HMR 下脚本失效重跑会叠加监听;生产与页面同生命周期,注销是 no-op
     let invalidated = false;
@@ -151,8 +202,7 @@ export default defineContentScript({
       unwatchHighlight();
       unwatchColor();
       unsubNav();
-      spaObserver.disconnect();
-      if (spaTimer) clearTimeout(spaTimer);
+      stopSpaObserver();
     });
 
     // UI 树(React + 组件 + markdown 解析)走动态 import:WXT 0.20 对 content

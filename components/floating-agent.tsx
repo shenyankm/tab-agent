@@ -45,6 +45,8 @@ const clampPos = (p: { right: number; bottom: number }) => ({
   bottom: Math.max(0, Math.min(p.bottom, window.innerHeight - 78)),
 });
 
+const MAX_VISIBLE_MESSAGES = 100;
+
 export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState>('idle');
@@ -68,7 +70,6 @@ export function FloatingAgent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tab, setTab] = useState<'chat' | 'clips'>('chat');
   const [draft, setDraft] = useState<ClipDraft | null>(null);
-  const [now, setNow] = useState(0); // 1s tick while thinking, drives the elapsed counter
   const startRef = useRef(0);
   const shellRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -142,12 +143,6 @@ export function FloatingAgent() {
     cancelAnimationFrame(rafRef.current);
   }, []);
 
-  useEffect(() => {
-    if (state !== 'thinking') return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [state]);
-
   // append streamed text to the trailing agent message; deltas coalesce into one
   // setState per animation frame — re-parsing markdown on every delta was O(n²)
   // on long replies and blocked the page's main thread
@@ -187,15 +182,17 @@ export function FloatingAgent() {
     rafRef.current = 0;
     pendingRef.current = null;
     // drop the aborted turn's empty agent bubble so it doesn't sit on "Thinking…" forever
-    setMessages((m) => [
-      ...(m.at(-1)?.role === 'agent' && !m.at(-1)!.text ? m.slice(0, -1) : m),
-      { role: 'user', text: message, at: Date.now() },
-      { role: 'agent', text: '' },
-    ]);
+    setMessages((m) => {
+      const next = [
+        ...(m.at(-1)?.role === 'agent' && !m.at(-1)!.text ? m.slice(0, -1) : m),
+        { role: 'user' as const, text: message, at: Date.now() },
+        { role: 'agent' as const, text: '' },
+      ];
+      return next.length > MAX_VISIBLE_MESSAGES ? next.slice(-MAX_VISIBLE_MESSAGES) : next;
+    });
     setState('thinking');
     setSrStatus(t('widget.status.thinking'));
     startRef.current = Date.now();
-    setNow(Date.now());
 
     const port = browser.runtime.connect({ name: 'chat' });
     portRef.current = port;
@@ -343,7 +340,6 @@ export function FloatingAgent() {
               srStatus={srStatus}
               messages={messages}
               thinking={state === 'thinking'}
-              now={now}
               startRef={startRef}
               query={query}
               onQueryChange={setQuery}

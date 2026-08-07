@@ -121,6 +121,13 @@ describe('content main() clip highlight replay', () => {
     expect(mockShowClip).toHaveBeenCalledWith(clip, false); // no scroll on replay
   });
 
+  it('does not read page clips when highlighting is disabled', async () => {
+    mockHighlightGet.mockResolvedValue(false);
+    await defRef.current!.main({ onInvalidated: () => {} });
+    await Promise.resolve();
+    expect(mockClipsGet).not.toHaveBeenCalled();
+  });
+
   // regression: switching the toggle off used to leave in-flight idle callbacks alive,
   // so the queued replay ran anyway and marks came back right after the user disabled
   // highlighting — clipGen must invalidate every queued callback
