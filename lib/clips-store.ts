@@ -24,6 +24,7 @@ export type Clip = {
 // chrome.storage keeps only settings.
 
 const DB_NAME = 'tab-agent';
+const LEGACY_DB_NAME = 'pixel-agent';
 const STORE = 'clips';
 
 // content scripts share the page's origin; extension pages are chrome-extension:
@@ -53,6 +54,61 @@ function txDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
+async function readLegacyClips(): Promise<Clip[]> {
+  // Avoid creating an empty legacy database on new installs when the browser
+  // exposes the database inventory API.
+  if (typeof indexedDB.databases === 'function') {
+    const databases = await indexedDB.databases();
+    if (!databases.some(({ name }) => name === LEGACY_DB_NAME)) return [];
+  }
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(LEGACY_DB_NAME);
+    let created = false;
+    req.onupgradeneeded = () => { created = true; };
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.close();
+        if (created) indexedDB.deleteDatabase(LEGACY_DB_NAME);
+        resolve([]);
+        return;
+      }
+      req2p(db.transaction(STORE).objectStore(STORE).getAll())
+        .then((clips) => { db.close(); resolve(clips); }, (error) => { db.close(); reject(error); });
+    };
+    req.onblocked = () => reject(new Error('legacy database is busy'));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function migrateLegacyClips(db: IDBDatabase) {
+  const legacy = await readLegacyClips();
+  if (!legacy.length) return;
+
+  const tx = db.transaction(STORE, 'readwrite');
+  const done = txDone(tx);
+  done.catch(() => {}); // an early request failure rejects the work below first
+  const store = tx.objectStore(STORE);
+  await new Promise<void>((resolve, reject) => {
+    let pending = legacy.length;
+    for (const clip of legacy) {
+      const request = store.get(clip.id);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          store.put(clip);
+          lastCreatedAt = Math.max(lastCreatedAt, clip.createdAt);
+        }
+        if (--pending === 0) resolve();
+      };
+    }
+  });
+  await done;
+  // The target database now owns the records. Removing the old name prevents
+  // repeating the read on every service-worker restart.
+  indexedDB.deleteDatabase(LEGACY_DB_NAME);
+}
+
 function openDB(): Promise<IDBDatabase> {
   if (!dbPromise) {
     const p = new Promise<IDBDatabase>((resolve, reject) => {
@@ -67,7 +123,7 @@ function openDB(): Promise<IDBDatabase> {
         if (!store.indexNames.contains('createdAt')) store.createIndex('createdAt', 'createdAt');
         if (!store.indexNames.contains('pageUrl')) store.createIndex('pageUrl', 'pageUrl');
       };
-      req.onsuccess = () => {
+      req.onsuccess = async () => {
         const db = req.result;
         // don't block a later upgrade (another context holding the old version
         // open): close and let the next call reopen at the new version
@@ -75,6 +131,15 @@ function openDB(): Promise<IDBDatabase> {
           db.close();
           if (dbPromise === p) dbPromise = null;
         };
+        if (!isContentScript()) {
+          try {
+            await migrateLegacyClips(db);
+          } catch (error) {
+            // Keep the new store usable if a stale/locked legacy database cannot
+            // be read; the old data remains available for a later retry.
+            console.warn('[tab-agent] legacy clip migration failed:', error);
+          }
+        }
         resolve(db);
       };
       req.onerror = () => reject(req.error);

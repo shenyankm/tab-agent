@@ -51,6 +51,7 @@ export default function ClipsPage() {
   const [noteText, setNoteText] = useState('');
   const [deleting, setDeleting] = useState<Clip | null>(null);
   const [opError, setOpError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const q = useDeferredValue(query.trim().toLowerCase());
   // Search/category filters need the full set; the normal view only reads one IDB page.
@@ -63,18 +64,21 @@ export default function ClipsPage() {
 
   useEffect(() => {
     let alive = true;
+    let request = 0;
     const load = async () => {
+      const current = ++request;
       setLoading(true);
+      setLoadError('');
       try {
         if (needsFull) {
           const clips = await getClipsDirect();
-          if (alive) {
+          if (alive && current === request) {
             setAllClips(clips);
             setTotal(clips.length);
           }
         } else {
           const result = await getClipsPageDirect((pageKey - 1) * PAGE_SIZE, PAGE_SIZE);
-          if (alive) {
+          if (alive && current === request) {
             setAllClips(null);
             setPageClips(result.clips);
             setTotal(result.total);
@@ -82,8 +86,12 @@ export default function ClipsPage() {
             if (page > lastPage) setPage(lastPage);
           }
         }
+      } catch {
+        // IDB read failure (corrupt store, quota, private mode): show an error
+        // state instead of a misleading empty list
+        if (alive && current === request) setLoadError(t('clips.loadFailed'));
       } finally {
-        if (alive) setLoading(false);
+        if (alive && current === request) setLoading(false);
       }
     };
     const onChanged = (msg: { type?: string }) => {
@@ -100,9 +108,11 @@ export default function ClipsPage() {
 
   useEffect(() => {
     let alive = true;
+    let request = 0;
     const loadCategories = () => {
+      const current = ++request;
       void getClipCategoriesDirect().then((values) => {
-        if (alive) setCats(values);
+        if (alive && current === request) setCats(values);
       }).catch(() => {});
     };
     const onChanged = (msg: { type?: string }) => {
@@ -155,7 +165,7 @@ export default function ClipsPage() {
       <button
         type="button"
         className="min-w-0 flex-1 cursor-pointer text-left"
-        onClick={() => browser.tabs.create({ url: clipNavUrl(clip) })}
+        onClick={() => { void browser.tabs.create({ url: clipNavUrl(clip) }).catch(() => console.warn('[tab-agent] open clip failed')); }}
         title={clip.text}
       >
         <span className="line-clamp-2 text-sm">{clip.text}</span>
@@ -171,7 +181,7 @@ export default function ClipsPage() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-0">
-          <DropdownMenuItem onClick={() => navigator.clipboard.writeText(clip.url)}>
+          <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(clip.url).catch(() => console.warn('[tab-agent] copy clip link failed')); }}>
             <Link /> {t('clips.copyLink')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => {
@@ -244,7 +254,11 @@ export default function ClipsPage() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (
+      {!loading && loadError && (
+        <p className="mt-6 text-sm text-destructive">{loadError}</p>
+      )}
+
+      {!loading && !loadError && filtered.length === 0 && (
         <p className="mt-6 text-sm text-muted-foreground">{t('clips.empty')}</p>
       )}
 

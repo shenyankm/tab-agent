@@ -75,4 +75,11 @@ describe('ClipsPage', () => {
     await waitFor(() => expect(screen.queryByText('clips.confirmDelete')).not.toBeInTheDocument());
     expect(mockRemoveClip).not.toHaveBeenCalled();
   });
+
+  it('shows a load error instead of the empty state when the read fails', async () => {
+    mockClips.mockRejectedValue(new Error('idb down'));
+    render(<ClipsPage />);
+    expect(await screen.findByText('clips.loadFailed')).toBeInTheDocument();
+    expect(screen.queryByText('clips.empty')).not.toBeInTheDocument();
+  });
 });
