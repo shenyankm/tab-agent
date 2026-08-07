@@ -17,6 +17,7 @@ jobs:
             cmd: pnpm compile
           - name: unit
             cmd: pnpm test
+            build: true
           # e2e/chat 读 .output/,需要先 build;chat 无 secrets 时自动 skip
           - name: e2e
             cmd: pnpm test:e2e

@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 // vitest working directory doesn't matter
 const outDir = resolve(import.meta.dirname, '../.output/chrome-mv3');
 const contentJs = resolve(outDir, 'content-scripts/content.js');
+const contentCss = resolve(outDir, 'content-scripts/content.css');
+const backgroundJs = resolve(outDir, 'background.js');
 // popup preloads the shared popup/options chunk on every open — gate it too
 const sharedChunk = () =>
   readdirSync(resolve(outDir, 'chunks')).find((f) => f.startsWith('style-') && f.endsWith('.js'));
@@ -25,6 +27,14 @@ describe('bundle size', () => {
     const src = readFileSync(contentJs, 'utf8');
     expect(src.includes('アナリティクスもトラッカーもありません')).toBe(false); // ja privacy key
     expect(src.includes('privacy.promise')).toBe(false); // en privacy key
+  });
+
+  it.skipIf(!existsSync(contentCss))('content.css stays under 40 KB', () => {
+    expect(readFileSync(contentCss).length / 1024).toBeLessThan(40);
+  });
+
+  it.skipIf(!existsSync(backgroundJs))('background.js stays under 50 KB', () => {
+    expect(readFileSync(backgroundJs).length / 1024).toBeLessThan(50);
   });
 
   it.skipIf(!existsSync(contentJs))('shared popup/options chunk stays under 380 KB', () => {
