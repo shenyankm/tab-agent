@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a problem with the extension
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Before filing, check the [Troubleshooting](https://github.com/sheny/tab-agent#troubleshooting) section in the README.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps, plus the URL of a page where it happens (if relevant).
+      placeholder: |
+        1. Open ...
+        2. Click the mascot ...
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: error-message
+    attributes:
+      label: Error message or screenshot
+      description: Paste any console error text or attach a screenshot.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: Shown on the popup/options page, or in chrome://extensions.
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Firefox
+        - Edge
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Relevant settings (theme, language, shortcut, etc.). Do NOT paste your PAT or other credentials.
