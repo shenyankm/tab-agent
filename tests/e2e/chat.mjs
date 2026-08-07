@@ -2,7 +2,7 @@
 // Usage: node tests/e2e/chat.mjs
 // Env:   TAB_EXT_DIR — extension build dir (default .output/chrome-mv3)
 //        TAB_CHROME  — Chrome binary (default /usr/bin/google-chrome)
-//        Credentials come from the repo-root .env (PAT/AGENT_ID/ENV_ID/VAULT_ID)
+//        Credentials come from the repo-root .env (PAT/AGENT_ID/ENV_ID)
 // Skips (exit 0) when .env is missing — CI runs without live credentials.
 import { chromium } from 'playwright-core';
 import http from 'node:http';
@@ -26,7 +26,7 @@ for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
   const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
   if (m && !(m[1] in env)) env[m[1]] = m[2].replace(/^"|"$/g, ''); // strip surrounding quotes
 }
-const { PAT, AGENT_ID, ENV_ID, VAULT_ID } = env;
+const { PAT, AGENT_ID, ENV_ID } = env;
 if (!PAT || !AGENT_ID || !ENV_ID) {
   console.log('SKIP  .env lacks PAT/AGENT_ID/ENV_ID — live chat test needs real credentials');
   process.exit(0);
@@ -73,9 +73,9 @@ try {
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker', { timeout: 15_000 }));
 
   // configure credentials exactly like the settings page does
-  await sw.evaluate(async ([pat, agentId, envId, vaultId]) => {
-    await chrome.storage.local.set({ pat, agentId, envId, vaultId });
-  }, [PAT, AGENT_ID, ENV_ID, VAULT_ID]);
+  await sw.evaluate(async ([pat, agentId, envId]) => {
+    await chrome.storage.local.set({ pat, agentId, envId });
+  }, [PAT, AGENT_ID, ENV_ID]);
 
   const page = await context.newPage();
   await page.goto(pageUrl, { waitUntil: 'load' });

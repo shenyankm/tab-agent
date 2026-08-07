@@ -11,7 +11,7 @@ beforeEach(() => {
 
 // --- hoisted mocks (available inside vi.mock factories) ---
 const {
-  mockPat, mockAgentId, mockEnvId, mockVaultId,
+  mockPat, mockAgentId, mockEnvId,
   connectListenerRef, messageListenerRef, commandListenerRef, menuListenerRef, installedListenerRef,
   mockGetClips, mockGetClipsForPage, mockAddClip, mockRemoveClip, mockUpdateClip,
   mockTabsQuery, mockTabsSend, mockCapture, mockMenuCreate, mockMenuRemoveAll,
@@ -20,7 +20,6 @@ const {
   mockPat: vi.fn().mockResolvedValue('test-pat'),
   mockAgentId: vi.fn().mockResolvedValue('agent-1'),
   mockEnvId: vi.fn().mockResolvedValue('env-1'),
-  mockVaultId: vi.fn().mockResolvedValue(''),
   connectListenerRef: { current: null as ((...args: any[]) => void) | null },
   messageListenerRef: { current: null as ((...args: any[]) => unknown) | null },
   commandListenerRef: { current: null as ((command: string) => void) | null },
@@ -48,9 +47,6 @@ vi.mock('@/lib/settings', () => ({
   patItem: { getValue: () => mockPat() },
   agentIdItem: { getValue: () => mockAgentId() },
   envIdItem: { getValue: () => mockEnvId() },
-  vaultIdItem: { getValue: () => mockVaultId() },
-  // 日报去重标记：默认空 = 任何旧会话日都会触发一次总结
-  reportSentItem: { getValue: () => Promise.resolve(''), setValue: () => Promise.resolve() },
 }));
 
 vi.mock('@/lib/i18n', () => ({
@@ -178,7 +174,6 @@ describe('background handleChat', () => {
     mockPat.mockResolvedValue('test-pat');
     mockAgentId.mockResolvedValue('agent-1');
     mockEnvId.mockResolvedValue('env-1');
-    mockVaultId.mockResolvedValue('');
     perTabStorage.clear();
   });
 
@@ -683,7 +678,6 @@ describe('background shared daily session', () => {
     mockPat.mockResolvedValue('test-pat');
     mockAgentId.mockResolvedValue('agent-1');
     mockEnvId.mockResolvedValue('env-1');
-    mockVaultId.mockResolvedValue('');
     mockStorageGet.mockClear();
     mockStorageSet.mockClear();
     perTabStorage.clear();
@@ -784,17 +778,17 @@ describe('background shared daily session', () => {
     vi.unstubAllGlobals();
   });
 
-  // 跨天：旧会话自总结（fire-and-forget POST 到旧 session），随后重建新会话
-  it('asks the stale-day session to summarize itself before rotating', async () => {
+  // 跨天：旧会话直接重建为新会话，不再向旧会话补发任何指令
+  it('rotates to a new session when the cached one is from a stale day', async () => {
     perTabStorage.set(SESS_KEY, sess('old-sess', '2000-01-01'));
-    const posted: { url: string; body: string }[] = [];
+    const posted: { url: string }[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
       if (url.endsWith('/sessions') && init?.method === 'POST') {
         return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ id: 'new-sess' }) });
       }
       if (url.includes('/events') && init?.method === 'POST') {
-        posted.push({ url, body: String(init.body) });
+        posted.push({ url });
         return Promise.resolve({ status: 200, ok: true });
       }
       if (url.includes('/events/stream')) {
@@ -806,13 +800,10 @@ describe('background shared daily session', () => {
     const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
     await until(() => messages.some((m: any) => m.type === 'done'));
-    // 总结 POST 是 fire-and-forget，等它落地
-    await until(() => posted.some((p) => p.url.includes('old-sess')));
 
-    const summary = posted.find((p) => p.url.includes('old-sess'))!;
-    expect(summary.body).toContain('2000-01-01'); // 总结指令带会话归属日
-    expect(summary.body).toContain('notion');
     expect(perTabStorage.get(SESS_KEY)).toEqual(sess('new-sess'));
+    // 跨天时不再向旧会话补发总结指令：所有 POST 都应落在新会话上
+    expect(posted.every((p) => p.url.includes('new-sess'))).toBe(true);
     vi.unstubAllGlobals();
   });
 });
