@@ -1,6 +1,6 @@
 {
   "name": "tab-agent",
-  "description": "Tab Agent browser extension",
+  "description": "A chat-bubble mascot that answers your page questions and saves knowledge clips.",
   "private": true,
   "license": "MIT",
   "version": "0.5.0",

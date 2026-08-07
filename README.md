@@ -109,6 +109,8 @@ entrypoints/
 components/
   floating-agent.tsx  # Floating pet composition layer (state, port streaming, drag)
   agent/            # Presentational parts: Mascot / ChatPanel / ClipDraftEditor
+  category-chips.tsx  # Clip category filter chips (options Clips page)
+  radio-dropdown.tsx  # Icon+label single-select dropdown (settings / popup / filter)
   ui/               # RetroUI components (shadcn CLI)
 lib/                # Shared modules (gateway, i18n, settings, SSE parser, clips)
 tests/              # Vitest test suites

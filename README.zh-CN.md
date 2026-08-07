@@ -109,6 +109,8 @@ entrypoints/
 components/
   floating-agent.tsx  # 浮动宠物组合层（状态、port 流式、拖拽）
   agent/            # 展示组件：Mascot / ChatPanel / ClipDraftEditor
+  category-chips.tsx  # 摘录分类筛选 chips（options 摘录页）
+  radio-dropdown.tsx  # 图标+文本单选下拉（设置 / 弹窗 / 筛选共用）
   ui/               # RetroUI 组件（shadcn CLI）
 lib/                # 共享模块（gateway、i18n、设置、SSE 解析器、摘录）
 tests/              # Vitest 测试套件

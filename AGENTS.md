@@ -11,9 +11,10 @@ pnpm build            # Production build → .output/chrome-mv3/
 pnpm build:firefox    # Production build → .output/firefox-mv3/
 pnpm compile          # Type-check only (tsc --noEmit)
 pnpm zip              # Build + package for store submission
+pnpm zip:firefox      # Firefox AMO submission package
 ```
 
-Tests run with vitest: `pnpm test` (or `pnpm test:watch`).
+Tests run with vitest: `pnpm test` (or `pnpm test:watch`). Real-browser E2E: `pnpm test:e2e` / `pnpm test:chat` (playwright-core, need `pnpm build` first).
 
 Always run `pnpm build` after modifying business code to verify the build passes.
 
@@ -34,7 +35,7 @@ WXT auto-registers entrypoints by file convention:
 - **Tailwind CSS v4** via `@tailwindcss/vite` plugin registered in `wxt.config.ts`
 - **RetroUI** (neobrutalist shadcn registry) — components live as source in `components/ui/`, added on-demand: `pnpm dlx shadcn@latest add @retroui/<name>`
 - **lucide-react** for icons — named imports are tree-shaken automatically
-- Theme tokens (colors, shadows, radius) defined in `assets/style.css` via CSS custom properties + `@theme inline`; `assets/content.css` extends it for the content script's Shadow UI
+- Theme tokens (colors, shadows, radius) defined in `assets/theme.css` via CSS custom properties + `@theme inline`; `assets/content.css` imports it for the content script's Shadow UI, `assets/style.css` adds page-level reset for popup/options
 - `cn()` utility in `lib/utils.ts` (clsx + tailwind-merge)
 
 ### Component & Icon Rules

@@ -36,11 +36,15 @@ lib/
   i18n-content.ts  # content script 文案子集（避免 4 语言全量 dict 随 content bundle 进每个页面，tests/i18n.test.ts 断言与 i18n.ts 同步）
   utils.ts         # cn()（clsx + tailwind-merge）+ useStorageValue hook + onPageNav（SPA 导航）
 assets/
-  style.css        # 主题 token（CSS 变量 + @theme inline），popup/options 直接引入
-  content.css      # 继承 style.css + Shadow UI 布局样式，仅进 Shadow Root
+  theme.css        # 共享主题 token（@custom-variant + @theme inline + :root/.dark 变量），content 与 popup/options 共用
+  style.css        # 主题 token + 页面级 reset（滚动条/body），popup/options 的 main.tsx 引入
+  content.css      # 继承 theme.css + Shadow UI 布局样式，仅进 Shadow Root
+  fonts.css        # Space Grotesk Latin 子集 @font-face，仅 popup/options 引入（content 不带字体）
 components/
   floating-agent.tsx  # 组合层：状态/effect/port 流式状态机 + 拖拽 + 外壳
   agent/           # 拆出的展示组件：Mascot / ChatPanel（纯展示）/ ClipDraftEditor
+  category-chips.tsx  # 摘录分类筛选 chips（options 摘录页）
+  radio-dropdown.tsx  # 图标+文本单选下拉（设置/弹窗/摘录筛选共用）
   ui/              # RetroUI 组件源码（shadcn CLI 添加）
 tests/             # vitest 单元测试（pnpm test）+ tests/e2e/ 真浏览器 E2E（playwright-core，pnpm test:e2e / test:chat）
 ```
@@ -203,7 +207,7 @@ flowchart LR
 
 ## 7. 内容脚本 UI 隔离
 
-- `createShadowRootUi` + `cssInjectionMode: 'ui'`：Tailwind 样式（`assets/content.css`，继承 `assets/style.css` 的主题 token）只进 Shadow Root。
+- `createShadowRootUi` + `cssInjectionMode: 'ui'`：Tailwind 样式（`assets/content.css`，继承 `assets/theme.css` 的共享 token）只进 Shadow Root。
 - 主题：`isDark(theme)` 在 shell 上切 `dark` class，与宿主页面无关。
 - 雪碧图 `mascot-expressions.webp` 经 `web_accessible_resources` 暴露，三个表情帧靠 transform 裁切。
 - 宠物关闭 = 完全不挂载 React（省每页运行时与堆）；挂载/卸载串行在一条 promise 链上，快速开关不竞态。代价是关闭即中断进行中的回答、重开后聊天记录重置——与「关闭宠物」的用户意图一致。
