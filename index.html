@@ -6,23 +6,74 @@
 <link rel="icon" type="image/png" href="public/icon/128.png" />
 <title>Tab Agent —— 住在网页上的 AI 问答宠物</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    --bg: #fef6e4;
+    --ink: #000;
+    --main: #fd9745;
+    --accent: #88aaee;
+    --pink: #ff6b9d;
+  }
+  * { box-sizing: border-box; }
   body {
-    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    max-width: 680px; margin: 0 auto; padding: 48px 20px; line-height: 1.7;
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    background: var(--bg); color: var(--ink);
+    max-width: 720px; margin: 0 auto; padding: 48px 20px; line-height: 1.7;
   }
   header { text-align: center; }
-  h1 { margin: 12px 0 4px; }
-  .tagline { opacity: 0.75; margin: 0 0 32px; }
-  .card {
-    border: 2px solid currentColor; border-radius: 12px;
-    padding: 16px 20px; margin: 16px 0; box-shadow: 4px 4px 0 rgba(0,0,0,0.25);
+  header img {
+    border: 3px solid var(--ink); border-radius: 16px;
+    box-shadow: 6px 6px 0 var(--ink); background: #fff;
   }
-  .card h2 { margin-top: 0; font-size: 1.05rem; }
-  a { color: #0969da; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
-  th, td { border: 1px solid currentColor; padding: 6px 10px; text-align: left; }
-  footer { margin-top: 40px; text-align: center; opacity: 0.6; font-size: 0.9rem; }
+  h1 {
+    margin: 16px auto 4px; font-size: 2.2rem;
+    display: block; width: fit-content; background: var(--main);
+    border: 3px solid var(--ink); border-radius: 12px;
+    padding: 4px 20px; box-shadow: 6px 6px 0 var(--ink);
+  }
+  .tagline { font-weight: 700; margin: 12px 0 4px; }
+  .tagline.small { font-weight: 400; font-size: 0.9rem; }
+  .btn {
+    display: inline-block; margin: 12px 4px 0; padding: 8px 16px;
+    background: #fff; color: var(--ink); text-decoration: none; font-weight: 700;
+    border: 3px solid var(--ink); border-radius: 10px; box-shadow: 4px 4px 0 var(--ink);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .btn:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+  .card {
+    background: #fff; border: 3px solid var(--ink); border-radius: 14px;
+    padding: 16px 20px; margin: 20px 0; box-shadow: 6px 6px 0 var(--ink);
+  }
+  .card h2 {
+    margin: 0 0 8px; font-size: 1.05rem;
+    display: inline-block; background: var(--accent);
+    border: 2px solid var(--ink); border-radius: 8px; padding: 2px 12px;
+  }
+  .card:nth-child(2) h2 { background: var(--pink); }
+  .card:nth-child(3) h2 { background: var(--main); }
+  .card p { margin: 8px 0 0; }
+  a { color: var(--ink); text-decoration-thickness: 2px; }
+  code {
+    background: #fff; border: 2px solid var(--ink); border-radius: 6px;
+    padding: 1px 6px; font-size: 0.9em;
+  }
+  section > h2 {
+    display: inline-block; background: var(--accent);
+    border: 3px solid var(--ink); border-radius: 10px;
+    padding: 4px 16px; box-shadow: 5px 5px 0 var(--ink); font-size: 1.3rem;
+  }
+  ol { padding-left: 24px; }
+  ol li { margin: 10px 0; font-weight: 500; }
+  table {
+    border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.9rem;
+    background: #fff; border: 3px solid var(--ink); border-radius: 12px;
+    overflow: hidden; box-shadow: 6px 6px 0 var(--ink);
+  }
+  th, td { border-bottom: 2px solid var(--ink); padding: 8px 12px; text-align: left; }
+  th { background: var(--main); font-weight: 700; }
+  th + th, td + td { border-left: 2px solid var(--ink); }
+  tbody tr:last-child td { border-bottom: none; }
+  footer { margin-top: 48px; text-align: center; font-size: 0.85rem; }
 </style>
 </head>
 <body>
@@ -30,12 +81,12 @@
   <img src="public/icon/128.png" width="96" height="96" alt="Tab Agent 吉祥物" />
   <h1>Tab Agent</h1>
   <p class="tagline">一只住在每个网页上的气泡小宠物。点击它提问，你配置的 Qoder 云端 Agent 会结合当前页面内容作答。</p>
-  <p class="tagline">本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建。</p>
-  <p>
-    <a href="https://github.com/shenyankm/tab-agent">GitHub 仓库</a> ·
-    <a href="https://github.com/shenyankm/tab-agent/blob/main/README.zh-CN.md">中文文档</a> ·
-    <a href="https://github.com/shenyankm/tab-agent/releases">下载 Releases</a>
-  </p>
+  <p class="tagline small">本项目非 Qoder 官方产品，仅基于 Qoder Cloud Agents 构建。</p>
+  <nav>
+    <a class="btn" href="https://github.com/shenyankm/tab-agent">GitHub 仓库</a>
+    <a class="btn" href="https://github.com/shenyankm/tab-agent/blob/main/README.zh-CN.md">中文文档</a>
+    <a class="btn" href="https://github.com/shenyankm/tab-agent/releases">下载 Releases</a>
+  </nav>
 </header>
 
 <section>
@@ -82,5 +133,8 @@
   <p>云端 Agent 的完整配置教程（模型、系统提示词、工具集、Notion MCP、环境与 Vault）见架构文档「<a href="https://github.com/shenyankm/tab-agent/blob/main/docs/ARCHITECTURE.md#本项目实例配置">本项目实例配置</a>」章节。</p>
 </section>
 
+<footer>
+  <p>Tab Agent · 非官方社区项目 · <a href="https://github.com/shenyankm/tab-agent/blob/main/LICENSE">MIT License</a></p>
+</footer>
 </body>
 </html>
