@@ -36,9 +36,11 @@ function fanOutClipsChanged(page?: string) {
       });
   // 注册表为空(SW 重启后首次广播)时回退全量:content 收到后重注册,下次恢复精准。
   // 混合版本窗口:更新后只要有一个新脚本注册就切精准模式,未刷新 tab 上的旧版
-  // 脚本(无 tabRegister 逻辑)永远收不到——精准投递全落空时再回退一次全量
-  const targets = contentTabs.size ? [...contentTabs.keys()] : undefined;
-  if (targets) {
+  // 脚本(无 tabRegister 逻辑)永远收不到——有明确目标但全部失效时回退一次全量
+  const targets = contentTabs.size
+    ? [...contentTabs].filter(([, registeredPage]) => !page || registeredPage === page).map(([tabId]) => tabId)
+    : undefined;
+  if (targets?.length) {
     // 精准投递全部落空(注册表里都是失效/旧版 tab)时回退一次全量广播
     void Promise.allSettled(targets.map(deliver)).then((rs) => {
       if (rs.every((r) => r.status === 'rejected')) {
@@ -47,7 +49,7 @@ function fanOutClipsChanged(page?: string) {
         }).catch(() => {});
       }
     });
-  } else {
+  } else if (!targets) {
     void browser.tabs.query({}).then((tabs) => {
       for (const tab of tabs) if (tab.id) deliver(tab.id);
     }).catch(() => {});
@@ -66,11 +68,6 @@ export default defineBackground(() => {
   // last-resort logger: individual .catch() calls are the primary defense, but a
   // missed one must not go silently — SW console is the only surface we have
   self.addEventListener('unhandledrejection', (e) => console.error('[tab-agent] unhandled:', e.reason));
-
-  // warm the extension-origin DB at startup
-  void getClipsDirect().catch(() => {
-    /* open failed; next access retries */
-  });
 
   // "save clip" context menus; titles follow the UI language
   const MENU_TITLES = {

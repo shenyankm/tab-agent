@@ -252,6 +252,38 @@ describe('background handleChat', () => {
     expect(messages.at(-1)).toEqual({ type: 'done' });
   });
 
+  it('resumes the event stream from the persisted cursor', async () => {
+    perTabStorage.set(SESS_KEY, sess('sess-1'));
+    perTabStorage.set('local:eventCursor.v1', { sessionId: 'sess-1', eventId: 'evt-9' });
+    let streamHeaders: Record<string, string> | undefined;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const url = String(_url);
+      if (url.includes('/events/stream')) {
+        streamHeaders = init?.headers as Record<string, string>;
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          body: sseStream([
+            JSON.stringify({ id: 'evt-10', type: 'user.message' }),
+            JSON.stringify({ id: 'evt-11', type: 'agent.message', content: [{ type: 'text', text: 'reply' }] }),
+            JSON.stringify({ id: 'evt-12', type: 'session.status_idle' }),
+          ]),
+        });
+      }
+      if (url.includes('/events') && init?.method === 'POST')
+        return Promise.resolve({ status: 200, ok: true });
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({}) });
+    }));
+
+    const { port, messages } = connect({ tabId: 7 });
+    port.postMessage({ text: 'hello' });
+    await until(() => messages.some((m: any) => m.type === 'done'));
+
+    expect(streamHeaders?.['Last-Event-ID']).toBe('evt-9');
+    expect(perTabStorage.get('local:eventCursor.v1')).toEqual({ sessionId: 'sess-1', eventId: 'evt-12' });
+    vi.unstubAllGlobals();
+  });
+
   // regression: the cloud broadcasts our user.message event to the open stream
   // concurrently with the POST response — when the SSE frame is read first, a
   // boundary gated on isPosted() is dropped forever (replays only happen at
@@ -893,6 +925,25 @@ describe('background content-script registry', () => {
     expect(mockTabsQuery).not.toHaveBeenCalled();
   });
 
+  it('routes a page-scoped change only to tabs on that page', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/p' }, 7);
+    dispatch({ type: 'tabRegister', page: 'https://e.com/q' }, 8);
+    mockAddClip.mockResolvedValue({ id: 'n', text: 's', pageUrl: 'https://e.com/p' });
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await until(() => mockTabsSend.mock.calls.length === 1);
+    expect(mockTabsSend).toHaveBeenCalledWith(7, { type: 'clipsChanged', page: 'https://e.com/p' });
+    expect(mockTabsSend).not.toHaveBeenCalledWith(8, expect.anything());
+  });
+
+  it('does not fall back to all tabs when no registered tab matches the page', async () => {
+    dispatch({ type: 'tabRegister', page: 'https://e.com/q' }, 8);
+    mockAddClip.mockResolvedValue({ id: 'n', text: 's', pageUrl: 'https://e.com/p' });
+    dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockTabsQuery).not.toHaveBeenCalled();
+    expect(mockTabsSend).not.toHaveBeenCalled();
+  });
+
   it('empty registry falls back to the full tabs.query broadcast', async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }, { id: 2 }]);
     dispatch({ type: 'clipAdd', clip: { text: 's' } }, 7);
@@ -1020,4 +1071,3 @@ describe('background commands', () => {
     expect(mockTabsQuery).not.toHaveBeenCalled();
   });
 });
-

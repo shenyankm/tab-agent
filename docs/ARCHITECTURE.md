@@ -92,7 +92,7 @@ flowchart LR
 
 - 扩展用 `?event_deltas%5B%5D=agent.message` 订阅消息增量（**方括号必须 percent-encode**：字面 `[]` 会让流静默挂起整回合，2026-08-05 线上抓帧实锤）。增量帧（`event_start`/`event_delta`）之后有**同 id 的权威 buffered `agent.message`**，消费端按 `event_id` 去重；`user.message` 只有 buffered 事件，为回合边界（最后一条胜出）。[协议细节](https://docs.qoder.com/zh/cloud-agents/events-stream)
 - `heartbeat` 约每 15s 一次保活，`parseSSE` 按无 data 帧丢弃。
-- 流重连时会**重放历史事件**（支持 `Last-Event-ID`）—— 这就是 background 里 `isPosted()` 闸门存在的原因：扩展不传 Last-Event-ID，每次开流都从头重放，必须丢掉本回合 POST 之前的事件。
+- 流重连时支持 `Last-Event-ID`。扩展把最近完成回合的事件游标按会话持久化，下一轮从游标之后开始读取；首次安装、游标丢失或会话切换时仍依赖 background 里的 `isPosted()` 闸门丢弃 POST 之前的事件。
 - Agent 在环境沙箱内执行工具；上传文件挂载到 `/data/input/` 后，Agent 用自己的 Read/Bash 工具读取。
 
 ### 本项目实例配置
@@ -190,6 +190,7 @@ flowchart LR
 | `pat` / `agentId` / `envId` / `vaultId` | Qoder 凭证 |
 | `reportSent` | 日报去重标记：已发起总结的会话归属日（YYYY-MM-DD） |
 | `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建并触发旧会话自总结（v3→v4 为按日轮换，值由 id 字符串改为对象） |
+| `eventCursor.v1` | SSE 事件游标，值 `{sessionId, eventId}`：下一轮请求通过 `Last-Event-ID` 跳过已消费的历史事件 |
 
 **摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 

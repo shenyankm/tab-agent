@@ -9,10 +9,14 @@ import { today } from '@/lib/usage'; // 会话缓存按日轮换
 
 // 每日会话的 storage 读缓存(SW 存活期内有效):handleChat 每次提问不再读盘
 let sessionCache: { id: string; day: string } | null = null;
+type EventCursor = { sessionId: string; eventId: string };
+let eventCursor: EventCursor | null = null;
+const EVENT_CURSOR_KEY = 'local:eventCursor.v1' as const;
 
 /** Test-only: clear the in-memory session cache between test cases. */
 export function resetSessionCacheForTests() {
   sessionCache = null;
+  eventCursor = null;
 }
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
@@ -112,6 +116,8 @@ async function streamReply(
   send: (msg: ChatOut) => void,
   /** true once our user.message POST has succeeded — gates the turn's events */
   isPosted: () => boolean,
+  lastEventId?: string,
+  onEventId?: (id: string) => void,
   onIdle?: () => void,
 ) {
   // delta subscription — the brackets MUST be percent-encoded: literal `[]` in
@@ -119,7 +125,10 @@ async function streamReply(
   // %5B%5D streams event_start/event_delta per docs (live capture 2026-08-05).
   // The buffered agent.message copy (same id) follows the deltas — deduped below.
   const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas%5B%5D=agent.message`, {
-    headers: { Accept: 'text/event-stream' },
+    headers: {
+      Accept: 'text/event-stream',
+      ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
+    },
     signal,
     timeout: false, // long-lived by design; the 90s read watchdog below guards it
   });
@@ -160,7 +169,7 @@ async function streamReply(
       buffer = frames.rest;
 
       // one read() often carries several frames; coalesce so the UI re-renders once per read
-      let text = '';
+      const textParts: string[] = [];
       for (const data of frames.data) {
         let payload;
         try {
@@ -168,6 +177,8 @@ async function streamReply(
         } catch {
           continue;
         }
+        const eventId = payload.id ?? payload.event_id ?? payload.event?.id;
+        if (typeof eventId === 'string') onEventId?.(eventId);
         // buffered events only: data is the event itself {id, type, content?}.
         // user.message is the turn boundary, last one wins (the log is ordered:
         // replay precedes our message). No isPosted condition on it: the broadcast
@@ -183,24 +194,27 @@ async function streamReply(
             seenDeltaIds.add(payload.event_id);
             if (payload.event_id !== lastDeltaId) {
               lastDeltaId = payload.event_id;
-              if (text || sentAny) text += '\n\n'; // new message in the same turn
+              if (textParts.length || sentAny) textParts.push('\n\n'); // new message in the same turn
             }
           }
-          text += payload.delta.content.text;
+          textParts.push(payload.delta.content.text);
         } else if (payload.type === 'agent.message' && userMsgId && isPosted() && Array.isArray(payload.content) && !seenDeltaIds.has(payload.id)) {
           // buffered authoritative copy — fallback when deltas never streamed
           const msg = payload.content
             .map((b: any) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : ''))
             .join('');
-          if (msg) text += (text || sentAny ? '\n\n' : '') + msg;
+          if (msg) {
+            if (textParts.length || sentAny) textParts.push('\n\n');
+            textParts.push(msg);
+          }
         } else if (payload.type === 'session.status_idle' && userMsgId && isPosted()) {
-          if (text) send({ type: 'delta', text });
+          if (textParts.length) send({ type: 'delta', text: textParts.join('') });
           send({ type: 'done' });
           return;
         }
       }
-      if (text) {
-        send({ type: 'delta', text });
+      if (textParts.length) {
+        send({ type: 'delta', text: textParts.join('') });
         sentAny = true;
       }
     }
@@ -211,6 +225,7 @@ async function streamReply(
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', onAbort);
+    await reader.cancel().catch(() => {});
   }
 }
 
@@ -245,8 +260,13 @@ export async function handleChat(
   // SW 存活期内的内存副本:连续提问不重复读 storage;SW 重启后首次提问回填。
   let cached = sessionCache;
   if (!cached) {
-    cached = (await storage.getItem<{ id: string; day: string }>(sessionKey)) ?? null;
+    const [storedSession, storedCursor] = await Promise.all([
+      storage.getItem<{ id: string; day: string }>(sessionKey),
+      storage.getItem<EventCursor>(EVENT_CURSOR_KEY),
+    ]);
+    cached = storedSession ?? null;
     sessionCache = cached;
+    eventCursor = storedCursor ?? null;
   }
   let sessionId = cached?.day === today() ? cached.id : '';
 
@@ -285,6 +305,7 @@ export async function handleChat(
   // one turn = open stream first (no missed events), then post; false = session gone
   const tryTurn = async (sid: string) => {
     let posted = false;
+    let turnEventId = eventCursor?.sessionId === sid ? eventCursor.eventId : undefined;
     const turn = new AbortController();
     const turnSignal = AbortSignal.any([signal, turn.signal]); // Chrome 116+
     try {
@@ -299,7 +320,16 @@ export async function handleChat(
       }
       let idleResolve!: () => void;
       let onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
-      const streaming = streamReply(pat, sid, turnSignal, send, () => posted, () => idleResolve());
+      const streaming = streamReply(
+        pat,
+        sid,
+        turnSignal,
+        send,
+        () => posted,
+        turnEventId,
+        (id) => { turnEventId = id; },
+        () => idleResolve(),
+      );
       // pre-await rejections (dead-session 404, failure-path abort) must not fire
       // unhandledrejection; `await streaming` below still surfaces the error
       streaming.catch(() => {});
@@ -321,6 +351,10 @@ export async function handleChat(
       if (!res.ok) throw new Error(`send message: HTTP ${res.status}`);
       posted = true;
       await streaming;
+      if (turnEventId) {
+        eventCursor = { sessionId: sid, eventId: turnEventId };
+        void storage.setItem(EVENT_CURSOR_KEY, eventCursor).catch(() => {});
+      }
       onTurnDone?.(today()); // 回复完成日落盘：会话归属跟着最后回复走
       if (sessionCache) sessionCache = { ...sessionCache, day: today() }; // 内存副本同步
       return true;
