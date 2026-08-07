@@ -4,14 +4,13 @@ import { Separator } from '@/components/ui/separator';
 import { RadioDropdown } from '@/components/radio-dropdown';
 import { useI18n, langLabels, dict } from '@/lib/i18n';
 import { useStorageValue } from '@/lib/utils';
-import { themeItem, patItem, agentIdItem, envIdItem, vaultIdItem, highlightColorItem } from '@/lib/settings';
+import { themeItem, patItem, agentIdItem, envIdItem, highlightColorItem } from '@/lib/settings';
 
 // Connection/API-key fields: i18n key, storage item, placeholder
 const connFields = [
   ['pat', patItem, 'pt-...'],
   ['agentId', agentIdItem, 'agent_...'],
   ['envId', envIdItem, 'env_...'],
-  ['vaultId', vaultIdItem, 'vault_...'],
 ] as const;
 
 export default function SettingsPage() {

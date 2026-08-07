@@ -16,7 +16,7 @@ export default function PrivacyPage() {
         <li>{t('settings.pet')}</li>
         <li>{t('settings.pageCarry')}</li>
         <li>{t('nav.clips')} / {t('settings.clipHighlight')}</li>
-        <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')} / {t('settings.vaultId')}</li>
+        <li>{t('settings.pat')} / {t('settings.agentId')} / {t('settings.envId')}</li>
       </ul>
 
       <h3 className="mt-8 scroll-m-20 text-xl font-semibold tracking-tight">{t('privacy.network.title')}</h3>
