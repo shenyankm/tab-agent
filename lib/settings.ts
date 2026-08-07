@@ -24,9 +24,6 @@ export const pageCarryItem = storage.defineItem<PageCarry>('local:pageCarry', { 
 export const patItem = storage.defineItem<string>('local:pat', { fallback: '' });
 export const agentIdItem = storage.defineItem<string>('local:agentId', { fallback: '' });
 export const envIdItem = storage.defineItem<string>('local:envId', { fallback: '' });
-export const vaultIdItem = storage.defineItem<string>('local:vaultId', { fallback: '' });
-// 日报去重标记：记录已发起总结的会话归属日（YYYY-MM-DD），跨天触发时先写后发
-export const reportSentItem = storage.defineItem<string>('local:reportSent', { fallback: '' });
 
 export const isDark = (theme: Theme) =>
   theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);

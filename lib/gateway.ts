@@ -3,7 +3,7 @@
 // handleChat/keepalive are exported for the background entrypoint (port handler),
 // ChatOut/PageContext for its payload typing; api/createSession/uploadFile/
 // postUserMessage/streamReply stay module-private.
-import { GATEWAY, patItem, agentIdItem, envIdItem, vaultIdItem, reportSentItem } from '@/lib/settings';
+import { GATEWAY, patItem, agentIdItem, envIdItem } from '@/lib/settings';
 import { parseSSE } from '@/lib/sse';
 import { today } from '@/lib/usage'; // 会话缓存按日轮换
 
@@ -56,7 +56,6 @@ async function createSession(
   pat: string,
   agentId: string,
   envId: string,
-  vaultId: string,
   signal?: AbortSignal,
 ) {
   const res = await api(pat, '/sessions', {
@@ -67,7 +66,6 @@ async function createSession(
       environment_id: envId,
       // 标题带日期：云端会话列表里能辨认每天轮换的新会话
       title: `Tab Agent ${today()}`,
-      ...(vaultId ? { vault_ids: [vaultId] } : {}),
     }),
   });
   if (!res.ok) throw new Error(`create session: HTTP ${res.status}`);
@@ -242,11 +240,10 @@ export async function handleChat(
   /** Fires once per completed turn with the reply's finish day (YYYY-MM-DD). */
   onTurnDone?: (day: string) => void,
 ): Promise<void> {
-  const [pat, agentId, envId, vaultId] = await Promise.all([
+  const [pat, agentId, envId] = await Promise.all([
     patItem.getValue(),
     agentIdItem.getValue(),
     envIdItem.getValue(),
-    vaultIdItem.getValue(),
   ]);
   if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
@@ -271,14 +268,6 @@ export async function handleChat(
     eventCursor = storedCursor ?? null;
   }
   let sessionId = cached?.day === today() ? cached.id : '';
-
-  // 跨天且旧会话存在：先让旧会话自总结（上下文即当日完整对话记录，
-  // Agent 侧 notion MCP 写日报），fire-and-forget，失败仅留痕不阻断新会话。
-  if (cached && cached.day !== today() && (await reportSentItem.getValue()) !== cached.day) {
-    await reportSentItem.setValue(cached.day); // 先落标记：失败不重复发，宁缺勿滥
-    void summarizeSession(pat, cached.id, cached.day)
-      .catch((e) => console.error('[tab-agent] daily report:', e));
-  }
 
   // upload happens once; mounting is per-session, so it happens inside tryTurn
   let mount: Mount | null = null;
@@ -367,7 +356,7 @@ export async function handleChat(
 
   if (!sessionId || !(await tryTurn(sessionId))) {
     // no cached session or it expired: create a fresh one and retry once
-    sessionId = await createSession(pat, agentId, envId, vaultId, signal);
+    sessionId = await createSession(pat, agentId, envId, signal);
     const fresh = { id: sessionId, day: today() };
     sessionCache = fresh;
     await storage.setItem(sessionKey, fresh);
@@ -375,15 +364,4 @@ export async function handleChat(
   }
 }
 
-/** 跨天时让旧会话自总结：只发消息不等回复（总结写 Notion 由云端 Agent 完成）。
- *  复用 409 自愈：旧会话若有回合在跑，cancel 后等 idle 再发，最多 2 次。 */
-async function summarizeSession(pat: string, sessionId: string, day: string): Promise<void> {
-  const text = `请总结本次会话中 ${day} 的全部对话，撰写一份简明的中文日报，并用 notion MCP 工具在你被配置写入的 Notion 数据库中新建页面，标题为"Tab Agent 日报 ${day}"。`;
-  let res = await postUserMessage(pat, sessionId, text);
-  for (let i = 0; i < 2 && res.status === 409; i++) {
-    await api(pat, `/sessions/${sessionId}/cancel`, { method: 'POST' });
-    await new Promise((r) => setTimeout(r, 2000)); // cancel→idle 是异步的，给云端一点收敛时间
-    res = await postUserMessage(pat, sessionId, text);
-  }
-  if (!res.ok) throw new Error(`daily report: HTTP ${res.status}`);
-}
+
