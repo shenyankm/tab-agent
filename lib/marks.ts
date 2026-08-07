@@ -22,6 +22,11 @@ export function restyleMarks(color: HighlightColor) {
 }
 
 export function showClip(clip: Clip, scroll = true): boolean {
+  const oldFade = fadeTimers.get(clip.id);
+  if (oldFade) {
+    clearTimeout(oldFade);
+    fadeTimers.delete(clip.id);
+  }
   let marks = markByClip.get(clip.id);
   // SPA 导航后旧 mark 已失连：先清残留再重建，避免嵌套
   if (!marks?.length || !marks.every((el) => el.isConnected)) {
@@ -43,11 +48,13 @@ export function showClip(clip: Clip, scroll = true): boolean {
     // highlighting off = locate-only: flash the marks, then fade them out
     clipHighlightItem.getValue().then((on) => {
       if (on) return;
-      clearTimeout(fadeTimers.get(clip.id));
-      fadeTimers.set(clip.id, setTimeout(() => {
+      const shownMarks = marks!;
+      const timer = setTimeout(() => {
+        if (fadeTimers.get(clip.id) !== timer || markByClip.get(clip.id) !== shownMarks) return;
         fadeTimers.delete(clip.id);
-        if (markByClip.delete(clip.id)) unhighlightClip(marks); // already-gone marks no-op
-      }, 3000));
+        if (markByClip.delete(clip.id)) unhighlightClip(shownMarks); // already-gone marks no-op
+      }, 3000);
+      fadeTimers.set(clip.id, timer);
     }).catch(() => { /* invalidated context */ });
   }
   return true;
@@ -76,8 +83,8 @@ export const commitDraft = async (draft: ClipDraft) => {
  *  否则（宠物关闭、UI 未挂载）直接保存，保持旧行为。 */
 export function saveClipDraft(draft: ClipDraft) {
   if (editorMounted) draftEvents.dispatchEvent(new CustomEvent('draft', { detail: draft }));
-  // 无 UI 反馈面的直存路径:写入失败(上下文失效/IDB 错误)只能静默
-  else void commitDraft(draft).catch(() => {});
+  // 无 UI 反馈面的直存路径:写入失败(上下文失效/IDB 错误)只能留痕
+  else void commitDraft(draft).catch((e) => console.warn('[tab-agent] draft save failed:', e));
 }
 
 /** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */

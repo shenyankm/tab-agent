@@ -22,12 +22,14 @@ export function useStorageValue<T>(
     // version guards the race where a watch callback lands before the initial read
     // resolves — a stale getValue result must not overwrite the newer watched value
     let version = 0;
+    let active = true;
     // getValue rejects for proxied items once the extension context is invalidated
     // (reload/update) — swallow instead of flooding the page console
     item.getValue()
-      .then((v) => { if (version === 0) setValue(v); })
+      .then((v) => { if (active && version === 0) setValue(v); })
       .catch(() => {});
-    return item.watch((v) => { version++; setValue(v); });
+    const unwatch = item.watch((v) => { if (active) { version++; setValue(v); } });
+    return () => { active = false; unwatch(); };
   }, [item]);
   return value;
 }
@@ -50,7 +52,13 @@ export function onPageNav(cb: () => void): () => void {
   }
   window.addEventListener('popstate', fire);
   window.addEventListener('hashchange', fire);
+  // Firefox content scripts cannot observe page-world pushState from the
+  // isolated world. Poll only on that fallback path; Chrome uses navigation API.
+  // ponytail: one-second polling, replace with a page-world bridge only if this
+  // becomes visibly stale or too expensive.
+  const timer = window.setInterval(fire, 1000);
   return () => {
+    window.clearInterval(timer);
     window.removeEventListener('popstate', fire);
     window.removeEventListener('hashchange', fire);
   };

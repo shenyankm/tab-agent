@@ -226,6 +226,23 @@ describe('FloatingAgent', () => {
     });
   });
 
+  it('omits page metadata when page context is disabled', async () => {
+    mockCarryGet.mockResolvedValue('none');
+    render(<FloatingAgent />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
+
+    const input = await screen.findByPlaceholderText('Ask about this page…');
+    fireEvent.change(input, { target: { value: 'no context' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(portRef.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: 'no context',
+        page: undefined,
+      }));
+    });
+  });
+
   it('appends streamed delta text to agent bubble', async () => {
     render(<FloatingAgent />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open Tab Agent' }));
@@ -289,6 +306,21 @@ describe('FloatingAgent', () => {
       notes: ['note one', 'note two'],
     }));
     await waitFor(() => expect(screen.queryByText('Edit before saving')).not.toBeInTheDocument());
+  });
+
+  it('keeps the draft editor open when saving fails', async () => {
+    vi.mocked(addClip).mockRejectedValue(new Error('idb down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<FloatingAgent />);
+    await screen.findByRole('button', { name: 'Open Tab Agent' });
+
+    act(() => saveClipDraft({ url: 'http://localhost/', pageUrl: 'http://localhost/', title: 'Page', text: 'selected words' }));
+    expect(await screen.findByText('Edit before saving')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.getByText('Edit before saving')).toBeInTheDocument());
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('pre-fills a translate prompt from the page selection', async () => {

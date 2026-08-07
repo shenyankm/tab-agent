@@ -54,7 +54,7 @@ export default defineContentScript({
             title: document.title,
             text,
           }),
-        ).catch(() => {});
+        ).catch((e) => console.warn('[tab-agent] saveClip failed:', e));
       }
       // 整页剪藏:Readability 正文(失败回退 innerText)截短存进 text,
       // 供列表/分类使用;无 fragment,不高亮(与裸 URL clip 语义一致)
@@ -65,7 +65,7 @@ export default defineContentScript({
           pageUrl: location.href,
           title: document.title,
           text: pageText().slice(0, 500),
-        })).catch(() => { /* 写入失败(上下文失效/IDB 错误):菜单动作无反馈面 */ });
+        })).catch((e) => { console.warn('[tab-agent] saveClipPage failed:', e); /* 菜单动作无反馈面,留痕即可 */ });
       }
       // 图片剪藏也走页面侧:location.href/document.title 无需权限——background 读
       // tab.url/title 需要 broad "tabs" 权限(带"浏览历史"安装警告),least privilege
@@ -78,7 +78,7 @@ export default defineContentScript({
           title: document.title,
           text: (typeof msg.altText === 'string' && msg.altText) || img?.alt || msg.srcUrl,
           imageSrc: msg.srcUrl,
-        }).catch(() => { /* 同上:无反馈面,静默失败 */ });
+        }).catch((e) => console.warn('[tab-agent] saveClipImage failed:', e));
       }
     };
     browser.runtime.onMessage.addListener(onMessage);
@@ -147,7 +147,7 @@ export default defineContentScript({
 
     // 跨页跳转落地（options/面板回退打开的 #tab-agent-clip=id）：走 showClip 同一条
     // 定位+滚动路径，高亮开关关闭时照常 3s 淡出；消费后清 hash，刷新不重闪
-    const navClip = location.hash.match(/^#tab-agent-clip=(.+)/)?.[1];
+    const navClip = location.hash.match(/^#(?:tab-agent|pixel-agent)-clip=(.+)/)?.[1];
     // 启动时只有高亮开启或需要落地某条摘录时才读取本页数据。
     // 高亮关闭且没有导航目标时，普通网页不再为摘录支付一次 IPC/IDB 查询。
     const initial = clipHighlightItem.getValue()
