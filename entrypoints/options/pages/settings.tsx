@@ -32,8 +32,10 @@ export default function SettingsPage() {
     <>
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.language')}</span>
+          <label htmlFor="settings-language" className="shrink-0 text-sm font-medium">{t('settings.language')}</label>
           <RadioDropdown
+            id="settings-language"
+            aria-label={t('settings.language')}
             value={lang}
             onChange={setLang}
             options={Object.entries(langLabels) as [typeof lang, string][]}
@@ -41,11 +43,13 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.theme')}</span>
+          <label htmlFor="settings-theme" className="shrink-0 text-sm font-medium">{t('settings.theme')}</label>
           <RadioDropdown
+            id="settings-theme"
+            aria-label={t('settings.theme')}
             value={theme}
             // initTheme() watcher applies it everywhere
-            onChange={(v) => themeItem.setValue(v)}
+            onChange={(v) => { void themeItem.setValue(v).catch(() => {}); }}
             options={[
               ['system', t('theme.system')],
               ['dark', t('theme.dark')],
@@ -55,11 +59,13 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="shrink-0 text-sm font-medium">{t('settings.highlightColor')}</span>
+          <label htmlFor="settings-highlight-color" className="shrink-0 text-sm font-medium">{t('settings.highlightColor')}</label>
           <RadioDropdown
+            id="settings-highlight-color"
+            aria-label={t('settings.highlightColor')}
             value={highlightColor}
             // content.tsx watcher restyles live marks on open tabs
-            onChange={(v) => highlightColorItem.setValue(v)}
+            onChange={(v) => { void highlightColorItem.setValue(v).catch(() => {}); }}
             options={[
               ['yellow', t('hlcolor.yellow')],
               ['purple', t('hlcolor.purple')],
@@ -75,8 +81,9 @@ export default function SettingsPage() {
       <div className="flex flex-col gap-4">
         {connFields.map(([key, item, placeholder]) => (
           <div key={key} className="flex items-center justify-between gap-4">
-            <span className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</span>
+            <label htmlFor={`settings-${key}`} className="shrink-0 text-sm font-medium">{t(`settings.${key}`)}</label>
             <Input
+              id={`settings-${key}`}
               value={conn[key] ?? ''}
               onChange={(e) => setConn((c) => ({ ...c, [key]: e.target.value }))}
               onBlur={() => item.setValue((conn[key] ?? '').trim()).catch(() => { /* storage 写失败:内存中的输入值保留,下次 blur 重试 */ })}

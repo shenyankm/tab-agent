@@ -11,13 +11,13 @@ const { mockPermRequest, mockPermContains, mockPermRemove, mockCarrySet, carryRe
 }));
 
 vi.mock('@/lib/settings', () => ({
-  petEnabledItem: { getValue: () => Promise.resolve(true), watch: () => () => {}, setValue: vi.fn() },
+  petEnabledItem: { getValue: () => Promise.resolve(true), watch: () => () => {}, setValue: vi.fn().mockResolvedValue(undefined) },
   pageCarryItem: {
     getValue: () => Promise.resolve(carryRef.current),
     watch: () => () => {},
-    setValue: (v: string) => mockCarrySet(v),
+    setValue: (v: string) => { mockCarrySet(v); return Promise.resolve(); },
   },
-  clipHighlightItem: { getValue: () => Promise.resolve(true), watch: () => () => {}, setValue: vi.fn() },
+  clipHighlightItem: { getValue: () => Promise.resolve(true), watch: () => () => {}, setValue: vi.fn().mockResolvedValue(undefined) },
 }));
 
 // t() returns the key: assertions read the raw keys

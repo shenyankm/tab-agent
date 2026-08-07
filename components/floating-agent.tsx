@@ -1,7 +1,8 @@
 import ReactDOM from 'react-dom/client';
-import { Component, useEffect, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { useI18n } from '@/lib/i18n';
 import { contentDict } from '@/lib/i18n-content';
 import { cn, useStorageValue } from '@/lib/utils';
@@ -11,19 +12,6 @@ import { draftEvents, setEditorMounted, type ClipDraft } from '@/lib/marks';
 import { Mascot, type AgentState } from '@/components/agent/Mascot';
 import { ChatPanel, type ChatMessage } from '@/components/agent/ChatPanel';
 import { ClipDraftEditor } from '@/components/agent/ClipDraftEditor';
-
-// render-error boundary: a crash inside FloatingAgent (markdown parser, etc.) must
-// not white-screen the Shadow UI — show a minimal fallback instead of nothing
-class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
-  state = { crashed: false };
-  static getDerivedStateFromError() { return { crashed: true }; }
-  componentDidCatch(err: unknown) { console.error('[tab-agent] render:', err); }
-  render() {
-    if (this.state.crashed)
-      return <div style={{ padding: 16, fontSize: 13 }}>Tab Agent encountered an error. Reload the page to retry.</div>;
-    return this.props.children;
-  }
-}
 
 // content.tsx 动态 import 的挂载入口:createRoot 在此模块内,React 全家桶
 // 留在动态块,不随主包进每个页面
@@ -237,8 +225,9 @@ export function FloatingAgent() {
       text: message,
       // 'screenshot' is captured by the background (content scripts can't)
       screenshot: carry === 'screenshot' || undefined,
-      // page context so the cloud agent can actually see the current page
-      page: {
+      // None means no URL/title either; otherwise the setting still leaks page
+      // metadata even though the article text is omitted.
+      page: carry === 'none' ? undefined : {
         url: location.href,
         title: document.title,
         // pageText() 缓存的已是 20k 截断形态(page-text.ts),无需再切
@@ -304,7 +293,7 @@ export function FloatingAgent() {
     });
     dragPosRef.current = null;
     setPos(c); // one commit: panel side/maxHeight recompute on this render
-    petPosItem.setValue(c);
+    void Promise.resolve(petPosItem.setValue(c)).catch(() => {});
   };
 
   // open the panel toward the roomier half of the viewport so it never gets clipped

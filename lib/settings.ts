@@ -34,9 +34,9 @@ export const isDark = (theme: Theme) =>
 /** Apply the saved theme on startup and keep every open page in sync. */
 export function initTheme() {
   const apply = (theme: Theme) => document.documentElement.classList.toggle('dark', isDark(theme));
-  themeItem.getValue().then(apply);
+  themeItem.getValue().then(apply).catch(() => {});
   themeItem.watch(apply);
   // follow OS light/dark flips while a page is open when the user picked "system"
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () =>
-    themeItem.getValue().then(apply));
+    themeItem.getValue().then(apply).catch(() => {}));
 }

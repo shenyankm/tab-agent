@@ -75,6 +75,7 @@ const en = {
     'clips.editNote': 'Notes',
     'clips.empty': 'No clips yet. Select text on a page and right-click to save.',
     'clips.opFailed': 'Operation failed. Please try again.',
+    'clips.loadFailed': 'Failed to load clips. Please try again.',
     'theme.system': 'Follow Device',
     'theme.dark': 'Dark',
     'theme.light': 'Light',
@@ -151,6 +152,7 @@ export const dict = {
     'clips.editNote': '备注',
     'clips.empty': '还没有摘录。在网页上选中文字，右键即可保存。',
     'clips.opFailed': '操作失败，请重试。',
+    'clips.loadFailed': '摘录加载失败，请重试。',
     'theme.system': '跟随设备',
     'theme.dark': '深色模式',
     'theme.light': '浅色模式',
@@ -223,6 +225,7 @@ export const dict = {
     'clips.editNote': '備註',
     'clips.empty': '還沒有摘錄。在網頁上選取文字，按右鍵即可儲存。',
     'clips.opFailed': '操作失敗，請重試。',
+    'clips.loadFailed': '摘錄載入失敗，請重試。',
     'theme.system': '跟隨裝置',
     'theme.dark': '深色模式',
     'theme.light': '淺色模式',
@@ -295,6 +298,7 @@ export const dict = {
     'clips.editNote': 'メモ',
     'clips.empty': 'クリップはまだありません。ページ上でテキストを選択し、右クリックで保存できます。',
     'clips.opFailed': '操作に失敗しました。もう一度お試しください。',
+    'clips.loadFailed': 'クリップの読み込みに失敗しました。もう一度お試しください。',
     'theme.system': 'デバイスに合わせる',
     'theme.dark': 'ダークモード',
     'theme.light': 'ライトモード',
@@ -331,5 +335,5 @@ export function useI18n(dicts: Record<Lang, Record<string, string>>) {
     return s;
   }, [lang, dicts]);
 
-  return { lang, setLang: (l: Lang) => langItem.setValue(l), t };
+  return { lang, setLang: (l: Lang) => langItem.setValue(l).catch(() => {}), t };
 }

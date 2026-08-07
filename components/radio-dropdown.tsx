@@ -6,14 +6,23 @@ export function RadioDropdown<T extends string>({
   onChange,
   options,
   className,
+  id,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: [value: T, label: string][];
   className?: string;
+  id?: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
 }) {
   return (
     <select
+      id={id}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
       value={value}
       onChange={(event) => onChange(event.target.value as T)}
       className={cn(

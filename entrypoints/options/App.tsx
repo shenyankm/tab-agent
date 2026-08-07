@@ -1,5 +1,6 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { useI18n, dict } from '@/lib/i18n';
 
 // every tab page lazy-loads: popup modulepreloads the shared popup/options chunk,
@@ -8,6 +9,16 @@ import { useI18n, dict } from '@/lib/i18n';
 const SettingsPage = lazy(() => import('./pages/settings'));
 const ClipsPage = lazy(() => import('./pages/clips'));
 const PrivacyPage = lazy(() => import('./pages/privacy'));
+
+// boundary sits OUTSIDE Suspense so a rejected lazy chunk load is caught too;
+// per-page: a crash in one tab keeps the others navigable
+const LazyPage = ({ children }: { children: ReactNode }) => (
+  <ErrorBoundary>
+    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+      {children}
+    </Suspense>
+  </ErrorBoundary>
+);
 
 type Tab = 'settings' | 'clips' | 'privacy';
 
@@ -35,13 +46,13 @@ function App() {
         </TabsList>
 
         <TabsContent value="settings" className="w-full">
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><SettingsPage /></Suspense>
+          <LazyPage><SettingsPage /></LazyPage>
         </TabsContent>
         <TabsContent value="clips" className="w-full">
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><ClipsPage /></Suspense>
+          <LazyPage><ClipsPage /></LazyPage>
         </TabsContent>
         <TabsContent value="privacy" className="w-full">
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><PrivacyPage /></Suspense>
+          <LazyPage><PrivacyPage /></LazyPage>
         </TabsContent>
       </Tabs>
     </div>
