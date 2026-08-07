@@ -196,7 +196,7 @@ flowchart LR
 | `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建并触发旧会话自总结（v3→v4 为按日轮换，值由 id 字符串改为对象） |
 | `eventCursor.v1` | SSE 事件游标，值 `{sessionId, eventId}`：下一轮请求通过 `Last-Event-ID` 跳过已消费的历史事件 |
 
-**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
+**摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。首次从 0.4.x（旧库名 `pixel-agent`）升级时，扩展 origin 会将旧库中不存在于新库的记录迁入后删除旧库；新安装不创建旧库。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 
 - **读写分离**：background 是唯一写者。所有写操作（`addClip`/`removeClip`/`updateClip`，不分 origin）都走 `runtime.sendMessage`（`clipAdd`/`clipDel`/`clipUpdate`）由 background 经 `*Direct` 系列写库；读操作分 origin——扩展 origin（options）经 `getClipsDirect` 直接读，content script 的按页 item 走 `clipsGetForPage` 消息（`pageUrl` 索引，O(本页) 而非全表扫描）。background `onMessage` 用 `return true` 保持异步通道，并统一回 `{ok:true,data}` / `{ok:false,error}` 信封，避免 direct 操作 reject 时发送方永久挂起。`updateClipDirect` 对来自页面消息的 patch 做白名单 + 类型校验（id 是 keyPath，不校验可整体覆盖另一条记录）。
 - **变更同步**：写库后 background 双通道广播 `{type:'clipsChanged'}`——`tabs.sendMessage` 到所有 tab 的 content script（watcher 收到后只重拉本页摘录，幂等），`runtime.sendMessage` 到 options 等扩展页（`tabs.sendMessage` 到不了扩展页）。按页 item 保持与 WXT storage item 同形的 `getValue`/`watch`，消费方经 `useStorageValue` 无感切换。
@@ -212,7 +212,7 @@ flowchart LR
 - 雪碧图 `mascot-expressions.webp` 经 `web_accessible_resources` 暴露，三个表情帧靠 transform 裁切。
 - 宠物关闭 = 完全不挂载 React（省每页运行时与堆）；挂载/卸载串行在一条 promise 链上，快速开关不竞态。代价是关闭即中断进行中的回答、重开后聊天记录重置——与「关闭宠物」的用户意图一致。
 - 摘录高亮重放走 `requestIdleCallback` 逐条切片（大页不阻塞首帧）；开关切换用 generation 计数作废在途回调，避免关闭后残留回调重新加 `<mark>`。
-- SPA 同文档导航（pushState/replaceState/popstate）：`onPageNav`（lib/utils.ts，Chrome navigation API，Firefox 降级 popstate/hashchange——isolated world patch 不到页面世界的 pushState）触发重锚：清旧页 mark、作废在途回调、按新 URL 重放；面板 ClipList 同样按 URL 变化重订阅。
+- SPA 同文档导航（pushState/replaceState/popstate）：`onPageNav`（lib/utils.ts，Chrome 使用 navigation API，Firefox 监听 popstate/hashchange 并以低频轮询补齐 page-world pushState——isolated world 无法直接 patch 它）触发重锚：清旧页 mark、作废在途回调、按新 URL 重放；面板 ClipList 同样按 URL 变化重订阅。
 - 所有监听（message/highlight watch/nav/pet watch）经 `ctx.onInvalidated` 统一注销——生产与页面同生命周期无泄漏，dev HMR 下防止脚本失效重跑叠加监听。
 
 ## 8. 权限与安全
