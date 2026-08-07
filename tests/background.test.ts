@@ -163,13 +163,6 @@ async function until(pred: () => boolean, ms = 2000) {
   }
 }
 
-// until() polls via setTimeout, which fake timers freeze — this variant polls via
-// microtask yields instead, so it keeps working while vi.useFakeTimers() is active
-async function untilFake(pred: () => boolean) {
-  for (let i = 0; i < 200 && !pred(); i++) await Promise.resolve();
-  if (!pred()) throw new Error('timeout waiting for condition');
-}
-
 function sseStream(frames: string[]) {
   const text = frames.map((f) => `data: ${f}\n\n`).join('');
   return new ReadableStream({
@@ -698,7 +691,7 @@ describe('background shared daily session', () => {
 
   // fetch mock that serves any cached session and records which session ids get used
   function stubChatFetch(sessionsUsed: string[]) {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, _init?: RequestInit) => {
       const url = String(_url);
       const sid = url.match(/sessions\/([^/]+)\//)?.[1];
       if (sid) sessionsUsed.push(sid);

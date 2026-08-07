@@ -11,6 +11,12 @@ import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gat
 const contentTabs = new Map<number, string>();
 browser.tabs.onRemoved.addListener((tabId) => { contentTabs.delete(tabId); });
 
+const isPageContext = (value: unknown): value is PageContext => {
+  if (!value || typeof value !== 'object') return false;
+  const page = value as Record<string, unknown>;
+  return typeof page.url === 'string' && typeof page.title === 'string' && typeof page.text === 'string';
+};
+
 /** Test-only: clear the content-script registry between test cases. */
 export function clearContentTabsForTests() {
   contentTabs.clear();
@@ -51,7 +57,7 @@ function fanOutClipsChanged(page?: string) {
     });
   } else if (!targets) {
     void browser.tabs.query({}).then((tabs) => {
-      for (const tab of tabs) if (tab.id) deliver(tab.id);
+      for (const tab of tabs) if (tab.id) deliver(tab.id).catch(() => {});
     }).catch(() => {});
   }
   // runtime.sendMessage reaches extension pages (options) but not content scripts;
@@ -114,8 +120,8 @@ export default defineBackground(() => {
         addClipDirect({
           kind: 'image', url: srcUrl, pageUrl: srcUrl, title: '',
           text: altText || srcUrl, imageSrc: srcUrl,
-        }).then((clip) => fanOutClipsChanged(clip.pageUrl)).catch(() => {
-          /* write failed; menu click has no surface to report on */
+        }).then((clip) => fanOutClipsChanged(clip.pageUrl)).catch((e) => {
+          console.warn('[tab-agent] degraded image save failed:', e); // 菜单点击无反馈面,留痕即可
         }),
       );
     }
@@ -142,14 +148,19 @@ export default defineBackground(() => {
     if ((msg as { type?: string })?.type === 'tabRegister') {
       const page = (msg as { page?: string })?.page;
       if (sender.tab?.id) {
-        if (page) contentTabs.set(sender.tab.id, page);
+        if (typeof page === 'string' && page) contentTabs.set(sender.tab.id, page);
         else contentTabs.delete(sender.tab.id);
       }
       return;
     }
     const ok = (data: unknown) => sendResponse({ ok: true, data });
-    const fail = (e: unknown, code?: string) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e), code });
     const req = msg as Request;
+    const fail = (e: unknown, code?: string) => {
+      // 'invalid' = client bug, rejected by design; anything else is a real runtime
+      // failure (IDB/network) — leave a trace in the SW console, the sender may swallow it
+      if (code !== 'invalid') console.warn('[tab-agent] request failed:', req.type, e);
+      sendResponse({ ok: false, error: String((e as Error)?.message ?? e), code });
+    };
     if (req?.type === 'clipsGet') {
       getClipsDirect().then(ok, fail);
       return true;
@@ -187,6 +198,10 @@ export default defineBackground(() => {
       return true;
     }
     if (req?.type === 'clipDel') {
+      if (typeof req.id !== 'string' || !req.id) {
+        fail(new Error('invalid clip id'), 'invalid');
+        return true;
+      }
       removeClipDirect(req.id).then((page) => {
         fanOutClipsChanged(page);
         ok(undefined);
@@ -194,6 +209,10 @@ export default defineBackground(() => {
       return true;
     }
     if (req?.type === 'clipUpdate') {
+      if (typeof req.id !== 'string' || !req.id || !req.patch || typeof req.patch !== 'object') {
+        fail(new Error('invalid clip update'), 'invalid');
+        return true;
+      }
       updateClipDirect(req.id, req.patch).then((page) => {
         fanOutClipsChanged(page);
         ok(undefined);
@@ -206,10 +225,13 @@ export default defineBackground(() => {
     if (port.name !== 'chat') return;
     const abort = new AbortController();
     port.onDisconnect.addListener(() => abort.abort());
-    port.onMessage.addListener((msg: { text: string; page?: PageContext; screenshot?: boolean }) => {
+    port.onMessage.addListener((msg: unknown) => {
       // port payloads are untrusted-ish (own content scripts today, but cheap to
       // guard): a non-string text would crash handleChat far from the cause
-      if (typeof msg?.text !== 'string' || !msg.text) return;
+      if (!msg || typeof msg !== 'object') return;
+      const payload = msg as Record<string, unknown>;
+      if (typeof payload.text !== 'string' || !payload.text) return;
+      const page = isPageContext(payload.page) ? payload.page : undefined;
       const send = (out: ChatOut) => {
         try {
           port.postMessage(out);
@@ -219,7 +241,7 @@ export default defineBackground(() => {
       };
       // a screenshot turn (tool call + thinking) can stream nothing for that long
       const ping = keepalive();
-      handleChat(msg.text, msg.page, !!msg.screenshot, abort.signal, send, {
+      handleChat(payload.text, page, payload.screenshot === true, abort.signal, send, {
         windowId: port.sender?.tab?.windowId,
       }, (day) => {
         // 回复完成日落进会话缓存：跨午夜回合（23:56 发、00:12 答完）仍属旧会话，

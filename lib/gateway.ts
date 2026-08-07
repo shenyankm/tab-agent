@@ -171,9 +171,11 @@ async function streamReply(
       // one read() often carries several frames; coalesce so the UI re-renders once per read
       const textParts: string[] = [];
       for (const data of frames.data) {
-        let payload;
+        let payload: Record<string, any>;
         try {
-          payload = JSON.parse(data);
+          const parsed: unknown = JSON.parse(data);
+          if (!parsed || typeof parsed !== 'object') continue;
+          payload = parsed as Record<string, any>;
         } catch {
           continue;
         }
