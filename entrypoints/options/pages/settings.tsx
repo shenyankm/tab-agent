@@ -21,13 +21,11 @@ export default function SettingsPage() {
   const { lang, setLang, t } = useI18n(dict);
 
   useEffect(() => {
-    connFields.forEach(([key, item]) => {
-      // 不 watch 是有意的:另一个标签页的改动不应覆盖这里正在输入的值;
-      // invalidated-context 的 rejection 非致命,吞掉即可(与 useStorageValue 同款)
-      item.getValue()
-        .then((v) => setConn((c) => ({ ...c, [key]: v })))
-        .catch(() => {});
-    });
+    // 不 watch 是有意的:另一个标签页的改动不应覆盖这里正在输入的值;
+    // 一次性提交也避免四个配置项分别触发渲染。
+    Promise.all(connFields.map(async ([key, item]) => [key, await item.getValue()] as const))
+      .then((values) => setConn(Object.fromEntries(values)))
+      .catch(() => {});
   }, []);
 
   return (

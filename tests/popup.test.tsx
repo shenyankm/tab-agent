@@ -39,12 +39,11 @@ vi.mock('wxt/browser', () => ({
 
 import App from '@/entrypoints/popup/App';
 
-// open the carry dropdown (starts from `from`, the 'article' default) and pick an option
+// native select: change the value directly instead of opening a custom menu
 async function pickCarry(label: string, from = 'carry.article') {
-  const trigger = await screen.findByRole('button', { name: from });
-  fireEvent.pointerDown(trigger, { button: 0 });
-  fireEvent.click(trigger);
-  fireEvent.click(await screen.findByRole('menuitemradio', { name: label }));
+  const select = await screen.findByRole('combobox');
+  expect(select).toHaveValue(from.replace('carry.', ''));
+  fireEvent.change(select, { target: { value: label.replace('carry.', '') } });
 }
 
 describe('popup screenshot permission flow', () => {
@@ -75,7 +74,7 @@ describe('popup screenshot permission flow', () => {
     await act(async () => {}); // let the denied continuation settle
     expect(mockCarrySet).not.toHaveBeenCalled();
     // the dropdown still shows the old value
-    expect(screen.getByRole('button', { name: 'carry.article' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('article');
   });
 
   it('corrects a stored screenshot carry on mount when the grant was revoked', async () => {

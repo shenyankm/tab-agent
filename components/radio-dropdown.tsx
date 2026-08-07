@@ -1,14 +1,6 @@
-import { ChevronDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 
-/** Label button + radio dropdown, shared by the popup/options setting rows. */
+/** Native select shared by the popup/options setting rows. */
 export function RadioDropdown<T extends string>({
   value,
   onChange,
@@ -21,20 +13,15 @@ export function RadioDropdown<T extends string>({
   className?: string;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={className}>
-          {options.find(([v]) => v === value)?.[1] ?? value}
-          <ChevronDown className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as T)}>
-          {options.map(([v, label]) => (
-            <DropdownMenuRadioItem key={v} value={v}>{label}</DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as T)}
+      className={cn(
+        'h-8 min-w-24 rounded border-2 bg-input px-3 py-1 text-sm shadow-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+        className,
+      )}
+    >
+      {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+    </select>
   );
 }

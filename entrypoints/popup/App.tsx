@@ -20,13 +20,12 @@ function App() {
   // the <all_urls> grant can be revoked outside the popup (chrome://settings):
   // don't keep offering a "screenshot" mode the extension can no longer perform
   useEffect(() => {
+    if (carry !== 'screenshot') return;
     void browser.permissions.contains(ALL_URLS).then((granted) => {
       if (granted) return;
-      void pageCarryItem.getValue().then((v) => {
-        if (v === 'screenshot') void pageCarryItem.setValue('article');
-      });
+      void pageCarryItem.setValue('article');
     });
-  }, []);
+  }, [carry]);
 
   // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep
   // old choice. Least privilege both ways: switching away releases the grant.
