@@ -2,7 +2,7 @@
 // the options Clips page. Lives outside the page module on purpose:
 // lazy-loaded pages importing it from the clips module pulled other page
 // component trees (AlertDialog, DropdownMenu…) into the first chunk that loaded.
-import { useI18n, dict } from '@/lib/i18n';
+import { useFullI18n } from '@/lib/i18n-full';
 
 // category color palette — deterministic by category name; deliberately NOT theme
 // tokens: these are data-viz hues that must stay distinguishable in both themes
@@ -15,7 +15,7 @@ export function CategoryChips({ cats, selected, onToggle }: {
   selected: string | null;
   onToggle: (cat: string | null) => void;
 }) {
-  const { t } = useI18n(dict);
+  const { t } = useFullI18n();
   return (
     <div className="flex flex-wrap gap-1">
       <button

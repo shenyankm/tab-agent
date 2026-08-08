@@ -16,8 +16,19 @@ vi.mock('wxt/utils/storage', () => ({
   },
 }));
 
-import { useI18n, dict, type I18nKey } from '@/lib/i18n';
+import { useI18n, type Lang, type I18nKey } from '@/lib/i18n';
+import en from '@/lib/i18n/en';
+import zhCN from '@/lib/i18n/zh-CN';
+import zhTW from '@/lib/i18n/zh-TW';
+import ja from '@/lib/i18n/ja';
 import { contentDict } from '@/lib/i18n-content';
+
+const dict: Record<Lang, Record<I18nKey, string>> = {
+  en,
+  'zh-CN': zhCN,
+  'zh-TW': zhTW,
+  ja,
+};
 
 // key 缺失由 lib/i18n.ts 的 satisfies 类型在 tsc 阶段报错,这里只查 tsc 管不到的占位符
 describe('dict placeholders', () => {
@@ -98,5 +109,16 @@ describe('useI18n t()', () => {
     await waitFor(() => expect(result.current.t('settings.language' as I18nKey)).toBe('settings.language'));
     // …and a present key resolves normally
     await waitFor(() => expect(result.current.t('widget.greeting')).toBe('Hi! What would you like to know about this page?'));
+  });
+});
+
+describe('useFullI18n lazy packs', () => {
+  it('loads the zh-TW pack on demand (fallback first, then re-render)', async () => {
+    mockGetValue.mockResolvedValue('zh-TW');
+    const { useFullI18n } = await import('@/lib/i18n-full');
+    const { result } = renderHook(() => useFullI18n());
+    // 加载完成后必须给出 zh-TW 文案(顯示語言 ≠ zh-CN 的 显示语言,
+    // 能区分“包已落地”与“默认语言兜底”)
+    await waitFor(() => expect(result.current.t('settings.language')).toBe('顯示語言'));
   });
 });

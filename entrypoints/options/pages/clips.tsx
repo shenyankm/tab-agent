@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { CategoryChips } from '@/components/category-chips';
-import { useI18n, dict } from '@/lib/i18n';
+import { useFullI18n } from '@/lib/i18n-full';
 import { parseNoteLines } from '@/lib/utils';
 import { CLIPS_CHANGED } from '@/lib/messages';
 import {
@@ -37,7 +37,7 @@ import {
 const PAGE_SIZE = 10;
 
 export default function ClipsPage() {
-  const { t } = useI18n(dict);
+  const { t } = useFullI18n();
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'time' | 'site'>('time');
   const [page, setPage] = useState(1);

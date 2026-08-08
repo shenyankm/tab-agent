@@ -1,7 +1,7 @@
-import { useI18n, dict } from '@/lib/i18n';
+import { useFullI18n } from '@/lib/i18n-full';
 
 export default function PrivacyPage() {
-  const { t } = useI18n(dict);
+  const { t } = useFullI18n();
   // RetroUI typography: utility-class recipes, not an installable component
   return (
     <>

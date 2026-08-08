@@ -1,7 +1,20 @@
-import { dict, langItem, DEFAULT_LANG, type Lang, type I18nKey } from '@/lib/i18n';
+import { langItem, DEFAULT_LANG, type Lang, type I18nKey } from '@/lib/i18n';
+import enDict from '@/lib/i18n/en';
+import zhCNDict from '@/lib/i18n/zh-CN';
+import zhTWDict from '@/lib/i18n/zh-TW';
+import jaDict from '@/lib/i18n/ja';
+
+// background 是 IIFE,动态 import 会被内联——直接静态引全量(菜单在启动路径上)
+const dict: Record<Lang, Record<string, string>> = {
+  en: enDict,
+  'zh-CN': zhCNDict,
+  'zh-TW': zhTWDict,
+  ja: jaDict,
+};
 import { getClipsDirect, getClipsForPageDirect, addClipDirect, removeClipDirect, updateClipDirect, type Clip } from '@/lib/clips-store';
 import { CLIPS_CHANGED, type Request } from '@/lib/messages';
 import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gateway';
+import type { ScriptPublicPath } from 'wxt/utils/inject-script';
 
 // content script 注册表(tabId → normalized pageUrl):fanOut 只向注册 tab 广播,
 // 免掉全量 tabs.query + 对无 content 脚本的 tab(chrome://、PDF 等)的无效 IPC。

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { RadioDropdown } from '@/components/radio-dropdown';
-import { useI18n, langLabels, dict } from '@/lib/i18n';
+import { langLabels } from '@/lib/i18n';
+import { useFullI18n } from '@/lib/i18n-full';
 import { useStorageValue } from '@/lib/utils';
 import { themeItem, patItem, agentIdItem, envIdItem, highlightColorItem } from '@/lib/settings';
 
@@ -17,7 +18,7 @@ export default function SettingsPage() {
   const theme = useStorageValue(themeItem, 'system');
   const highlightColor = useStorageValue(highlightColorItem, 'yellow');
   const [conn, setConn] = useState<Record<string, string>>({});
-  const { lang, setLang, t } = useI18n(dict);
+  const { lang, setLang, t } = useFullI18n();
 
   useEffect(() => {
     // 不 watch 是有意的:另一个标签页的改动不应覆盖这里正在输入的值;
