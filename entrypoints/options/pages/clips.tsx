@@ -26,8 +26,8 @@ import { parseNoteLines } from '@/lib/utils';
 import { CLIPS_CHANGED } from '@/lib/messages';
 import {
   getClipCategoriesDirect,
-  getClipsDirect,
   getClipsPageDirect,
+  searchClipsDirect,
   removeClip,
   updateClip,
   clipNavUrl,
@@ -54,7 +54,8 @@ export default function ClipsPage() {
   const [loadError, setLoadError] = useState('');
 
   const q = useDeferredValue(query.trim().toLowerCase());
-  // Search/category filters need the full set; the normal view only reads one IDB page.
+  // Search/category filters stream through IDB (searchClipsDirect); the normal
+  // view only reads one IDB page. Either way the full table never enters memory.
   const needsFull = !!q || !!cat;
   const pageKey = needsFull ? 0 : page;
 
@@ -71,7 +72,8 @@ export default function ClipsPage() {
       setLoadError('');
       try {
         if (needsFull) {
-          const clips = await getClipsDirect();
+          // IDB 侧流式过滤:只回命中行;q 是 deferred 值,每次击键最多一次扫表
+          const clips = await searchClipsDirect({ q, category: cat });
           if (alive && current === request) {
             setAllClips(clips);
             setTotal(clips.length);
@@ -104,7 +106,7 @@ export default function ClipsPage() {
       alive = false;
       browser.runtime.onMessage.removeListener(onChanged);
     };
-  }, [needsFull, pageKey]);
+  }, [needsFull, pageKey, q, cat]);
 
   useEffect(() => {
     let alive = true;
@@ -127,14 +129,8 @@ export default function ClipsPage() {
   }, []);
 
   const clips = needsFull ? allClips ?? [] : pageClips;
-  const shown = useMemo(
-    () => q
-      ? clips.filter((c) => [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q)))
-      : clips,
-    [clips, q],
-  );
-  // category filter composes with search; site view groups the same filtered set
-  const filtered = useMemo(() => (cat ? shown.filter((c) => c.category === cat) : shown), [shown, cat]);
+  // 搜索(q)与分类(cat)已在 IDB 侧过滤完毕,无需客户端二次过滤
+  const filtered = clips;
 
   // Normal mode gets its total from IDB; filtered mode derives it from the full set.
   const pages = Math.max(1, Math.ceil((needsFull ? filtered.length : total) / PAGE_SIZE));

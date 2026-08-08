@@ -10,6 +10,7 @@ import {
   getClipCategoriesDirect,
   getClipsForPageDirect,
   addClipDirect,
+  searchClipsDirect,
   removeClipDirect,
   updateClipDirect,
   updateClipsDirect,
@@ -195,6 +196,23 @@ describe('clip storage (extension origin)', () => {
     await addClipDirect({ url: 'https://c', pageUrl: 'https://c', title: 'C', text: 'c', category: 'z' });
 
     expect(await getClipCategoriesDirect()).toEqual(['a', 'z']);
+  });
+
+  it('searchClipsDirect filters by substring/category newest-first', async () => {
+    await addClipDirect({ url: 'https://a', pageUrl: 'https://a', title: 'Alpha', text: 'hello world', category: 'x', tags: ['t1'] });
+    await addClipDirect({ url: 'https://b', pageUrl: 'https://b', title: 'Beta', text: 'world peace', category: 'y', tags: ['hello-tag'] });
+    await addClipDirect({ url: 'https://c', pageUrl: 'https://c', title: 'Gamma', text: 'nothing alike', category: 'x' });
+
+    // 子串命中 text/title/pageUrl/tags 任一字段,大小写不敏感,最新在前
+    expect((await searchClipsDirect({ q: 'HELLO' })).map((c) => c.title)).toEqual(['Beta', 'Alpha']);
+    expect((await searchClipsDirect({ q: 'gamma' })).map((c) => c.title)).toEqual(['Gamma']);
+    expect((await searchClipsDirect({ q: 'https://b' })).map((c) => c.title)).toEqual(['Beta']);
+    // 分类过滤及其与子串的组合
+    expect((await searchClipsDirect({ category: 'x' })).map((c) => c.title)).toEqual(['Gamma', 'Alpha']);
+    expect((await searchClipsDirect({ q: 'hello', category: 'x' })).map((c) => c.title)).toEqual(['Alpha']);
+    // 无过滤条件 = newest-first 全量;无命中 = 空
+    expect((await searchClipsDirect({})).map((c) => c.title)).toEqual(['Gamma', 'Beta', 'Alpha']);
+    expect(await searchClipsDirect({ q: 'nonexistent' })).toEqual([]);
   });
 
   it('normalizes tracking params on save', async () => {

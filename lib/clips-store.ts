@@ -184,7 +184,7 @@ export async function getClipsPageDirect(offset: number, limit: number): Promise
   const clips: Clip[] = [];
   const skip = Math.max(0, Math.floor(offset));
   const take = Math.max(1, Math.floor(limit));
-  let skipped = 0;
+  let skipped = false;
   const cursorDone = new Promise<void>((resolve, reject) => {
     const request = index.openCursor(null, 'prev');
     request.onerror = () => reject(request.error);
@@ -194,9 +194,13 @@ export async function getClipsPageDirect(offset: number, limit: number): Promise
         resolve();
         return;
       }
-      if (skipped++ < skip) {
-        cursor.continue();
-        return;
+      // offset 一次跳到位:逐条 continue 是 O(offset) 次 onsuccess 往返,深翻页时拖慢选项页
+      if (!skipped) {
+        skipped = true;
+        if (skip > 0) {
+          cursor.advance(skip);
+          return;
+        }
       }
       clips.push(cursor.value as Clip);
       if (clips.length < take) cursor.continue();
@@ -239,6 +243,36 @@ export async function getClipsForPageDirect(page: string): Promise<Clip[]> {
     db.transaction(STORE).objectStore(STORE).index('pageUrl').getAll(normalizeUrl(page)),
   );
   return clips.sort((a, b) => b.createdAt - a.createdAt); // newest first
+}
+
+/** 搜索/分类过滤:cursor 流式扫描,只有命中行落地,避免 getAll 把整表
+ *  (含 20KB/条的 text)拷进 UI 内存。IDB 无全文索引,子串匹配只能扫表——
+ *  但扫描可以不落地。过滤语义与 options 摘录页的原客户端过滤一致。 */
+export async function searchClipsDirect(filter: { q?: string; category?: string | null }): Promise<Clip[]> {
+  const q = filter.q?.trim().toLowerCase();
+  const category = filter.category ?? undefined;
+  const db = await openDB();
+  const tx = db.transaction(STORE);
+  const clips: Clip[] = []; // createdAt 索引 prev 序即 newest-first
+  const cursorDone = new Promise<void>((resolve, reject) => {
+    const request = tx.objectStore(STORE).index('createdAt').openCursor(null, 'prev');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const c = cursor.value as Clip;
+      const hitQ = !q || [c.text, c.title, c.pageUrl, ...(c.tags ?? [])].some((v) => v.toLowerCase().includes(q));
+      const hitCat = !category || c.category === category;
+      if (hitQ && hitCat) clips.push(c);
+      cursor.continue();
+    };
+  });
+  const done = txDone(tx);
+  await Promise.all([cursorDone, done]);
+  return clips;
 }
 
 // a selection can be the whole page (Ctrl+A): cap it so megabytes don't land in
