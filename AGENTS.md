@@ -26,7 +26,8 @@ Chrome MV3 browser extension built with **WXT** (Vite-based framework) + **React
 
 WXT auto-registers entrypoints by file convention:
 - `background.ts` — service worker entry (listeners/wiring only), uses `defineBackground()`; network layer in `lib/gateway.ts`, runtime-message protocol (typed Request + `sendRequest`) in `lib/messages.ts`
-- `content.tsx` — content script, uses `defineContentScript()` with `matches`; its UI composition layer lives in `components/floating-agent.tsx` with presentational parts in `components/agent/`
+- `content.tsx` — content script main bundle (~32KB; orchestration only), uses `defineContentScript()` with `matches`; its UI composition layer lives in `components/floating-agent.tsx` with presentational parts in `components/agent/`
+- `agent-ui.ts` / `agent-marks.ts` / `agent-pagetext.ts` — on-demand chunks (React UI / text-fragments highlighting / Readability). Loaded via `lib/lazy.ts`: background injects them with `scripting.executeScript` into the same isolated world, each registers itself on the `globalThis.__tabAgentBridge` registry; shared cross-chunk singletons live on `globalThis` (`lib/draft-bus.ts`)
 - `popup/` — browser action popup (React SPA: `index.html` → `main.tsx` → `App.tsx`)
 - `options/` — options page (same SPA layout; tab pages in `options/pages/`, lazy-loaded)
 

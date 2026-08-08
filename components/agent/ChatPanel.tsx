@@ -9,8 +9,8 @@ import {
 import { Input } from '@/components/ui/input';
 import type { I18nKey } from '@/lib/i18n';
 import { Markdown } from '@/lib/markdown';
-import { clipsPageItem, clipNavUrl, normalizeUrl } from '@/lib/clips-store';
-import { showClip } from '@/lib/marks';
+import { clipsPageItem, clipNavUrl, normalizeUrl, type Clip } from '@/lib/clips-store';
+import { loadMarksChunk } from '@/lib/lazy';
 import { cn, onPageNav, useStorageValue } from '@/lib/utils';
 
 export type ChatMessage = { role: 'user' | 'agent'; text: string; at?: number };
@@ -49,7 +49,16 @@ const AgentBubble = memo(function AgentBubble({ msg, thinking, status }: { msg: 
 
 // clips saved on this page (hash-insensitive match); clicking jumps in-page to the
 // re-marked text — new-tab navigation only as fallback when the text is gone.
-// 订阅挂在列表自身:面板/页签没打开时不随 clipsChanged 全量重读
+// 订阅挂在列表自身:面板/页签没打开时不随 clipsChanged 全量重读。
+// showClip 在 marks chunk 里(polyfill 不进 UI chunk):点击时才注入,失败回退新标签页
+const jumpToClip = (clip: Clip) => {
+  void loadMarksChunk()
+    .then(({ marks }) => {
+      if (!marks.showClip(clip)) window.open(clipNavUrl(clip));
+    })
+    .catch(() => window.open(clipNavUrl(clip)));
+};
+
 function ClipList({ t }: { t: (key: I18nKey) => string }) {
   // re-anchor to the new pageUrl after SPA same-document navigations
   const [page, setPage] = useState(() => normalizeUrl(location.href));
@@ -64,7 +73,7 @@ function ClipList({ t }: { t: (key: I18nKey) => string }) {
       key={clip.id}
       type="button"
       className="min-w-0 cursor-pointer text-left"
-      onClick={() => showClip(clip) || window.open(clipNavUrl(clip))}
+      onClick={() => jumpToClip(clip)}
       title={clip.text}
     >
       <span className="line-clamp-2 text-sm">{clip.text}</span>

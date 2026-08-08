@@ -16,9 +16,9 @@ const sharedChunk = () =>
 
 describe('bundle size', () => {
   // skipped when unbuilt (local `pnpm test` runs without `wxt build`); CI builds first
-  // 354KB since the react-markdown→lib/markdown swap; keep headroom for growth
-  it.skipIf(!existsSync(contentJs))('content.js stays under 400 KB', () => {
-    expect(readFileSync(contentJs).length / 1024).toBeLessThan(400);
+  // 拆包后(agent-*.js 按需注入)主包只剩桥接/存储/设置:32KB;留足余量
+  it.skipIf(!existsSync(contentJs))('content.js stays under 100 KB', () => {
+    expect(readFileSync(contentJs).length / 1024).toBeLessThan(100);
   });
 
   // 全量 i18n dict 是 popup/options/background 的;content 只用 contentDict 子集。
@@ -29,8 +29,8 @@ describe('bundle size', () => {
     expect(src.includes('privacy.promise')).toBe(false); // en privacy key
   });
 
-  it.skipIf(!existsSync(contentCss))('content.css stays under 40 KB', () => {
-    expect(readFileSync(contentCss).length / 1024).toBeLessThan(40);
+  it.skipIf(!existsSync(contentCss))('content.css stays under 30 KB', () => {
+    expect(readFileSync(contentCss).length / 1024).toBeLessThan(30);
   });
 
   it.skipIf(!existsSync(backgroundJs))('background.js stays under 50 KB', () => {

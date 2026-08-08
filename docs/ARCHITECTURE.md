@@ -17,8 +17,11 @@
 
 ```
 entrypoints/
-  background.ts    # Service worker 入口注册：右键菜单 + 快捷键 + clips 消息/Port 编排（网络层在 lib/gateway.ts）
-  content.tsx      # 内容脚本：悬浮宠物 + 聊天面板（Shadow DOM）+ 摘录高亮
+  background.ts    # Service worker 入口注册：右键菜单 + 快捷键 + clips 消息/Port 编排（网络层在 lib/gateway.ts）+ 懒加载 chunk 注入
+  content.tsx      # 内容脚本主包（~32KB）：注册表/高亮编排/摘录消息处理，重组件全部走按需 chunk
+  agent-ui.ts      # 按需 chunk：悬浮代理 UI（React 全家桶 + 聊天面板，仅宠物开启时注入）
+  agent-marks.ts   # 按需 chunk：摘录定位/高亮（text-fragments-polyfill，仅重放/落地/保存时注入）
+  agent-pagetext.ts # 按需 chunk：Readability 正文提取（仅聊天携带正文/整页剪藏时注入）
   popup/           # 浏览器动作弹窗：宠物/摘录高亮开关 + 携带页面 + 打开设置
   options/         # 设置页（独立标签页）：Settings / Clips / Privacy 三页签（pages/，均 React.lazy 懒加载）
 lib/
@@ -26,11 +29,13 @@ lib/
   settings.ts      # 配置类持久化项（storage.defineItem）+ 主题工具
   sse.ts           # 纯函数 SSE 帧解析器（无 WXT 依赖）
   messages.ts      # runtime 消息协议：类型化 Request + sendRequest（content/options → background），Reply 信封仅模块内使用
+  lazy.ts          # 懒加载 chunk 桥：sendRequest('chunkLoad') → background executeScript 注入 → globalThis 桥取模块
+  draft-bus.ts     # 划词草稿事件总线（globalThis 单例，主包与各 chunk 共享）+ commitDraft/saveClipDraft
   clips-store.ts   # 摘录存储：IndexedDB + 消息门面 + URL 归一（无 DOM 依赖，background/options 引它）
   clips-highlight.ts # 摘录高亮：text-fragment 生成/解析 + <mark> 包裹（text-fragments-polyfill，仅 content script）
   usage.ts         # 日期工具：本地时区 YYYY-MM-DD（会话按日轮换）
   page-text.ts     # 页面正文提取（Readability 封装 + 缓存，失败回退 innerText）
-  marks.ts         # 摘录定位/高亮/淡出 + 划词草稿事件（content script 侧）
+  marks.ts         # 摘录定位/高亮/淡出（content script 侧；批量重放 showClips 走共享全文索引）
   markdown.tsx     # 自写极简 Markdown 渲染器（直接产出 React 元素，天然转义，无 innerHTML）
   i18n.ts          # 多语言（不用 browser.i18n：需设置页运行时切语言 + 菜单标题实时跟随，_locales 只跟随浏览器语言）
   i18n-content.ts  # content script 文案子集（避免 4 语言全量 dict 随 content bundle 进每个页面，tests/i18n.test.ts 断言与 i18n.ts 同步）
@@ -142,7 +147,7 @@ flowchart LR
 
 `lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、可自愈」。会话为**每日共享**：所有 tab 同一天共用同一云端会话（缓存键 `sessionId.v4`，值 `{id, day}`），归属以**最后一条回复的完成日**为准——跨午夜回合（23:56 发、00:12 答完）仍属旧会话，done 时把 day 刷成完成日；下一条消息发现 day 不符才重建当日新会话（session 标题带日期）。已知代价：共享会话下 tab B 的 409-cancel 会截断 tab A 进行中的回合（单用户轻聊可接受）。
 
-1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` 可选权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
+1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` host 权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas%5B%5D=agent.message`），后发消息 —— 保证不错过任何 delta。
 3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取纯文本，失败回退 innerText，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白的云端浏览器）。
 4. 流内以最后一条 buffered `user.message` 为回合边界（**不设 posted 条件**：事件广播与 POST 响应并发到达，带条件的边界帧若被丢弃不会重放，整回合静默）；`isPosted()` 闸门过滤 POST 返回前重放的旧回合 delta / idle 事件。
@@ -206,7 +211,7 @@ flowchart LR
 
 ## 8. 权限与安全
 
-- manifest 权限：`storage` + `contextMenus`（右键保存摘录：选区/整页/图片三个菜单）+ host `https://api.qoder.com/*`；截图所需 `<all_urls>` 为 `optional_host_permissions`，用户在 popup 选「截图」的点击手势内才申请。`minimum_chrome_version: '116'`（`AbortSignal.any` 需要）；不用 `tabs` 权限（带「浏览历史」安装警告）——图片剪藏改走 content script 读 `location.href`/`document.title`。
+- manifest 权限：`storage` + `contextMenus`（右键保存摘录：选区/整页/图片三个菜单）+ `scripting`（按需注入懒加载 chunk）+ host `https://api.qoder.com/*` 与 `<all_urls>`（executeScript 注入的前提，截图复用；与 content script 全页注入的安装警告文案相同）；`minimum_chrome_version: '116'`（`AbortSignal.any` 需要）；不用 `tabs` 权限（带「浏览历史」安装警告）——图片剪藏改走 content script 读 `location.href`/`document.title`。
 - 消息面防御：`clipUpdate` patch 白名单 + 类型校验（`sanitizePatch`），`clipAdd` 载荷宽松校验（`text` 必填、其余字段存在即查型），Port 消息要求 `text` 为字符串——页面消息不可信，脏类型入库会击穿下游渲染。
 - `commands` 声明 `save_clip`（默认 `Alt+Shift+S`，可在 `chrome://extensions/shortcuts` 改键）：复用右键菜单同一条 content script 保存路径，无需额外权限。
 - 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。

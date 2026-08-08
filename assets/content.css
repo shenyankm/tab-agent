@@ -1,4 +1,15 @@
-@import "tailwindcss";
+/* content.css 只服务 Shadow UI:关掉全仓库自动扫描,只扫浮动代理用到的文件,
+ * 否则 popup/options 专用组件(alert-dialog/dropdown-menu/tabs/switch…)的类
+ * 全部打进每个页面都要注入的这份 CSS。新增 content 侧组件记得补 @source。 */
+@import "tailwindcss" source(none);
+@source "../components/floating-agent.tsx";
+@source "../components/error-boundary.tsx";
+@source "../components/agent";
+@source "../components/ui/button.tsx";
+@source "../components/ui/card.tsx";
+@source "../components/ui/input.tsx";
+@source "../components/ui/textarea.tsx";
+@source "../lib/markdown.tsx";
 @import "./theme.css";
 
 :host,

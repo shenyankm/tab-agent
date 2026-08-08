@@ -7,8 +7,8 @@ import { useI18n } from '@/lib/i18n';
 import { contentDict } from '@/lib/i18n-content';
 import { cn, useStorageValue } from '@/lib/utils';
 import { themeItem, petEnabledItem, petPosItem, pageCarryItem, isDark } from '@/lib/settings';
-import { pageText } from '@/lib/page-text';
-import { draftEvents, setEditorMounted, type ClipDraft } from '@/lib/marks';
+import { loadPageTextChunk } from '@/lib/lazy';
+import { draftEvents, setEditorMounted, type ClipDraft } from '@/lib/draft-bus';
 import { Mascot, type AgentState } from '@/components/agent/Mascot';
 import { ChatPanel, type ChatMessage } from '@/components/agent/ChatPanel';
 import { ClipDraftEditor } from '@/components/agent/ClipDraftEditor';
@@ -109,21 +109,25 @@ export function FloatingAgent() {
     if (open && selRef.current) setQuery(t('widget.translate', { text: selRef.current }));
   }, [open]);
 
-  // warm the page-text cache at idle while the user types — the Readability pass
-  // (full-DOM clone) must not run on the click path of the first question
+  // warm the page-text chunk + its cache at idle while the user types — the
+  // Readability pass (full-DOM clone) must not run on the click path of the first question
   useEffect(() => {
     if (!open || carry !== 'article') return;
     // jsdom (tests) lacks requestIdleCallback
     const ric = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1) as unknown as number);
     const cic = window.cancelIdleCallback ?? clearTimeout;
-    const id = ric(() => pageText());
+    const id = ric(() => {
+      void loadPageTextChunk().then(({ pageText }) => pageText()).catch(() => { /* invalidated context */ });
+    });
     return () => cic(id);
   }, [open, carry]);
 
-  // keep the newest message in view
+  // keep the newest message in view — but only when already near the bottom:
+  // writing scrollTop forces layout every streamed frame, and yanking the
+  // scrollbar away from a user reading history is worse anyway
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   useEffect(() => () => {
@@ -221,19 +225,35 @@ export function FloatingAgent() {
       setState('done');
       setSrStatus(t('widget.error.disconnected'));
     });
-    port.postMessage({
-      text: message,
-      // 'screenshot' is captured by the background (content scripts can't)
-      screenshot: carry === 'screenshot' || undefined,
-      // None means no URL/title either; otherwise the setting still leaks page
-      // metadata even though the article text is omitted.
-      page: carry === 'none' ? undefined : {
-        url: location.href,
-        title: document.title,
-        // pageText() 缓存的已是 20k 截断形态(page-text.ts),无需再切
-        text: carry === 'article' ? pageText() : '',
-      },
-    });
+    // 正文提取走 pagetext chunk(Readability 不随 UI chunk):首次提问时才注入,
+    // idle 预热已覆盖常见路径,这里只兜底;加载失败降级为不带正文
+    void (async () => {
+      let text = '';
+      if (carry === 'article') {
+        text = await loadPageTextChunk()
+          .then((m) => m.pageText())
+          .catch(() => '');
+      }
+      // 异步期间用户已重发(旧 port 被 disconnect):这条消息属于被取消的旧回合
+      if (portRef.current !== port) return;
+      try {
+        port.postMessage({
+          text: message,
+          // 'screenshot' is captured by the background (content scripts can't)
+          screenshot: carry === 'screenshot' || undefined,
+          // None means no URL/title either; otherwise the setting still leaks page
+          // metadata even though the article text is omitted.
+          page: carry === 'none' ? undefined : {
+            url: location.href,
+            title: document.title,
+            // pageText() 缓存的已是 20k 截断形态(page-text.ts),无需再切
+            text,
+          },
+        });
+      } catch {
+        /* port closed */
+      }
+    })();
   };
 
   const submit = (event: FormEvent) => {

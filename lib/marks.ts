@@ -1,5 +1,5 @@
-import { addClip, type Clip } from '@/lib/clips-store';
-import { highlightClip, unhighlightClip } from '@/lib/clips-highlight';
+import { type Clip } from '@/lib/clips-store';
+import { highlightClip, highlightClipFast, unhighlightClip } from '@/lib/clips-highlight';
 import { clipHighlightItem, highlightColorItem, HIGHLIGHT_COLORS, type HighlightColor } from '@/lib/settings';
 
 // clip id → its <mark>s: re-clicks scroll to the existing marks instead of nesting
@@ -15,6 +15,17 @@ const paint = (marks: Element[], color: HighlightColor) => {
   for (const m of marks) if (m.tagName !== 'IMG') (m as HTMLElement).style.backgroundColor = bg;
 };
 
+const applyColor = (marks: Element[]) => {
+  if (currentColor) paint(marks, currentColor);
+  else {
+    // 新建 mark 补上选中的高亮色;读取失败(上下文失效)保持浏览器默认黄
+    highlightColorItem.getValue().then((c) => {
+      currentColor = c;
+      paint(marks, c);
+    }).catch(() => {});
+  }
+};
+
 /** 高亮色变更后给在页 mark 补色(content.tsx watch 调用) */
 export function restyleMarks(color: HighlightColor) {
   currentColor = color;
@@ -28,20 +39,13 @@ export function showClip(clip: Clip, scroll = true): boolean {
     fadeTimers.delete(clip.id);
   }
   let marks = markByClip.get(clip.id);
-  // SPA 导航后旧 mark 已失连：先清残留再重建，避免嵌套
+  // SPA 导航后旧 mark 已失连:先清残留再重建,避免嵌套
   if (!marks?.length || !marks.every((el) => el.isConnected)) {
     if (marks?.length) unhighlightClip(marks);
     marks = highlightClip(clip);
     if (!marks.length) return false;
     markByClip.set(clip.id, marks);
-    if (currentColor) paint(marks, currentColor);
-    else {
-      // 新建 mark 补上选中的高亮色;读取失败(上下文失效)保持浏览器默认黄
-      highlightColorItem.getValue().then((c) => {
-        currentColor = c;
-        paint(marks!, c);
-      }).catch(() => {});
-    }
+    applyColor(marks);
   }
   if (scroll) {
     marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -60,31 +64,24 @@ export function showClip(clip: Clip, scroll = true): boolean {
   return true;
 }
 
-export type ClipDraft = Omit<Clip, 'id' | 'createdAt'>;
-
-const draftEvents = new EventTarget();
-let editorMounted = false;
-
-export { draftEvents };
-
-// the floating editor flips this on mount/unmount (ES-module bindings are read-only
-// to importers, so the write goes through a setter)
-export function setEditorMounted(mounted: boolean) {
-  editorMounted = mounted;
-}
-
-export const commitDraft = async (draft: ClipDraft) => {
-  const clip = await addClip(draft);
-  // mark right away as save feedback, unless highlighting is switched off
-  if (await clipHighlightItem.getValue()) showClip(clip, false);
-};
-
-/** 划词保存入口（content.tsx 调用）：编辑卡片在挂载就弹出卡片编辑后再入库，
- *  否则（宠物关闭、UI 未挂载）直接保存，保持旧行为。 */
-export function saveClipDraft(draft: ClipDraft) {
-  if (editorMounted) draftEvents.dispatchEvent(new CustomEvent('draft', { detail: draft }));
-  // 无 UI 反馈面的直存路径:写入失败(上下文失效/IDB 错误)只能留痕
-  else void commitDraft(draft).catch((e) => console.warn('[tab-agent] draft save failed:', e));
+/** 批量重放(高亮开关开启时 content.tsx 的 idle 分片调用):与逐条 showClip(scroll=false)
+ *  同语义,但定位先走共享全文索引(highlightClipFast),仅失配条目回退 polyfill 全树扫描,
+ *  N 条摘录的重放不再付 N 次全树遍历。 */
+export function showClips(clips: Clip[]) {
+  for (const clip of clips) {
+    const oldFade = fadeTimers.get(clip.id);
+    if (oldFade) {
+      clearTimeout(oldFade);
+      fadeTimers.delete(clip.id);
+    }
+    let marks = markByClip.get(clip.id);
+    if (marks?.length && marks.every((el) => el.isConnected)) continue;
+    if (marks?.length) unhighlightClip(marks);
+    marks = highlightClipFast(clip) ?? highlightClip(clip);
+    if (!marks.length) continue; // 定位失败:残留已清,等 pruneMarks/下次重放再试
+    markByClip.set(clip.id, marks);
+    applyColor(marks);
+  }
 }
 
 /** Remove all highlight marks and reset the cache (used when highlighting is toggled off). */

@@ -175,6 +175,27 @@ function findTextRange(text: string, prefix?: string, suffix?: string): Range | 
   return first; // 无上下文吻合:退回首个命中(旧行为)
 }
 
+/** 索引优先定位:parse fragment(纯字符串)→ findTextRange(共享全文索引,
+ *  O(indexOf))→ markRange。失配返回 null,由调用方回退 highlightClip 的
+ *  polyfill 全树扫描。批量重放走这条:N 条摘录从 N 次全树遍历降为
+ *  一次索引构建 + 逐条 indexOf(索引有 3s TTL,一次重放批次内共享)。 */
+export function highlightClipFast(clip: Clip): Element[] | null {
+  if (clip.kind === 'image') return null;
+  let fragment: TextFragment | undefined;
+  try {
+    fragment = parseFragmentDirectives(getFragmentDirectives(new URL(clip.url).hash)).text?.[0];
+  } catch {
+    return null; // malformed URL
+  }
+  if (!fragment?.textStart) return null; // 裸 URL clip 无 fragment,不高亮
+  try {
+    const range = findTextRange(clip.text, fragment.prefix, fragment.suffix);
+    return range ? markRange(range) : null;
+  } catch {
+    return null; // 异常 DOM 下索引定位失败:交给 polyfill 兜底路径
+  }
+}
+
 /** Locate the clip's text on the current page and wrap it in <mark>s; [] if not found. */
 export function highlightClip(clip: Clip): Element[] {
   if (clip.kind === 'image' && clip.imageSrc) {
@@ -213,12 +234,7 @@ export function highlightClip(clip: Clip): Element[] {
   }
   // 兜底仅覆盖"fragment 曾存在但失配"(页面改动);裸 URL clip 无 fragment,保持旧行为不高亮
   if (!fragment?.textStart) return [];
-  try {
-    const range = findTextRange(clip.text, fragment.prefix, fragment.suffix);
-    return range ? markRange(range) : []; // the text is no longer on the page
-  } catch {
-    return []; // 异常 DOM(失效节点/非常规文档)下兜底定位失败:静默降级为不高亮
-  }
+  return highlightClipFast(clip) ?? []; // the text is no longer on the page
 }
 
 /** Undo highlightClip for both shapes: IMG inline outline vs polyfill <mark>s. */

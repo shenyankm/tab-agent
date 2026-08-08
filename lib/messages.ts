@@ -14,7 +14,9 @@ export type Request =
   | { type: 'clipsGetForPage'; page: string }
   | { type: 'clipAdd'; clip: Omit<Clip, 'id' | 'createdAt'> }
   | { type: 'clipDel'; id: string }
-  | { type: 'clipUpdate'; id: string; patch: ClipPatch };
+  | { type: 'clipUpdate'; id: string; patch: ClipPatch }
+  | { type: 'chunkLoad'; name: string }
+  | { type: 'navBridge' };
 
 // every handler branch resolves this envelope — failures RESOLVE {ok:false},
 // they don't reject, so the sender never hangs. code lets the caller distinguish

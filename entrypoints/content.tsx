@@ -2,18 +2,20 @@ import { addClip, clipsPageItem, normalizeUrl, type Clip } from '@/lib/clips-sto
 import { CLIPS_CHANGED } from '@/lib/messages';
 import { onPageNav } from '@/lib/utils';
 import { petEnabledItem, clipHighlightItem, highlightColorItem } from '@/lib/settings';
+import { saveClipDraft } from '@/lib/draft-bus';
+import { loadMarksChunk, loadPageTextChunk, loadUiChunk, type MarksChunk } from '@/lib/lazy';
 import '@/assets/content.css';
 
-type MarksModule = typeof import('@/lib/marks');
-type HighlightModule = typeof import('@/lib/clips-highlight');
-let marksModule: Promise<MarksModule> | null = null;
-let highlightModule: Promise<HighlightModule> | null = null;
+// 重组件(text-fragments-polyfill/Readability/React UI)不进主包:WXT 对 content
+// script 强制 IIFE、动态 import 会被内联,真正的拆分是 unlisted chunk 经
+// scripting.executeScript 按需注入(lib/lazy.ts),此处只保留桥接加载器
+type MarksModule = MarksChunk['marks'];
+let marksChunk: Promise<MarksChunk> | null = null;
 let loadedMarks: MarksModule | null = null;
-const loadMarks = () => marksModule ??= import('@/lib/marks').then((module) => {
-  loadedMarks = module;
-  return module;
+const loadMarks = () => marksChunk ??= loadMarksChunk().then((chunk) => {
+  loadedMarks = chunk.marks;
+  return chunk;
 });
-const loadHighlight = () => highlightModule ??= import('@/lib/clips-highlight');
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -47,8 +49,8 @@ export default defineContentScript({
         const sel = window.getSelection();
         const text = sel?.toString().trim();
         if (!sel || !text) return;
-        void Promise.all([loadMarks(), loadHighlight()]).then(([marks, highlight]) =>
-          marks.saveClipDraft({
+        void loadMarks().then(({ highlight }) =>
+          saveClipDraft({
             url: highlight.buildClipUrl(location.href, sel),
             pageUrl: location.href,
             title: document.title,
@@ -59,7 +61,7 @@ export default defineContentScript({
       // 整页剪藏:Readability 正文(失败回退 innerText)截短存进 text,
       // 供列表/分类使用;无 fragment,不高亮(与裸 URL clip 语义一致)
       if (msg?.type === 'saveClipPage') {
-        void import('@/lib/page-text').then(({ pageText }) => addClip({
+        void loadPageTextChunk().then(({ pageText }) => addClip({
           kind: 'page',
           url: location.href,
           pageUrl: location.href,
@@ -117,22 +119,25 @@ export default defineContentScript({
     const replay = (clips: Clip[]) => {
       const keep = new Set(clips.map((c) => c.id));
       if (!highlightOn || !clips.length) {
-        // 没有加载过高亮模块时，没有残留 mark 需要清理。
+        // 没有加载过高亮模块时,没有残留 mark 需要清理。
         if (loadedMarks) loadedMarks.pruneMarks(keep);
-        else if (marksModule) void marksModule.then(({ pruneMarks }) => pruneMarks(keep));
+        else if (marksChunk) void marksChunk.then(({ marks }) => marks.pruneMarks(keep));
         if (!clips.length) stopSpaObserver();
         return;
       }
       startSpaObserver();
       const gen = clipGen;
-      void loadMarks().then(({ pruneMarks, showClip }) => {
-        pruneMarks(keep);
+      void loadMarks().then(({ marks }) => {
+        marks.pruneMarks(keep);
         if (!highlightOn || gen !== clipGen) return;
         let index = 0;
         const pump = (deadline?: IdleDeadline) => {
           const started = Date.now();
           while (index < clips.length && gen === clipGen) {
-            showClip(clips[index++], false);
+            // 批量定位走共享全文索引(showClips),失配条目才回退 polyfill 全树扫描
+            const end = Math.min(index + 8, clips.length);
+            marks.showClips(clips.slice(index, end));
+            index = end;
             // Keep each idle slice short even when the browser reports unlimited time.
             if (deadline && deadline.timeRemaining() < 2) break;
             if (Date.now() - started >= 8) break;
@@ -161,7 +166,7 @@ export default defineContentScript({
       if (highlightOn) replay(clips);
       if (navClip) {
         const clip = clips.find((c) => c.id === navClip);
-        if (clip) void loadMarks().then(({ showClip }) => showClip(clip)).catch(() => {});
+        if (clip) void loadMarks().then(({ marks }) => marks.showClip(clip)).catch(() => {});
       }
     });
     if (navClip) {
@@ -175,12 +180,12 @@ export default defineContentScript({
       if (on) return void pageClips.getValue().then(replay).catch(() => { /* invalidated context */ });
       stopSpaObserver();
       if (loadedMarks) loadedMarks.clearAllMarks();
-      else if (marksModule) void marksModule.then(({ clearAllMarks }) => clearAllMarks());
+      else if (marksChunk) void marksChunk.then(({ marks }) => marks.clearAllMarks());
     });
     // 设置页换高亮色:已打开的页面里在页 mark 即时补色
     const unwatchColor = highlightColorItem.watch((color) => {
       if (loadedMarks) loadedMarks.restyleMarks(color);
-      else if (marksModule) void marksModule.then(({ restyleMarks }) => restyleMarks(color));
+      else if (marksChunk) void marksChunk.then(({ marks }) => marks.restyleMarks(color));
     });
 
     // SPA 同文档导航:重锚本页摘录、清掉旧页 mark、按新 URL 重放高亮
@@ -190,7 +195,7 @@ export default defineContentScript({
       clipGen++; // 作废旧页在途的 idle 重放
       stopSpaObserver();
       if (loadedMarks) loadedMarks.clearAllMarks();
-      else if (marksModule) void marksModule.then(({ clearAllMarks }) => clearAllMarks());
+      else if (marksChunk) void marksChunk.then(({ marks }) => marks.clearAllMarks());
       registerTab(); // 注册表里的 page 跟着 SPA 导航更新
       if (highlightOn) pageClips.getValue().then(replay).catch(() => {});
     });
@@ -205,12 +210,11 @@ export default defineContentScript({
       stopSpaObserver();
     });
 
-    // UI 树(React + 组件 + markdown 解析)走动态 import:WXT 0.20 对 content
-    // script 强制 IIFE 输出,动态块会被内联(暂无拆分收益),但结构上主包不
-    // 再静态依赖 React——WXT 支持 content 代码拆分后此处在构建期自动生效
+    // UI chunk(React + 组件 + markdown 解析)按需注入:宠物关闭的页面不再为
+    // React 支付每页解析/堆内存;桥注册是同步的,loadUiChunk resolve 即可用
     const mountUI = async () => {
-      const { mountFloatingAgent } = await import('@/components/floating-agent');
-      // 动态 import 期间上下文被 invalidated(扩展更新/重载):此时 mount 只会
+      const { mountFloatingAgent } = await loadUiChunk();
+      // chunk 注入期间上下文被 invalidated(扩展更新/重载):此时 mount 只会
       // 在失效上下文里创建 shadow UI,残留到页面导航——直接放弃
       if (invalidated) throw new Error('context invalidated during UI load');
       return createShadowRootUi(ctx, {

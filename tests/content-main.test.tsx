@@ -5,10 +5,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // clipGen guard around the idle-callback highlight replay is actually covered.
 
 const {
-  mockShowClip, mockClearAllMarks, mockClipsGet, mockHighlightGet, mockPetGet,
+  mockShowClip, mockShowClips, mockClearAllMarks, mockClipsGet, mockHighlightGet, mockPetGet,
   highlightWatchRef, defRef,
 } = vi.hoisted(() => ({
   mockShowClip: vi.fn(),
+  mockShowClips: vi.fn(),
   mockClearAllMarks: vi.fn(),
   mockClipsGet: vi.fn().mockResolvedValue([]),
   mockHighlightGet: vi.fn().mockResolvedValue(true),
@@ -17,32 +18,31 @@ const {
   defRef: { current: null as { main: (ctx: { onInvalidated: (cb: () => void) => void }) => Promise<void> } | null },
 }));
 
-vi.mock('@/components/floating-agent', () => ({
-  FloatingAgent: () => null,
-  // content.tsx 动态 import 后解构的是挂载入口,mock 缺了会 TypeError
-  mountFloatingAgent: vi.fn(() => ({ unmount: vi.fn() })),
+// content.tsx 不再(动态)import marks/page-text/floating-agent:重组件走
+// executeScript 注入的 chunk,桥接层是 lib/lazy——mock 它即等价 mock 全部 chunk
+vi.mock('@/lib/lazy', () => ({
+  loadMarksChunk: () => Promise.resolve({
+    marks: {
+      showClip: (clip: unknown, scroll?: boolean) => mockShowClip(clip, scroll),
+      showClips: (clips: unknown[]) => mockShowClips(clips),
+      clearAllMarks: () => mockClearAllMarks(),
+      pruneMarks: vi.fn(),
+      restyleMarks: vi.fn(),
+    },
+    highlight: { buildClipUrl: (u: string) => u },
+  }),
+  loadPageTextChunk: () => Promise.resolve({ pageText: () => '' }),
+  loadUiChunk: () => Promise.resolve({ mountFloatingAgent: vi.fn(() => ({ unmount: vi.fn() })) }),
 }));
 
-vi.mock('@/lib/marks', () => ({
-  showClip: (clip: unknown, scroll?: boolean) => mockShowClip(clip, scroll),
-  clearAllMarks: () => mockClearAllMarks(),
+vi.mock('@/lib/draft-bus', () => ({
   saveClipDraft: vi.fn(),
-  restyleMarks: vi.fn(),
-  pruneMarks: vi.fn(),
-}));
-
-vi.mock('@/lib/page-text', () => ({
-  pageText: () => '',
 }));
 
 vi.mock('@/lib/clips-store', () => ({
   addClip: vi.fn(),
   clipsPageItem: () => ({ getValue: () => mockClipsGet(), watch: () => () => {} }),
   normalizeUrl: (u: string) => u,
-}));
-
-vi.mock('@/lib/clips-highlight', () => ({
-  buildClipUrl: (u: string) => u,
 }));
 
 vi.mock('@/lib/utils', () => ({
@@ -118,7 +118,8 @@ describe('content main() clip highlight replay', () => {
     await defRef.current!.main({ onInvalidated: () => {} });
     await until(() => idleCallbacks.length === 1);
     idleCallbacks[0]();
-    expect(mockShowClip).toHaveBeenCalledWith(clip, false); // no scroll on replay
+    // 批量重放:showClips 收到整批切片(单条时即 [clip])
+    expect(mockShowClips).toHaveBeenCalledWith([clip]);
   });
 
   it('does not read page clips when highlighting is disabled', async () => {
@@ -139,12 +140,12 @@ describe('content main() clip highlight replay', () => {
     expect(mockClearAllMarks).toHaveBeenCalledTimes(1);
 
     idleCallbacks[0](); // the stale queued callback fires anyway
-    expect(mockShowClip).not.toHaveBeenCalled();
+    expect(mockShowClips).not.toHaveBeenCalled();
 
     // flipping back on starts a fresh generation whose callbacks do mark again
     highlightWatchRef.current?.(true);
     await until(() => idleCallbacks.length === 2);
     idleCallbacks[1]();
-    expect(mockShowClip).toHaveBeenCalledWith(clip, false);
+    expect(mockShowClips).toHaveBeenCalledWith([clip]);
   });
 });

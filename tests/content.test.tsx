@@ -141,6 +141,17 @@ vi.mock('@mozilla/readability', () => ({
   }),
 }));
 
+// 懒加载 chunk 桥(production 里走 executeScript 注入):测试中直接回真实模块,
+ // marks 内部引的 clips-highlight/settings/clips-store 仍命中上面的 mock
+vi.mock('@/lib/lazy', async () => {
+  const [marks, pagetext] = await Promise.all([import('@/lib/marks'), import('@/lib/page-text')]);
+  return {
+    loadMarksChunk: () => Promise.resolve({ marks, highlight: {} }),
+    loadPageTextChunk: () => Promise.resolve(pagetext),
+    loadUiChunk: () => Promise.reject(new Error('not used in these tests')),
+  };
+});
+
 // count markdown renders: memoized bubbles must skip drag frames and the 1s tick
 // (target is the in-house renderer since the react-markdown swap)
 vi.mock('@/lib/markdown', () => ({
@@ -151,7 +162,7 @@ vi.mock('@/lib/markdown', () => ({
 }));
 
 import { FloatingAgent } from '@/components/floating-agent';
-import { saveClipDraft } from '@/lib/marks';
+import { saveClipDraft } from '@/lib/draft-bus';
 import { pageText } from '@/lib/page-text';
 import { addClip, type Clip } from '@/lib/clips-store';
 
@@ -202,9 +213,10 @@ describe('FloatingAgent', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     expect(screen.getByText('What is this?')).toBeInTheDocument();
-    expect(portRef.postMessage).toHaveBeenCalledWith(
+    // postMessage 现在等 pagetext chunk 的异步加载,落点在一个微任务之后
+    await waitFor(() => expect(portRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'What is this?' }),
-    );
+    ));
   });
 
   it('sends screenshot flag and no page text in screenshot mode', async () => {
@@ -276,9 +288,9 @@ describe('FloatingAgent', () => {
     // chat input is hidden on the clips tab
     expect(screen.queryByPlaceholderText('Ask about this page…')).not.toBeInTheDocument();
 
-    // clicking an item re-highlights in-page (no new tab)
+    // clicking an item re-highlights in-page (no new tab);showClip 经 chunk 异步加载
     fireEvent.click(screen.getByText('clip on this page'));
-    expect(mockHighlightClip).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+    await waitFor(() => expect(mockHighlightClip).toHaveBeenCalledWith(expect.objectContaining({ id: '1' })));
     // 高亮色设置写进 mark 内联背景(默认黄)
     await waitFor(() => expect(lastMark.style.backgroundColor).toBe('rgb(254, 240, 138)'));
 

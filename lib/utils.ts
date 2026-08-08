@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { sendRequest } from "@/lib/messages";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -53,12 +54,17 @@ export function onPageNav(cb: () => void): () => void {
   window.addEventListener('popstate', fire);
   window.addEventListener('hashchange', fire);
   // Firefox content scripts cannot observe page-world pushState from the
-  // isolated world. Poll only on that fallback path; Chrome uses navigation API.
-  // ponytail: one-second polling, replace with a page-world bridge only if this
-  // becomes visibly stale or too expensive.
+  // isolated world.经 background 向 MAIN world 注入一次性桥(包装
+  // pushState/replaceState 派发窗口事件,DOM 事件跨世界可达);老 Firefox
+  // (scripting MAIN world <128)注入失败退回 1s 轮询,桥先到则停表
+  window.addEventListener('tab-agent-nav', fire);
   const timer = window.setInterval(fire, 1000);
+  sendRequest<void>({ type: 'navBridge' })
+    .then(() => window.clearInterval(timer))
+    .catch(() => { /* 桥不可用:轮询兜底 */ });
   return () => {
     window.clearInterval(timer);
+    window.removeEventListener('tab-agent-nav', fire);
     window.removeEventListener('popstate', fire);
     window.removeEventListener('hashchange', fire);
   };

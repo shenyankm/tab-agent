@@ -1,9 +1,12 @@
+import { memo } from 'react';
+
 export type AgentState = 'idle' | 'thinking' | 'done';
 
 // 3-frame strip cropped from the full sheet (184×168 each) — keeps decoded RAM tiny per tab
 const faces: Record<AgentState, number> = { idle: 0, thinking: 184, done: 368 };
 
-export function Mascot({ state, size }: { state: AgentState; size: number }) {
+// memo: 流式期间 FloatingAgent 每帧重渲染,Mascot 不应跟着走 reconciliation
+export const Mascot = memo(function Mascot({ state, size }: { state: AgentState; size: number }) {
   const scale = size / 184;
 
   return (
@@ -24,4 +27,4 @@ export function Mascot({ state, size }: { state: AgentState; size: number }) {
       />
     </span>
   );
-}
+});

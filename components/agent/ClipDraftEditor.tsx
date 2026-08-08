@@ -5,7 +5,7 @@ import { CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { I18nKey } from '@/lib/i18n';
-import { commitDraft, type ClipDraft } from '@/lib/marks';
+import { commitDraft, type ClipDraft } from '@/lib/draft-bus';
 import { parseNoteLines } from '@/lib/utils';
 import { panelHeaderClass } from '@/components/agent/ChatPanel';
 

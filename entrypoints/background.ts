@@ -11,6 +11,10 @@ import { handleChat, keepalive, type ChatOut, type PageContext } from '@/lib/gat
 const contentTabs = new Map<number, string>();
 browser.tabs.onRemoved.addListener((tabId) => { contentTabs.delete(tabId); });
 
+// content script 的懒加载 chunk(entrypoints/agent-*.ts,lib/lazy.ts):白名单校验后
+ // 注入请求 tab 的隔离世界,chunk 执行即在 globalThis 桥上注册自己
+const LAZY_CHUNKS = new Set(['agent-marks', 'agent-pagetext', 'agent-ui']);
+
 const isPageContext = (value: unknown): value is PageContext => {
   if (!value || typeof value !== 'object') return false;
   const page = value as Record<string, unknown>;
@@ -174,6 +178,45 @@ export default defineBackground(() => {
         return true;
       }
       getClipsForPageDirect(req.page).then(ok, fail);
+      return true;
+    }
+    if (req?.type === 'chunkLoad') {
+      const tabId = sender.tab?.id;
+      if (!LAZY_CHUNKS.has(req.name) || tabId == null) {
+        fail(new Error('invalid chunk load'), 'invalid');
+        return true;
+      }
+      // 白名单之外的名字到不了这里,路径必然指向已打包的公开路径
+      browser.scripting.executeScript({ target: { tabId }, files: [`/${req.name}.js` as ScriptPublicPath] })
+        .then(() => ok(undefined), fail);
+      return true;
+    }
+    // Firefox 的 SPA 导航桥(onPageNav 兜底路径):MAIN world 一次性包装
+    // pushState/replaceState;老 Firefox 不支持 MAIN world 时 fail,调用方退回轮询
+    if (req?.type === 'navBridge') {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        fail(new Error('invalid nav bridge'), 'invalid');
+        return true;
+      }
+      browser.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: () => {
+          const w = window as unknown as { __tabAgentNavBridge?: boolean };
+          if (w.__tabAgentNavBridge) return;
+          w.__tabAgentNavBridge = true;
+          const fire = () => window.dispatchEvent(new CustomEvent('tab-agent-nav'));
+          for (const key of ['pushState', 'replaceState'] as const) {
+            const orig = history[key];
+            history[key] = function (this: History, ...args: Parameters<History['pushState']>) {
+              const ret = orig.apply(this, args);
+              fire();
+              return ret;
+            } as History[typeof key];
+          }
+        },
+      }).then(() => ok(undefined), fail);
       return true;
     }
     if (req?.type === 'clipAdd') {
