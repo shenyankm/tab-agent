@@ -13,10 +13,19 @@ type EventCursor = { sessionId: string; eventId: string };
 let eventCursor: EventCursor | null = null;
 const EVENT_CURSOR_KEY = 'local:eventCursor.v1' as const;
 
+// 凭证同样走 SW 存活期内存缓存:每回合 3 次 storage 读降为首次一次;
+// 设置页改完凭据,watch 立刻失效缓存,下一条消息读到新值
+let credsCache: { pat: string; agentId: string; envId: string } | null = null;
+const invalidateCreds = () => { credsCache = null; };
+patItem.watch(invalidateCreds);
+agentIdItem.watch(invalidateCreds);
+envIdItem.watch(invalidateCreds);
+
 /** Test-only: clear the in-memory session cache between test cases. */
 export function resetSessionCacheForTests() {
   sessionCache = null;
   eventCursor = null;
+  credsCache = null;
 }
 
 // MV3 kills the worker after 30s without extension API activity; ping to stay alive
@@ -240,11 +249,15 @@ export async function handleChat(
   /** Fires once per completed turn with the reply's finish day (YYYY-MM-DD). */
   onTurnDone?: (day: string) => void,
 ): Promise<void> {
-  const [pat, agentId, envId] = await Promise.all([
-    patItem.getValue(),
-    agentIdItem.getValue(),
-    envIdItem.getValue(),
-  ]);
+  if (!credsCache) {
+    const [pat, agentId, envId] = await Promise.all([
+      patItem.getValue(),
+      agentIdItem.getValue(),
+      envIdItem.getValue(),
+    ]);
+    credsCache = { pat, agentId, envId };
+  }
+  const { pat, agentId, envId } = credsCache;
   if (!pat || !agentId || !envId) {
     send({ type: 'error', code: 'unconfigured' });
     return;

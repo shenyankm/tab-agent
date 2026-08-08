@@ -44,9 +44,10 @@ const {
 
 vi.mock('@/lib/settings', () => ({
   GATEWAY: 'https://api.test.com',
-  patItem: { getValue: () => mockPat() },
-  agentIdItem: { getValue: () => mockAgentId() },
-  envIdItem: { getValue: () => mockEnvId() },
+  // gateway 的凭证内存缓存靠 watch 失效,mock 必须带 watch 否则 import 即炸
+  patItem: { getValue: () => mockPat(), watch: () => () => {} },
+  agentIdItem: { getValue: () => mockAgentId(), watch: () => () => {} },
+  envIdItem: { getValue: () => mockEnvId(), watch: () => () => {} },
 }));
 
 vi.mock('@/lib/i18n', () => ({
