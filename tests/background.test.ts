@@ -442,10 +442,9 @@ describe('background handleChat', () => {
 
   // real protocol timeline: the stream opens first and replays the previous turn's
   // events (user.message event_start, in-flight deltas, idle) BEFORE our POST returns
-  it('cancels the in-flight turn, drops the old turn\'s replay, and retries the post on 409', async () => {
+  it('waits out the in-flight turn, drops the old turn\'s replay, and retries the post on 409', async () => {
     perTabStorage.set(SESS_KEY, sess('sess-1'));
     let posts = 0;
-    let cancels = 0;
     let releaseIdle: (() => void) | null = null;
     let sendNewTurn: (() => void) | null = null;
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
@@ -476,10 +475,6 @@ describe('background handleChat', () => {
           }),
         });
       }
-      if (url.endsWith('/cancel') && init?.method === 'POST') {
-        cancels++;
-        return Promise.resolve({ status: 200, ok: true });
-      }
       if (url.includes('/events') && init?.method === 'POST') {
         posts++;
         // events flow only AFTER the post resolves (posted flips true) — a
@@ -493,13 +488,12 @@ describe('background handleChat', () => {
     const { port, messages } = connect({ tabId: 7 });
     port.postMessage({ text: 'hello' });
 
-    await until(() => posts === 1 && cancels === 1 && releaseIdle !== null);
-    expect(messages).toEqual([]); // replay + cancel are silent: no deltas, no done yet
+    await until(() => posts === 1 && releaseIdle !== null);
+    expect(messages).toEqual([]); // replay is silent: no deltas, no done yet
 
-    releaseIdle!(); // the cancelled turn reaches idle → onIdle resolves → retry
+    releaseIdle!(); // the other turn reaches idle → onIdle resolves → retry
     await until(() => posts === 2);
     await until(() => messages.some((m: any) => m.type === 'done'));
-    expect(cancels).toBe(1);
     // only the new turn's text reaches the UI; the old turn's replay never leaks
     expect(messages.filter((m: any) => m.type === 'delta')).toEqual([{ type: 'delta', text: 'New reply' }]);
     expect(messages.at(-1)).toEqual({ type: 'done' });
@@ -511,7 +505,6 @@ describe('background handleChat', () => {
     try {
       perTabStorage.set(SESS_KEY, sess('sess-1'));
       let posts = 0;
-      let cancels = 0;
       let releaseIdle: (() => void) | null = null;
       vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         const url = String(_url);
@@ -532,10 +525,6 @@ describe('background handleChat', () => {
             }),
           });
         }
-        if (url.endsWith('/cancel') && init?.method === 'POST') {
-          cancels++;
-          return Promise.resolve({ status: 200, ok: true });
-        }
         if (url.includes('/events') && init?.method === 'POST') {
           posts++;
           return Promise.resolve({ status: 409, ok: false }); // every post conflicts
@@ -546,16 +535,15 @@ describe('background handleChat', () => {
       const { port, messages } = connect({ tabId: 7 });
       port.postMessage({ text: 'hello' });
 
-      // each 409 round: cancel → wait for idle → retry (2 rounds max)
+      // each 409 round: wait for the other turn's idle → retry (2 rounds max)
       for (let i = 1; i <= 2; i++) {
-        await until(() => posts === i && cancels === i);
+        await until(() => posts === i);
         releaseIdle!();
         await until(() => posts === i + 1);
       }
       await until(() => messages.some((m: any) => m.type === 'error'));
 
       expect(posts).toBe(3); // initial + 2 retries, then error
-      expect(cancels).toBe(2);
       expect(messages.at(-1)).toMatchObject({ type: 'error', message: 'send message: HTTP 409' });
     } finally {
       errSpy.mockRestore();

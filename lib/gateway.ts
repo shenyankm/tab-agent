@@ -194,7 +194,8 @@ async function streamReply(
         // races the POST response and a dropped boundary is never replayed → the
         // turn goes silent
         if (payload.type === 'user.message' && payload.id) userMsgId = payload.id;
-        // fire onIdle on any session.status_idle (used by tryTurn after cancel)
+        // fire onIdle on any session.status_idle (used by tryTurn when waiting
+        // out another tab's turn)
         if (payload.type === 'session.status_idle') onIdle?.();
         // isPosted gates content/idle instead: replayed old-turn events arrive
         // before our POST returns and are dropped; ours arrive after
@@ -264,8 +265,8 @@ export async function handleChat(
   }
 
   // 每日共享会话：所有 tab 同一天共用同一云端会话，跨天重建。
-  // ponytail: 共享会话下 tab B 的 409-cancel 会截断 tab A 进行中的回合；
-  // 单用户轻聊场景可接受，并发不丢需跨 tab 回合排队（另一量级复杂度）。
+  // ponytail: 并发回合只等不 cancel（等对端自然结束，见 tryTurn），对端回合过长
+  // 或流断时 2 轮超时后放弃本条消息；真排队不丢需跨 tab 回合互斥（Web Locks）。
   const sessionKey = 'local:sessionId.v4' as const;
   // 会话归属以最后一条回复的完成日为准：跨午夜的回合（23:56 发、00:12 答完）
   // 仍属旧会话，done 时把 day 刷成完成日，下一条消息才触发跨天重建。
@@ -339,13 +340,17 @@ export async function handleChat(
       streaming.catch(() => {});
       let res = await postUserMessage(pat, sid, text, page, mount?.note, turnSignal);
       if (res.status === 409) {
-        // previous turn still running (e.g. re-submit): cancel it, then wait for
-        // its session.status_idle before retrying — cancel→idle is async
+        // Another turn is mid-flight in the shared session (other tab or a
+        // re-submit). Wait for it to finish on its own — our stream sees its
+        // session.status_idle — instead of canceling: cancel truncates the
+        // other tab's in-flight reply.
+        // ponytail: wait-then-retry, gives up after ~2 rounds; true queueing
+        // (auto-continue after the other turn ends, never drop) needs a Web
+        // Locks per-session mutex — add when two-tab contention gets reported
         for (let i = 0; i < 2 && res.status === 409; i++) {
-          await api(pat, `/sessions/${sid}/cancel`, { method: 'POST', signal: turnSignal });
           await Promise.race([
             onIdle,
-            new Promise<void>((r) => setTimeout(r, 5000)), // 5s safety net
+            new Promise<void>((r) => setTimeout(r, 120_000)), // dead-stream net
           ]);
           onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
           res = await postUserMessage(pat, sid, text, page, mount?.note, turnSignal);
