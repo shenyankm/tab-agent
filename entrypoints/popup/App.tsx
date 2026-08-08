@@ -17,8 +17,8 @@ function App() {
   const carry = useStorageValue(pageCarryItem, 'article');
   const highlight = useStorageValue(clipHighlightItem, true);
 
-  // the <all_urls> grant can be revoked outside the popup (chrome://settings):
-  // don't keep offering a "screenshot" mode the extension can no longer perform
+  // The required <all_urls> host access can be withheld or revoked outside the
+  // popup; don't keep offering screenshot mode when capture cannot work.
   useEffect(() => {
     if (carry !== 'screenshot') return;
     void browser.permissions.contains(ALL_URLS).then((granted) => {
@@ -27,8 +27,9 @@ function App() {
     }).catch(() => { /* permissions query failed */ });
   }, [carry]);
 
-  // screenshot capture needs <all_urls>: ask inside the click gesture; denied = keep
-  // old choice. Least privilege both ways: switching away releases the grant.
+  // Screenshot capture needs <all_urls>: ask inside the click gesture; denied =
+  // keep the old choice. The manifest declares this host access for content
+  // scripts too, so switching away from screenshot does not necessarily remove it.
   const onCarryChange = async (v: PageCarry) => {
     try {
       if (v === 'screenshot' && !(await browser.permissions.request(ALL_URLS))) return;

@@ -1,8 +1,8 @@
-// Gateway communication layer: HTTP/SSE calls to the cloud agent gateway plus
-// the handleChat turn orchestrator. Pure move out of entrypoints/background.ts —
-// handleChat/keepalive are exported for the background entrypoint (port handler),
-// ChatOut/PageContext for its payload typing; api/createSession/uploadFile/
-// postUserMessage/streamReply stay module-private.
+// Qoder Cloud Agents HTTP/SSE client and per-turn orchestrator. The background
+// entrypoint owns Port/listener wiring; this module owns credentials, the daily
+// session, screenshot upload/resource mounting, event streaming, and retries.
+// handleChat/keepalive are exported for the background entrypoint; the endpoint
+// helpers stay module-private.
 import { GATEWAY, patItem, agentIdItem, envIdItem } from '@/lib/settings';
 import { parseSSE } from '@/lib/sse';
 import { today } from '@/lib/usage'; // 会话缓存按日轮换
@@ -40,7 +40,8 @@ export type ChatOut =
 // Every non-streaming call gets a 30s hang guard: a dead gateway must not keep
 // handleChat unsettled forever — that would leak the keepalive interval and pin
 // the worker alive permanently. Streams opt out (timeout: false) and rely on
-// their own 90s read watchdog instead.
+// the 90s read watchdog after the SSE response opens; initial connection setup
+// is still bounded by the caller's AbortSignal.
 async function api(pat: string, path: string, init?: RequestInit & { timeout?: number | false }) {
   const { timeout, ...rest } = init ?? {};
   const signals = [rest.signal, timeout === false ? undefined : AbortSignal.timeout(timeout ?? 30_000)]
@@ -67,6 +68,7 @@ async function createSession(
   envId: string,
   signal?: AbortSignal,
 ) {
+  // POST /sessions binds the new session to the configured Agent and Environment.
   const res = await api(pat, '/sessions', {
     method: 'POST',
     signal,
@@ -85,6 +87,8 @@ export type PageContext = { url: string; title: string; text: string };
 type Mount = { fileId: string; path: string; note: string };
 
 async function uploadFile(pat: string, name: string, blob: Blob, signal?: AbortSignal) {
+  // POST /files accepts multipart data; the caller mounts the returned file ID
+  // on the session separately because resources are session-scoped.
   const form = new FormData();
   form.append('file', blob, name);
   const res = await api(pat, '/files', { method: 'POST', body: form, signal });
@@ -100,6 +104,7 @@ function postUserMessage(
   note?: string,
   signal?: AbortSignal,
 ) {
+  // POST /sessions/{id}/events carries the question and any page context inline.
   // context is inlined into the user message: agents with browser tools ignore
   // side-channel context and open their own (blank) cloud browser instead
   let body = page
@@ -115,21 +120,20 @@ function postUserMessage(
   });
 }
 
-/** Read the SSE stream and forward agent.message text until the turn ends. */
+/** Forward event_delta/buffered agent.message text until the stream ends. */
 async function streamReply(
   pat: string,
   sessionId: string,
   signal: AbortSignal,
   send: (msg: ChatOut) => void,
-  /** true once our user.message POST has succeeded — gates the turn's events */
+  /** True after our user.message POST succeeds; gates content and idle events. */
   isPosted: () => boolean,
   lastEventId?: string,
   onEventId?: (id: string) => void,
   onIdle?: () => void,
 ) {
-  // delta subscription — the brackets MUST be percent-encoded: literal `[]` in
-  // the query kills the stream silently (no frames at all, turn hangs forever);
-  // %5B%5D streams event_start/event_delta per docs (live capture 2026-08-05).
+  // Delta subscription: the brackets MUST be percent-encoded. The API expects
+  // %5B%5D here; a literal `[]` can leave the stream with no usable frames.
   // The buffered agent.message copy (same id) follows the deltas — deduped below.
   const res = await api(pat, `/sessions/${sessionId}/events/stream?event_deltas%5B%5D=agent.message`, {
     headers: {
@@ -188,7 +192,7 @@ async function streamReply(
         }
         const eventId = payload.id ?? payload.event_id ?? payload.event?.id;
         if (typeof eventId === 'string') onEventId?.(eventId);
-        // buffered events only: data is the event itself {id, type, content?}.
+        // Buffered payloads are the event itself {id, type, content?}.
         // user.message is the turn boundary, last one wins (the log is ordered:
         // replay precedes our message). No isPosted condition on it: the broadcast
         // races the POST response and a dropped boundary is never replayed → the
@@ -228,9 +232,8 @@ async function streamReply(
         sentAny = true;
       }
     }
-    // stream closed without session.status_idle (server close, network drop, or the
-    // idle event was filtered by the isPosted gate during replay) — complete the turn
-    // so the content script doesn't hang in "thinking" forever
+    // A normally closed stream without session.status_idle still needs a clean
+    // completion so the content script does not hang in "thinking" forever.
     send({ type: 'done' });
   } finally {
     clearTimeout(timer);
@@ -247,7 +250,7 @@ export async function handleChat(
   send: (msg: ChatOut) => void,
   /** Port sender identity: only the window to screenshot (session is shared). */
   sender?: { windowId?: number },
-  /** Fires once per completed turn with the reply's finish day (YYYY-MM-DD). */
+  /** Fires after a streamReply normal completion with the local day (YYYY-MM-DD). */
   onTurnDone?: (day: string) => void,
 ): Promise<void> {
   if (!credsCache) {
@@ -307,7 +310,8 @@ export async function handleChat(
     };
   }
 
-  // one turn = open stream first (no missed events), then post; false = session gone
+  // One turn opens the stream before posting (no missed events). false means the
+  // resource mount or message POST returned 404 and the session should be rebuilt.
   const tryTurn = async (sid: string) => {
     let posted = false;
     let turnEventId = eventCursor?.sessionId === sid ? eventCursor.eventId : undefined;
@@ -342,7 +346,7 @@ export async function handleChat(
       if (res.status === 409) {
         // Another turn is mid-flight in the shared session (other tab or a
         // re-submit). Wait for it to finish on its own — our stream sees its
-        // session.status_idle — instead of canceling: cancel truncates the
+        // session.status_idle — instead of calling /cancel, which truncates the
         // other tab's in-flight reply.
         // ponytail: wait-then-retry, gives up after ~2 rounds; true queueing
         // (auto-continue after the other turn ends, never drop) needs a Web
@@ -350,7 +354,7 @@ export async function handleChat(
         for (let i = 0; i < 2 && res.status === 409; i++) {
           await Promise.race([
             onIdle,
-            new Promise<void>((r) => setTimeout(r, 120_000)), // dead-stream net
+            new Promise<void>((r) => setTimeout(r, 120_000)), // dead-stream safety net
           ]);
           onIdle = new Promise<void>((resolve) => { idleResolve = resolve; });
           res = await postUserMessage(pat, sid, text, page, mount?.note, turnSignal);
@@ -364,7 +368,7 @@ export async function handleChat(
         eventCursor = { sessionId: sid, eventId: turnEventId };
         void storage.setItem(EVENT_CURSOR_KEY, eventCursor).catch(() => {});
       }
-      onTurnDone?.(today()); // 回复完成日落盘：会话归属跟着最后回复走
+      onTurnDone?.(today()); // 正常流收尾日落盘：会话归属跟着最后回复走
       if (sessionCache) sessionCache = { ...sessionCache, day: today() }; // 内存副本同步
       return true;
     } finally {
@@ -381,5 +385,3 @@ export async function handleChat(
     if (!(await tryTurn(sessionId))) throw new Error('session not found after create');
   }
 }
-
-

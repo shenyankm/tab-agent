@@ -583,10 +583,6 @@ describe('background handleChat', () => {
     const order: string[] = [];
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const url = String(_url);
-      // the captured dataURL is fetched back into a blob for the multipart upload
-      if (url.startsWith('data:')) {
-        return Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob(['img'], { type: 'image/jpeg' })) });
-      }
       if (url.endsWith('/files') && init?.method === 'POST') {
         order.push('upload');
         expect(init.body).toBeInstanceOf(FormData);
