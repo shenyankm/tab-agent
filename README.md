@@ -40,9 +40,9 @@ The extension talks to your own Qoder Cloud Agent. You need three credentials:
 
 | Credential | Format | Where to get |
 |---|---|---|
-| PAT | `pt-...` | Qoder console → Settings → Personal Access Tokens → Create |
+| PAT | `pt-...` | [Qoder console → Settings → Personal Access Tokens → Create](https://qoder.com/cloud/settings/tokens) |
 | Agent ID | `agent_...` | [Cloud Agents console](https://qoder.com/cloud/agents) → your Agent |
-| Environment ID | `env_...` | Same page, the environment linked to your Agent |
+| Environment ID | `env_...` | [Same page, the environment linked to your Agent](https://qoder.com/cloud/agents) |
 
 Fill them in:
 

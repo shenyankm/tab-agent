@@ -40,9 +40,9 @@ Firefox：`pnpm build:firefox` / `pnpm dev:firefox`。
 
 | 凭证 | 格式 | 从哪拿 |
 |---|---|---|
-| PAT | `pt-...` | Qoder 控制台 → Settings → Personal Access Tokens → 新建 |
+| PAT | `pt-...` | [Qoder 控制台 → Settings → Personal Access Tokens → 新建](https://qoder.com/cloud/settings/tokens) |
 | Agent ID | `agent_...` | [Cloud Agents 控制台](https://qoder.com/cloud/agents) → 你的 Agent |
-| Environment ID | `env_...` | 同上，Agent 关联的环境 |
+| Environment ID | `env_...` | [同上，Agent 关联的环境](https://qoder.com/cloud/agents) |
 
 填入方式：
 
