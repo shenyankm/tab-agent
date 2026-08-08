@@ -44,6 +44,14 @@
   }
   .btn:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
   .btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+  .copy-btn {
+    margin-left: 8px; padding: 2px 10px; cursor: pointer;
+    background: #fff; color: var(--ink); font-weight: 700;
+    border: 2px solid var(--ink); border-radius: 6px;
+    box-shadow: 2px 2px 0 var(--ink); font-size: 0.85rem; font-family: inherit;
+  }
+  .copy-btn:hover { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
+  .copy-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink); }
   .card {
     background: #fff; border: 3px solid var(--ink); border-radius: 14px;
     padding: 16px 20px; margin: 20px 0; box-shadow: 6px 6px 0 var(--ink);
@@ -127,9 +135,9 @@
       <tr><th>凭证</th><th>格式</th><th>测试账号（2026-08-26 过期）</th><th>从哪拿</th></tr>
     </thead>
     <tbody>
-      <tr><td>PAT</td><td><code>pt-...</code></td><td><code>pt-e97wKrTCF2Qzt34giLfQ66ZJ_019fdf2d-b9d0-75ef-a6c7-1ce085ab721d</code></td><td><a href="https://qoder.com/cloud/pat-keys">PAT 生成页面</a> → 新建</td></tr>
-      <tr><td>Agent ID</td><td><code>agent_...</code></td><td><code>agent_00ks907nkamf4gtdypk2</code></td><td><a href="https://qoder.com/cloud/agents">Cloud Agents 控制台</a> → 你的 Agent</td></tr>
-      <tr><td>Environment ID</td><td><code>env_...</code></td><td><code>env_00ks8yk8npy4gqxosc9d</code></td><td><a href="https://qoder.com/cloud/environments">环境管理页面</a> → Agent 关联的环境</td></tr>
+      <tr><td>PAT</td><td><code>pt-...</code></td><td><code>pt-e97w…721d</code> <button class="copy-btn" data-value="pt-e97wKrTCF2Qzt34giLfQ66ZJ_019fdf2d-b9d0-75ef-a6c7-1ce085ab721d">复制</button></td><td><a href="https://qoder.com/cloud/pat-keys">PAT 生成页面</a> → 新建</td></tr>
+      <tr><td>Agent ID</td><td><code>agent_...</code></td><td><code>agent_00ks…dypk2</code> <button class="copy-btn" data-value="agent_00ks907nkamf4gtdypk2">复制</button></td><td><a href="https://qoder.com/cloud/agents">Cloud Agents 控制台</a> → 你的 Agent</td></tr>
+      <tr><td>Environment ID</td><td><code>env_...</code></td><td><code>env_00ks…sc9d</code> <button class="copy-btn" data-value="env_00ks8yk8npy4gqxosc9d">复制</button></td><td><a href="https://qoder.com/cloud/environments">环境管理页面</a> → Agent 关联的环境</td></tr>
     </tbody>
   </table>
   <p>填入方式：点浏览器工具栏的 Tab Agent 图标 → 齿轮图标（或右键图标 → 选项）打开设置页，依次粘贴 PAT / Agent ID / Environment ID，输入框失焦即保存。同页可切换语言与主题。</p>
@@ -140,5 +148,16 @@
 <footer>
   <p>Tab Agent · 非官方社区项目 · <a href="https://github.com/shenyankm/tab-agent/blob/main/LICENSE">MIT License</a></p>
 </footer>
+<script>
+  document.querySelectorAll('.copy-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.value);
+        btn.textContent = '已复制';
+        setTimeout(() => (btn.textContent = '复制'), 1500);
+      } catch { /* clipboard unavailable (non-HTTPS) */ }
+    });
+  });
+</script>
 </body>
 </html>
