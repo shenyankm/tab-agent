@@ -15,6 +15,9 @@
 :host,
 html,
 body {
+  /* rem 基准:host 默认 font-size:medium(16px),页面 html 的缩放/字体设置
+     不影响 shadow 树;不锁死则所有 rem 尺寸(text-sm/padding/spacing)随站点缩扁 */
+  font-size: 16px;
   width: 0 !important;
   min-width: 0 !important;
   height: 0 !important;

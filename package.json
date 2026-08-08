@@ -3,7 +3,7 @@
   "description": "A chat-bubble mascot that answers your page questions and saves knowledge clips.",
   "private": true,
   "license": "MIT",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "packageManager": "pnpm@11.13.1",
   "engines": {
