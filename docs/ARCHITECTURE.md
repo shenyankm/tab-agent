@@ -4,20 +4,20 @@
 
 | 层 | 选型 |
 |---|---|
-| 扩展框架 | [WXT](https://wxt.dev)（基于 Vite，MV3，按文件约定自动注册 entrypoint） |
+| 扩展框架 | [WXT](https://wxt.dev)（基于 Vite，Chrome 输出 MV3、Firefox 输出 MV2，按文件约定自动注册 entrypoint） |
 | UI | React 19 + TypeScript + Tailwind CSS v4（`@tailwindcss/vite` 插件） |
 | 组件库 | RetroUI（neobrutalist shadcn registry，组件以源码形式放在 `components/ui/`） |
 | 图标 | lucide-react（具名导入，自动 tree-shake） |
 | Markdown | 自写极简渲染器（`lib/markdown.tsx`，直接产出 React 元素，天然转义） |
 | 正文提取 | @mozilla/readability（页面正文 → 纯文本） |
 | 摘录高亮 | text-fragments-polyfill（fragment 生成/解析 + `<mark>` 包裹） |
-| 包管理 | pnpm |
+| 包管理 | pnpm 11.13.1 |
 
 ## 2. 模块结构
 
 ```
 entrypoints/
-  background.ts    # Service worker 入口注册：右键菜单 + 快捷键 + clips 消息/Port 编排（网络层在 lib/gateway.ts）+ 懒加载 chunk 注入
+  background.ts    # background 入口注册：右键菜单 + 快捷键 + clips 消息/Port 编排（网络层在 lib/gateway.ts）+ 懒加载 chunk 注入
   content.tsx      # 内容脚本主包（~32KB）：注册表/高亮编排/摘录消息处理，重组件全部走按需 chunk
   agent-ui.ts      # 按需 chunk：悬浮代理 UI（React 全家桶 + 聊天面板，仅宠物开启时注入）
   agent-marks.ts   # 按需 chunk：摘录定位/高亮（text-fragments-polyfill，仅重放/落地/保存时注入）
@@ -51,16 +51,16 @@ components/
   category-chips.tsx  # 摘录分类筛选 chips（options 摘录页）
   radio-dropdown.tsx  # 图标+文本单选下拉（设置/弹窗/摘录筛选共用）
   ui/              # RetroUI 组件源码（shadcn CLI 添加）
-tests/             # vitest 单元测试（pnpm test）+ tests/e2e/ 真浏览器 E2E（playwright-core，pnpm test:e2e / test:chat）
+tests/             # vitest 单元测试（pnpm test）+ tests/e2e/ 真浏览器 E2E（playwright-core，pnpm test:e2e / test:chat / test:features）
 ```
 
 ## 3. 运行时架构
 
 ```mermaid
 flowchart TD
-    Page["任意网页 — content.tsx（Shadow DOM UI）<br/>悬浮宠物 / 聊天面板 / 拖拽 / 划词"]
-    BG["background.ts（Service Worker）<br/>会话管理 / 截图上传挂载 / SSE 流"]
-    Cloud["https://api.qoder.com/api/v1/cloud<br/>/sessions /files /events /stream"]
+    Page["受支持网页 — content.tsx（Shadow DOM 宿主）<br/>宠物 UI / 聊天 / 拖拽 / 划词编排"]
+    BG["background.ts（Chrome Service Worker / Firefox background）<br/>会话管理 / 截图上传挂载 / SSE 流 / 摘录写入"]
+    Cloud["https://api.qoder.com/api/v1/cloud<br/>/sessions /files /resources /events /events/stream"]
     Page <--> |"runtime.connect（name: 'chat'）：text + page/screenshot ⇄ delta / done / error"| BG
     BG --> |"fetch，Bearer PAT"| Cloud
 ```
@@ -85,95 +85,67 @@ flowchart LR
 
 | 对象 | 是什么 | 本扩展怎么用 |
 |---|---|---|
-| **Agent** | 静态定义：model、system prompt、启用的工具集（Bash/Read/Write/WebFetch…）、skills、MCP servers | 用户在 Qoder 控制台自建，扩展只持有 `agent_...` ID |
-| **Environment** | 云端沙箱运行时：网络策略（unrestricted / allowed_hosts）、预装包（apt/npm/pip） | 用户自建，扩展只持有 `env_...` ID |
-| **Session** | Agent × Environment 的运行实例，状态机 `idle ⇄ running`，持有完整事件日志 | 扩展创建并缓存 `sess_...`，聊天对话走它 |
+| **Agent** | 云端 Agent 定义；模型、提示词、工具和其他配置由 Qoder 管理 | 用户在 Qoder 控制台选择，扩展只持有 `agent_...` ID |
+| **Environment** | 云端 Agent 的执行环境 | 用户在 Qoder 控制台选择，扩展只持有 `env_...` ID |
+| **Session** | 绑定 Agent 与 Environment 的运行实例，提供事件日志和 SSE 流 | 扩展按本地日期创建并缓存 `sess_...`，聊天对话走它 |
+
+扩展不会创建、更新或删除 Agent/Environment。设置页保存 PAT、Agent ID 和 Environment ID；创建 Session 时发送 Agent/Environment，其他 Cloud API 请求使用 PAT。当前请求契约如下：
+
+| 操作 | 请求 |
+|---|---|
+| 创建会话 | `POST /sessions`，body 为 `{ agent: { id, type: 'agent' }, environment_id, title }` |
+| 上传截图 | `POST /files`，multipart 字段 `file`，文件名 `screenshot.jpg` |
+| 挂载截图 | `POST /sessions/{id}/resources`，body 为 `{ type: 'file', file_id, mount_path: '/data/input/screenshot.jpg' }` |
+| 发送问题 | `POST /sessions/{id}/events`，body 为一个 `user.message` 事件 |
+| 接收回复 | `GET /sessions/{id}/events/stream?event_deltas%5B%5D=agent.message`，SSE |
+
+以上路径都相对于 `https://api.qoder.com/api/v1/cloud`，请求由 `lib/gateway.ts` 统一添加 `Authorization: Bearer <PAT>`。PAT、Agent ID 和 Environment ID 的具体值不入库，也不应写入仓库。
 
 ### 事件模型
 
-Session 是**事件日志 + 事件流**：写入靠 `POST /events`（`user.message`），读取靠 SSE `GET /events/stream`。一个回合内云端依序产生：
+Session 是**事件日志 + 事件流**：写入靠 `POST /sessions/{id}/events`（`user.message`），读取靠 SSE `GET /sessions/{id}/events/stream`。一个回合内云端可能依序产生：
 
 ```mermaid
 flowchart LR
-    A["user.message"] --> B["session.status_running"] --> C["agent.thinking"] --> D["agent.message（含增量 delta）"] --> E["agent.tool_use / agent.tool_result（可多轮）"] --> F["session.status_idle（stop_reason: end_turn）"]
+    A["user.message"] --> B["session.status_running"] --> C["agent.thinking"] --> D["event_delta / agent.message"] --> E["agent.tool_use / agent.tool_result（可多轮）"] --> F["session.status_idle（stop_reason: end_turn）"]
 ```
 
-- 扩展用 `?event_deltas%5B%5D=agent.message` 订阅消息增量（**方括号必须 percent-encode**：字面 `[]` 会让流静默挂起整回合，2026-08-05 线上抓帧实锤）。增量帧（`event_start`/`event_delta`）之后有**同 id 的权威 buffered `agent.message`**，消费端按 `event_id` 去重；`user.message` 只有 buffered 事件，为回合边界（最后一条胜出）。[协议细节](https://docs.qoder.com/zh/cloud-agents/events-stream)
+- 扩展用 `?event_deltas%5B%5D=agent.message` 订阅消息增量（方括号必须 percent-encode）。增量帧（`event_start`/`event_delta`）之后可能有**同 id 的权威 buffered `agent.message`**，消费端按事件 ID 去重；`user.message` 是回合边界（最后一条胜出）。[协议细节](https://docs.qoder.com/cloud-agents/events-stream)
 - `heartbeat` 约每 15s 一次保活，`parseSSE` 按无 data 帧丢弃。
-- 流重连时支持 `Last-Event-ID`。扩展把最近完成回合的事件游标按会话持久化，下一轮从游标之后开始读取；首次安装、游标丢失或会话切换时仍依赖 background 里的 `isPosted()` 闸门丢弃 POST 之前的事件。
-- Agent 在环境沙箱内执行工具；上传文件挂载到 `/data/input/` 后，Agent 用自己的 Read/Bash 工具读取。
-
-### 本项目实例配置
-
-云端三个对象均命名为 `tab-agent`（ID 不入库，填在扩展设置页）：
-
-**Agent**
-
-- 模型：Qwen3.7-Plus，上下文 400K
-- 系统提示词：
-
-  ```
-  角色
-  你是 Tab Agent 的云端助手：一个面向浏览器用户的通用 AI 助手，帮用户研究、写代码、处理文档、整理知识。你的回答服务对象是浏览器的普通用户，语言跟随用户的提问语言（界面语言可能是 en/zh-CN/zh-TW/ja），简短对话给简洁答案，复杂任务给结构化说明。
-
-  视野与能力边界
-  用户当前页面的内容以 user message 中 [Page context] 块（URL/标题/正文）为准，它来自用户本地浏览器，你的云端环境看不到该页面。
-  禁止用 WebFetch 重新抓取 [Page context] 给出的 URL；内容已在消息内联。
-  截图（如有）挂载在 /data/input/screenshot.jpg，包含文本提取不到的可视信息，优先查看。
-  上传的其他文件在 /data/input/ 下，用 Read/Bash 读取。
-  你的环境是隔离沙箱，除挂载资源外看不到用户本地任何文件。
-
-  工具使用准则
-  搜索用 WebSearch；抓取指定外部链接用 WebFetch。
-  文档处理：环境预装 python-docx/pymupdf/openpyxl/python-pptx，用 Bash + Python 处理，产物文件最终用 DeliverArtifacts 交付。
-  写操作（外部副作用）只在用户明确请求时执行，不主动发起。
-
-  行为准则
-  只依据消息内联内容与工具返回事实作答；不确定时明说，不臆造页面内容或文件路径。
-  长任务边做边输出进展（思考、中间结论），不要憋到最后一次性汇报。
-  会话是连续的：后续提问可引用前文结论。
-
-  复杂任务
-  研究类任务按深入研究 skill 的流程执行。
-  ```
-- 工具：6 个内置工具全部自动允许 —— Bash / Read / Write / WebFetch / WebSearch / DeliverArtifacts
-- Skills（custom）：深入研究
-
-**Environment**（Cloud）
-
-- 预装 pip 包：python-docx、pymupdf、openpyxl、python-pptx（均 latest）—— 服务于文档处理类任务
+- 没有自动重连循环。扩展把最近消费到的事件游标按会话持久化，并在**下一次打开 SSE 流**时通过 `Last-Event-ID` 发送；首次安装、游标丢失或会话切换时仍依赖 background 里的 `isPosted()` 闸门丢弃 POST 之前的事件。
+- 云端 Agent 如何执行工具、访问网络和保留会话数据由 Qoder 中的 Agent/Environment 配置及 Qoder 政策决定，不由本仓库定义。
 
 ## 5. 一次对话回合（tryTurn）
 
-`lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、可自愈」。会话为**每日共享**：所有 tab 同一天共用同一云端会话（缓存键 `sessionId.v4`，值 `{id, day}`），归属以**最后一条回复的完成日**为准——跨午夜回合（23:56 发、00:12 答完）仍属旧会话，done 时把 day 刷成完成日；下一条消息发现 day 不符才重建当日新会话（session 标题带日期）。共享会话下并发回合不 cancel（避免截断对 tab 进行中的回复），改为等对端 idle 后重试，约 2 轮仍冲突则放弃本条消息。
+`lib/gateway.ts` 的 `handleChat` 中一个回合的顺序，设计目标是「不丢事件、有限自愈」。会话为**每日共享**：所有 tab 同一天共用同一云端会话（缓存键 `sessionId.v4`，值 `{id, day}`），归属以**最后一条回复的完成日**为准——跨午夜回合（23:56 发、00:12 答完）仍属旧会话，正常收尾时把 day 刷成完成日；下一条消息发现 day 不符才重建当日新会话（session 标题带日期）。共享会话下并发回合不 cancel（避免截断对 tab 进行中的回复），改为等对端 idle 后重试，最多两次重发仍冲突则放弃本条消息。
 
-1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` host 权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。
+1. 携带页面为「截图」时，background 用 `tabs.captureVisibleTab` 截**sender 窗口**的可见区域（仅扩展上下文可调，需 `<all_urls>` host 权限；省略 windowId 会截到聚焦窗口，可能不是发起聊天的那个），`POST /files` 上传一次，再 `POST /sessions/{id}/resources` 挂载到 `/data/input/screenshot.jpg`。问题正文仍包含 URL/标题和截图挂载说明。
 2. **先开 SSE 流**（`GET /sessions/{id}/events/stream?event_deltas%5B%5D=agent.message`），后发消息 —— 保证不错过任何 delta。
-3. `POST /sessions/{id}/events` 发送用户消息；页面上下文（Readability 提取纯文本，失败回退 innerText，截断 20k）与截图说明**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白的云端浏览器）。
+3. `POST /sessions/{id}/events` 发送用户消息。`pageCarry=none` 只发送问题；`article` 还发送 URL、标题和 Readability 提取的纯文本（失败回退 innerText，截断 20k）；`screenshot` 发送 URL、标题和空正文的 Page context，再附加截图说明。所有上下文都**内联进消息正文**（带浏览器工具的 Agent 会忽略侧信道上下文，自己打开空白的云端浏览器）。
 4. 流内以最后一条 buffered `user.message` 为回合边界（**不设 posted 条件**：事件广播与 POST 响应并发到达，带条件的边界帧若被丢弃不会重放，整回合静默）；`isPosted()` 闸门过滤 POST 返回前重放的旧回合 delta / idle 事件。
-5. `session.status_idle` → 发 `done`，回合结束。
+5. 看到本回合边界且 POST 已成功后，`session.status_idle` → 发 `done`。SSE 正常关闭但没有 idle 时也补发 `done`；读取超时或其他异常则由 background 发送 `error`。
 
 ### 异常自愈
 
 | 状态 | 处理 |
 |---|---|
 | 401/403（`api()` 统一出口） | 抛 `code:'auth'`，前端展示鉴权失败文案 |
-| 404（会话失效） | `tryTurn` 返回 false → 重建 session → 整回合重试一次 |
-| 409（上一回合仍在跑） | `POST /cancel` 后等 `session.status_idle`（5s 安全网），重发，最多 2 次 |
-| SSE 静默 90s（代理断流 / worker 挂起，心跳约 15s 一次） | 读超时 reject，回合按错误收尾 |
-| 流提前关闭（未收到 idle） | 补发 `done` 收尾，前端不卡「思考中」 |
+| 404（会话失效） | 只有资源挂载或发送消息的 404 会让 `tryTurn` 返回 false → 重建 session → 整回合重试一次；SSE GET 的 404 直接报错 |
+| 409（上一回合仍在跑） | 不调用 `/cancel`；等待 SSE 中的 `session.status_idle`，每次最多等 120s，初始发送后最多重发 2 次 |
+| SSE 读取静默 90s（代理断流 / worker 挂起，心跳约 15s 一次） | 读超时 reject，回合按错误收尾；没有自动重连 |
+| SSE 正常提前关闭（未收到 idle） | 补发 `done` 收尾，前端不卡「思考中」；读取异常则发送错误 |
 | MV3 worker 30s 无 API 活动被回收 | 回合期间每 20s `runtime.getPlatformInfo()` 保活；仍被杀则前端 `port.onDisconnect` 渲染「连接中断」 |
 | 用户重新提交 | 前端 disconnect Port → 后台 abort → 新回合 |
 
 ### 错误码
 
-消息层（`lib/messages.ts`）的 `Reply<T>` 信封与聊天层（`lib/gateway.ts`）的 `ChatOut` 共用一套错误码，调用方可按码区分处理：
+聊天 Port 的 `ChatOut` 与 `runtime.sendMessage` 的 `Reply<T>` 是两套协议。聊天层只把配置缺失和鉴权失败作为专用错误码，其余异常没有专用码；消息层的 `invalid` 不会通过聊天 Port 返回：
 
 | 错误码 | 来源 | 含义 | UI 表现 |
 |---|---|---|---|
 | `unconfigured` | `handleChat` | PAT/Agent ID/Env ID 未配置 | 聊天气泡提示「请到设置页填写」 |
 | `auth` | `api()` 统一出口 | 401/403，PAT 无效或过期 | 聊天气泡提示「检查 PAT」 |
-| `invalid` | background `onMessage` | 消息载荷校验失败（客户端 bug） | 无 UI（调用方不应发送非法载荷） |
+| `invalid` | `background.onMessage`（消息层） | 消息载荷校验失败（客户端 bug） | 不属于聊天 UI |
 | 无码（undefined） | 网络/超时/IDB 等运行时错误 | 通用失败 | 聊天气泡提示「请求失败，请重试」 |
 
 ## 6. 状态与存储
@@ -187,8 +159,8 @@ flowchart LR
 | `clipHighlight` / `highlightColor` | 摘录高亮开关 / 高亮颜色（yellow / purple / green / blue） |
 | `lang`（定义在 `lib/i18n.ts`） | 界面语言 en / zh-CN / zh-TW / ja |
 | `pat` / `agentId` / `envId` | Qoder 凭证 |
-| `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复完成日为准，跨天重建（v3→v4 为按日轮换，值由 id 字符串改为对象） |
-| `eventCursor.v1` | SSE 事件游标，值 `{sessionId, eventId}`：下一轮请求通过 `Last-Event-ID` 跳过已消费的历史事件 |
+| `sessionId.v4` | **每日共享**会话缓存，值 `{id, day}`：所有 tab 同一天共用；归属以最后回复正常收尾日为准，跨天重建 |
+| `eventCursor.v1` | SSE 事件游标，值 `{sessionId, eventId}`：下一次打开 SSE 流时通过 `Last-Event-ID` 跳过已消费的历史事件；代码没有自动重连循环 |
 
 **摘录数据**（`lib/clips-store.ts`）存**扩展 origin** 的 IndexedDB（库 `tab-agent`，store `clips`，keyPath `id`；v2 另建 `createdAt`/`pageUrl` 索引，分别支撑 newest-first 读取与按页读取），storage 不存内容。首次从 0.4.x（旧库名 `pixel-agent`）升级时，扩展 origin 会将旧库中不存在于新库的记录迁入后删除旧库；新安装不创建旧库。记录结构：`{id, url, pageUrl, title, text, createdAt}` + `kind?`（`'page'`/`'image'`，缺省 = 选区摘录）+ `imageSrc?` + `category`/`tags` + 用户备注 `notes`。关键约束：content script 运行在**页面 origin**，其 IndexedDB 按站点隔离，跨站摘录会互不可见——因此 DB 只在扩展 origin 打开，content script 经消息代理读写：
 
@@ -211,20 +183,32 @@ flowchart LR
 
 ## 8. 权限与安全
 
-- manifest 权限：`storage` + `contextMenus`（右键保存摘录：选区/整页/图片三个菜单）+ `scripting`（按需注入懒加载 chunk）+ host `https://api.qoder.com/*` 与 `<all_urls>`（executeScript 注入的前提，截图复用；与 content script 全页注入的安装警告文案相同）；`minimum_chrome_version: '116'`（`AbortSignal.any` 需要）；不用 `tabs` 权限（带「浏览历史」安装警告）——图片剪藏改走 content script 读 `location.href`/`document.title`。
+- manifest 权限：`storage` + `contextMenus`（右键保存摘录：选区/整页/图片三个菜单）+ `scripting`（按需注入懒加载 chunk）+ host `https://api.qoder.com/*` 与 `<all_urls>`。`<all_urls>` 是静态必需主机权限，同时用于全页 content script、`executeScript` 懒加载和截图；不是截图专用的可选权限。Popup 只在浏览器暂缓或撤销时重新检查它。`minimum_chrome_version: '116'`（`AbortSignal.any` 需要）；不用 `tabs` 权限（带「浏览历史」安装警告）——图片剪藏改走 content script 读 `location.href`/`document.title`。
 - 消息面防御：`clipUpdate` patch 白名单 + 类型校验（`sanitizePatch`），`clipAdd` 载荷宽松校验（`text` 必填、其余字段存在即查型），Port 消息要求 `text` 为字符串——页面消息不可信，脏类型入库会击穿下游渲染。
 - `commands` 声明 `save_clip`（默认 `Alt+Shift+S`，可在 `chrome://extensions/shortcuts` 改键）：复用右键菜单同一条 content script 保存路径，无需额外权限。
-- 凭证输入框为 password 型（浏览器原生禁止复制）；PAT 只在 background 的请求头中出现，不进日志与错误文案。
+- 凭证输入框为 password 型，只遮挡设置页中的显示；PAT 只在 background 的 `Authorization` 请求头中出现，Agent ID 和 Environment ID 在创建 Session 的请求体中出现，不进日志与错误文案。
+
+### 隐私边界
+
+- 没有分析、追踪、遥测或无人操作的自动上传。聊天网络请求只在用户提交问题后由 background 发起；`keepalive()` 只调用浏览器扩展 API，不是遥测请求。
+- 聊天问题、URL、标题、正文或截图会进入 Qoder Cloud Session；摘录保存、编辑和删除只写本地 IndexedDB，不会自动上传。
+- 扩展没有删除远端 Session 或事件的 API。清除本地 `sessionId.v4` 只会让后续请求创建新 Session，旧云端数据的保留和处理由 Qoder 政策及 Agent/Environment 配置决定。
 
 ## 9. 构建与校验
 
 ```bash
-pnpm dev / dev:firefox      # HMR 开发
-pnpm build / build:firefox  # 产物 → .output/{chrome,firefox}-mv3/
+pnpm dev                    # Chrome HMR 开发
+pnpm dev:firefox            # Firefox HMR 开发
+pnpm build                  # Chrome MV3 → .output/chrome-mv3/
+pnpm build:firefox          # Firefox MV2 → .output/firefox-mv2/
+pnpm analyze                # 生产 bundle 分析
 pnpm compile                # tsc --noEmit 类型检查
 pnpm test                   # vitest 单元测试
-pnpm test:e2e / test:chat   # 真浏览器 E2E（playwright-core，需先 pnpm build）
+pnpm test:e2e               # 真浏览器 E2E（playwright-core，需先 pnpm build）
+pnpm test:chat              # 真实 Qoder 聊天 E2E，需 .env 中的 PAT/AGENT_ID/ENV_ID
+pnpm test:features          # 完整真实功能 E2E，需 .env 中的 PAT/AGENT_ID/ENV_ID
 pnpm zip                    # 打包提交商店
+pnpm zip:firefox            # Firefox AMO 打包
 ```
 
 业务代码改动后以 `pnpm build` + `pnpm test` 通过为准。
