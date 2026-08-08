@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:e2e": "node tests/e2e/extension.mjs",
     "test:chat": "node tests/e2e/chat.mjs",
+    "test:features": "node tests/e2e/features.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
